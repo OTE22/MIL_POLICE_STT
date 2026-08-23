@@ -103,21 +103,24 @@ def main() -> int:
         # 2. Create investigator through the users page
         page.goto(f"{base}/users")
         page.click("text=إضافة مستخدم")
-        page.fill("input[dir=ltr][pattern]", inv_user)
-        page.fill("input[type=password][autocomplete=new-password]", inv_pw)
-        # roles: untick INVESTIGATOR default is ticked already; ensure only INVESTIGATOR
-        page.uncheck("label:has-text('مدير النظام') input") if page.is_checked("label:has-text('مدير النظام') input") else None
-        page.check("label:has-text('محقق') input")
-        page.uncheck("label:has-text('يجب تغيير كلمة المرور') input")
         modal = page.locator(".modal")
-        modal.locator("input.input").nth(2).fill("الرائد علي حسن")  # full name (after username/password)
-        labels = modal.locator(".field")
-        for i in range(labels.count()):
-            lab = labels.nth(i).locator("label").inner_text()
-            if lab.startswith("الرتبة"):
-                labels.nth(i).locator("input").fill("رائد")
-            if lab.startswith("الرقم العسكري"):
-                labels.nth(i).locator("input").fill(f"M-{stamp % 100000}")
+
+        def field(label: str):
+            return modal.locator(f".field:has(> label:text-is('{label}'))").first
+
+        field("اسم المستخدم").locator("input").fill(inv_user)
+        field("كلمة المرور").locator("input").fill(inv_pw)
+        for role_label in ("مدير النظام", "مستخدم"):
+            cb = modal.locator(f"label.checkbox:has-text('{role_label}') input")
+            if cb.count() and cb.is_checked():
+                cb.uncheck()
+        modal.locator("label.checkbox:has-text('محقق') input").check()
+        mc = modal.locator("label.checkbox:has-text('يجب تغيير كلمة المرور') input")
+        if mc.is_checked():
+            mc.uncheck()
+        field("الاسم الكامل").locator("input").fill("الرائد علي حسن")
+        field("الرتبة").locator("input").fill("رائد")
+        field("الرقم العسكري").locator("input").fill(f"M-{stamp % 100000}")
         modal.locator("button[type=submit]").click()
         expect(page.locator(f"text={inv_user}")).to_be_visible(timeout=10000)
         step("create investigator", True, inv_user)
@@ -138,7 +141,8 @@ def main() -> int:
             deadline = time.time() + 20 * 60
             while time.time() < deadline:
                 caps = json.loads(urllib.request.urlopen(f"{args.agent}/capabilities", timeout=10).read())
-                if caps["diarization"]["state"] in ("READY", "ERROR", "NOT_PROVISIONED") and caps["stt"]["state"] in ("READY", "ERROR", "NOT_PROVISIONED"):
+                busy = ("PROVISIONED", "LOADING")
+                if caps["diarization"]["state"] not in busy and caps["stt"]["state"] not in busy and not caps.get("loading"):
                     break
                 time.sleep(5)
         step("NVIDIA diarization model READY", caps["diarization"]["state"] == "READY", f"{caps['diarization']['model']} ({caps['diarization']['state']}) {caps['diarization'].get('error') or ''}")

@@ -25,7 +25,7 @@ SINGLE = FIXTURES / "single_speaker_ar.wav"
 settings = get_settings()
 needs_ffmpeg = pytest.mark.skipif(not ffmpeg_available(), reason="ffmpeg not installed")
 needs_diar = pytest.mark.skipif(not settings.diarization_nemo_path.exists(), reason="Sortformer model not provisioned")
-needs_stt = pytest.mark.skipif(not (settings.stt_model_dir / "config.json").exists(), reason="Cohere model not provisioned (gated; needs HF_TOKEN)")
+needs_stt = pytest.mark.skipif(not ((settings.stt_model_dir / "config.json").exists() and any(settings.stt_model_dir.glob("*.safetensors"))), reason="Cohere model not provisioned (gated; needs HF_TOKEN)")
 
 
 def collapse(labels):
