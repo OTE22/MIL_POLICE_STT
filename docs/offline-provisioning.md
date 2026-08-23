@@ -41,7 +41,8 @@ resumable helper instead (each attempt continues from the current file size via 
 
 ```powershell
 $env:HF_TOKEN = "hf_..."                               # not stored anywhere
-.\desktop-agent\scriptsesume_cohere_weights.ps1        # or run detached with Start-Process
+.\desktop-agent\scripts
+esume_cohere_weights.ps1        # or run detached with Start-Process
 # when the file is complete the script runs finalize_cohere_weights.py automatically:
 #   size + SHA-256 (404ff5dc…1910a5) check, rename .part -> model.safetensors, MANIFEST.json
 ```
