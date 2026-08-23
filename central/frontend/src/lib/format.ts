@@ -18,28 +18,19 @@ export function formatDuration(seconds: number | null | undefined): string {
   return `${sec} ث`;
 }
 
-const dateFmt = new Intl.DateTimeFormat("ar-EG-u-nu-latn", { year: "numeric", month: "2-digit", day: "2-digit" });
-const dateTimeFmt = new Intl.DateTimeFormat("ar-EG-u-nu-latn", {
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: false,
-});
-
 export function formatDate(value: string | null | undefined): string {
   if (!value) return "—";
   const d = value.length <= 10 ? new Date(`${value}T00:00:00`) : new Date(value);
   if (Number.isNaN(d.getTime())) return value;
-  return dateFmt.format(d);
+  return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())}`;
 }
 
+/** Plain YYYY/MM/DD HH:MM (no locale punctuation, so RTL bidi never reorders it). */
 export function formatDateTime(value: string | null | undefined): string {
   if (!value) return "—";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
-  return dateTimeFmt.format(d);
+  return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 export function formatTime(value: string | null | undefined): string {
