@@ -1,0 +1,12 @@
+.git
+**/node_modules
+**/__pycache__
+**/.pytest_cache
+**/dist
+storage/recordings
+desktop-agent/data
+desktop-agent/models
+models
+secrets
+*.md
+!README.md

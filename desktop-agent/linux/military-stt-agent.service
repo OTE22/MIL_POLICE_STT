@@ -1,0 +1,33 @@
+# /etc/systemd/system/military-stt-agent.service
+# Local AI Agent for Linux investigator desktops (native install, no Docker).
+#   sudo useradd --system --home /opt/investigation-ai --shell /usr/sbin/nologin mstt
+#   sudo mkdir -p /opt/investigation-ai/{app,agent,models} && sudo chown -R mstt: /opt/investigation-ai
+#   sudo -u mstt python3 -m venv /opt/investigation-ai/venv
+#   sudo -u mstt /opt/investigation-ai/venv/bin/pip install -r requirements-gpu.txt -r requirements.txt
+#   sudo systemctl enable --now military-stt-agent
+[Unit]
+Description=Military STT AI - Local AI Agent (loopback only)
+After=network.target
+
+[Service]
+Type=simple
+User=mstt
+Group=mstt
+WorkingDirectory=/opt/investigation-ai/app
+EnvironmentFile=/opt/investigation-ai/app/.env
+Environment=AGENT_DATA_DIR=/opt/investigation-ai/agent
+Environment=AGENT_MODEL_DIR=/opt/investigation-ai/models
+Environment=HF_HUB_OFFLINE=1
+Environment=TRANSFORMERS_OFFLINE=1
+ExecStart=/opt/investigation-ai/venv/bin/python -m app.main
+Restart=always
+RestartSec=5
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/investigation-ai/agent
+
+[Install]
+WantedBy=multi-user.target

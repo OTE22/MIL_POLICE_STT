@@ -1,0 +1,24 @@
+# Local AI Agent - runtime dependencies (torch is installed separately: see requirements-cpu.txt / requirements-gpu.txt)
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
+pydantic==2.11.4
+pydantic-settings==2.9.1
+PyJWT[crypto]==2.10.1
+cryptography==44.0.2
+python-multipart==0.0.20
+httpx==0.28.1
+numpy>=1.26,<3
+soundfile>=0.12.1
+huggingface_hub>=0.30
+# Arabic STT (CohereLabs/cohere-transcribe-arabic-07-2026 needs transformers >= 5.4)
+transformers==5.15.1
+sentencepiece<1.0.0
+protobuf>=4
+accelerate>=1.0
+librosa>=0.10.1
+# Voice activity detection (model files are bundled inside the wheel)
+silero-vad==6.2.1
+# Speaker diarization (nvidia/diar_streaming_sortformer_4spk-v2.1 via NeMo)
+Cython
+packaging
+nemo_toolkit[asr]==3.0.0

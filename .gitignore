@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+.mypy_cache/
+
+# Node
+node_modules/
+central/frontend/dist/
+
+# Environment / secrets
+.env
+*.env.local
+secrets/*.pem
+!secrets/.gitkeep
+desktop-agent/secrets/*.pem
+
+# Runtime data
+storage/recordings/
+desktop-agent/data/
+desktop-agent/models/
+models/
+*.sqlite3
+*.db
+logs/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# local test venvs
+.venv-test/

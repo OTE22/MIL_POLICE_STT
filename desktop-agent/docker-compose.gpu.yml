@@ -1,0 +1,13 @@
+services:
+  agent:
+    build:
+      args:
+        COMPUTE: gpu
+    image: military-stt/desktop-agent:1.0.0-gpu
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

@@ -1,0 +1,89 @@
+# Central server stack: frontend (static React, Arabic RTL), backend (FastAPI),
+# postgres, nginx (reverse proxy / TLS termination).
+#
+# The AI models are NOT here. They run on each investigator desktop
+# (see desktop-agent/docker-compose.yml or the native Windows service).
+
+name: military-stt-central
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mstt-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-military_stt}
+      POSTGRES_USER: ${POSTGRES_USER:-stt}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stt}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./central/postgres/init-test-db.sh:/docker-entrypoint-initdb.d/10-test-db.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-stt} -d ${POSTGRES_DB:-military_stt}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [internal]
+
+  backend:
+    build:
+      context: ./central/backend
+      args:
+        INSTALL_DEV: ${INSTALL_DEV:-false}
+    image: military-stt/central-backend:1.0.0
+    container_name: mstt-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      CENTRAL_ENVIRONMENT: ${CENTRAL_ENVIRONMENT:-development}
+      CENTRAL_DEBUG: ${CENTRAL_DEBUG:-false}
+      CENTRAL_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-stt}:${POSTGRES_PASSWORD:-stt}@postgres:5432/${POSTGRES_DB:-military_stt}
+      CENTRAL_TEST_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-stt}:${POSTGRES_PASSWORD:-stt}@postgres:5432/${POSTGRES_DB:-military_stt}_test
+      CENTRAL_JWT_SECRET: ${CENTRAL_JWT_SECRET:?set CENTRAL_JWT_SECRET in .env}
+      CENTRAL_ACCESS_TOKEN_EXPIRE_MINUTES: ${CENTRAL_ACCESS_TOKEN_EXPIRE_MINUTES:-480}
+      CENTRAL_PROCESSING_TOKEN_ACCEPT_TTL_SECONDS: ${CENTRAL_PROCESSING_TOKEN_ACCEPT_TTL_SECONDS:-600}
+      CENTRAL_PROCESSING_TOKEN_SUBMIT_TTL_SECONDS: ${CENTRAL_PROCESSING_TOKEN_SUBMIT_TTL_SECONDS:-86400}
+      CENTRAL_PROCESSING_TOKEN_PRIVATE_KEY_PATH: /secrets/processing_token_private.pem
+      CENTRAL_PROCESSING_TOKEN_PUBLIC_KEY_PATH: /secrets/processing_token_public.pem
+      CENTRAL_STORAGE_ROOT: /storage
+      CENTRAL_MAX_UPLOAD_BYTES: ${CENTRAL_MAX_UPLOAD_BYTES:-2147483648}
+      CENTRAL_CORS_ALLOWED_ORIGINS: ${CENTRAL_CORS_ALLOWED_ORIGINS:-}
+      CENTRAL_BOOTSTRAP_ADMIN_USERNAME: ${CENTRAL_BOOTSTRAP_ADMIN_USERNAME:-admin}
+      CENTRAL_BOOTSTRAP_ADMIN_PASSWORD: ${CENTRAL_BOOTSTRAP_ADMIN_PASSWORD:?set CENTRAL_BOOTSTRAP_ADMIN_PASSWORD in .env}
+    volumes:
+      - ./storage:/storage
+      - ./secrets:/secrets
+    networks: [internal]
+
+  frontend:
+    build:
+      context: ./central/frontend
+    image: military-stt/central-frontend:1.0.0
+    container_name: mstt-frontend
+    restart: unless-stopped
+    networks: [internal]
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: mstt-nginx
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - frontend
+    ports:
+      - "${CENTRAL_HTTP_PORT:-8080}:80"
+      - "${CENTRAL_HTTPS_PORT:-8443}:443"
+    volumes:
+      - ./central/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./central/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./central/nginx/certs:/etc/nginx/certs:ro
+    networks: [internal]
+
+volumes:
+  postgres-data:
+
+networks:
+  internal:
+    driver: bridge

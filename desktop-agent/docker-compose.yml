@@ -1,0 +1,34 @@
+# Local AI Agent (one per investigator desktop).
+# The container port is published ONLY on the host loopback interface.
+#   CPU:  docker compose up -d
+#   GPU:  docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+name: military-stt-agent
+
+services:
+  agent:
+    build:
+      context: .
+      args:
+        COMPUTE: ${AGENT_COMPUTE:-cpu}
+    image: military-stt/desktop-agent:1.0.0-${AGENT_COMPUTE:-cpu}
+    container_name: mstt-agent
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${AGENT_PORT:-17117}:17117"
+    environment:
+      AGENT_PORT: 17117
+      AGENT_DEVICE_NAME: ${AGENT_DEVICE_NAME:-investigator-desktop}
+      AGENT_ALLOWED_ORIGINS: ${AGENT_ALLOWED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080,https://localhost:8443,https://127.0.0.1:8443}
+      AGENT_CENTRAL_URL: ${AGENT_CENTRAL_URL:-http://host.docker.internal:8080}
+      AGENT_CENTRAL_VERIFY_TLS: ${AGENT_CENTRAL_VERIFY_TLS:-true}
+      AGENT_CENTRAL_PUBLIC_KEY_PATH: /data/central_public_key.pem
+      AGENT_CENTRAL_PUBLIC_KEY_AUTO_FETCH: ${AGENT_CENTRAL_PUBLIC_KEY_AUTO_FETCH:-false}
+      AGENT_STT_DEVICE: ${AGENT_STT_DEVICE:-auto}
+      AGENT_DIARIZATION_DEVICE: ${AGENT_DIARIZATION_DEVICE:-auto}
+      AGENT_PRELOAD_MODELS: ${AGENT_PRELOAD_MODELS:-false}
+      AGENT_LOG_LEVEL: ${AGENT_LOG_LEVEL:-INFO}
+    volumes:
+      - ${AGENT_MODELS_PATH:-./models}:/models:ro
+      - ${AGENT_DATA_PATH:-./data}:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
