@@ -20,4 +20,29 @@ recording and re-run `scripts/run_diarization_test.py … --expect SPEAKER_00,SP
 
 ## Results on the build machine (2026-08-23, Windows 11, i7-8550U, 24 GB RAM, **no GPU**)
 
-RESULTS_PLACEHOLDER
+| Suite | Result |
+|---|---|
+| Central server pytest (isolated PostgreSQL `military_stt_test`) | **31 passed, 0 failed** |
+| Local Agent pytest on the host (test doubles, FFmpeg) | **43 passed** |
+| Local Agent pytest inside the Docker image (`military-stt/desktop-agent:1.0.0-cpu`, real models mounted) | **45 passed, 2 skipped** — the two skips are the Cohere tests while the gated weights were still downloading |
+| Real VAD on the Arabic conversation | PASS — 10 speech regions, leading silence excluded |
+| **Real NVIDIA Sortformer diarization** (`scripts/run_diarization_test.py`, CPU) | **PASS** — 10 turns in 6.6 s for 52 s of audio; speaker sequence `SPEAKER_00 → SPEAKER_01 → SPEAKER_00 → SPEAKER_01 → SPEAKER_00` exactly as scripted; the same voice is regrouped under the same label each time it returns; overlap flags present; STT windows never overlap |
+| Browser UI smoke (`scripts/ui_smoke.py`) | **18/18 functional checks PASS** (console check excludes the intentional wrong-password 401) |
+| Browser E2E (`scripts/e2e_browser.py`) with the real agent container | PASS: admin login → create investigator (UI) → investigator login → Local Agent detected (`agent-5ce0…`, CPU) → **NVIDIA diarization model READY** → stops at **Cohere Arabic model READY** while the weights were not yet provisioned (reported `NOT_PROVISIONED`, no fallback). COHERE_E2E_PLACEHOLDER |
+| Agent ↔ central over HTTPS (`https://host.docker.internal:8443`, self-signed, verification disabled for the dev pilot) | PASS (`/api/health` 200 from inside the container) |
+| Browser ↔ agent on loopback (CORS + Private-Network-Access) | PASS — the recording tab shows حالة الخدمة: جاهز, CPU, version, device name, model states |
+
+Raw diarization output (CPU, "very high latency" streaming preset):
+
+```
+  1.12 ->  3.52  SPEAKER_00      24.00 -> 26.72  SPEAKER_00      42.32 -> 43.04  SPEAKER_00
+  4.56 ->  9.44  SPEAKER_00      27.76 -> 30.88  SPEAKER_00      44.00 -> 45.84  SPEAKER_00
+ 11.44 -> 13.60  SPEAKER_01      32.88 -> 40.32  SPEAKER_01      46.80 -> 50.48  SPEAKER_00
+ 14.64 -> 22.00  SPEAKER_01
+speaker sequence: SPEAKER_00 -> SPEAKER_01 -> SPEAKER_00 -> SPEAKER_01 -> SPEAKER_00   RESULT: PASS
+```
+
+Environment notes: no GPU on the build machine, so all inference ran on CPU inside Docker
+(`AGENT_COMPUTE=cpu`). Other projects' containers (≈ 6.5 GB RAM) had to be stopped to give
+the model enough memory; production workstations should have ≥ 16 GB RAM or a CUDA GPU.
+
