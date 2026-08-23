@@ -52,6 +52,24 @@ publishes it; optional TOFU fetch for pilots via `AGENT_CENTRAL_PUBLIC_KEY_AUTO_
 * A random web page cannot use the agent: it is not in the CORS allow-list and it cannot
   obtain a processing token.
 
+## Identity documents (subject ID / passport scans)
+
+* Stored like the audio originals: streamed to disk, **never modified**, SHA-256 recorded,
+  format verified by **magic bytes** (JPEG / PNG / WEBP / PDF only), 20 MiB cap, path
+  resolved inside the storage root (`storage/subject-documents/{session}/{document}.ext`).
+* Gated by a **dedicated permission** `subjects.documents.view` (ADMIN + INVESTIGATOR) *in
+  addition to* resource access to the session — reading a transcript does not expose ID scans,
+  and the read-only USER role never sees them.
+* Uploading or deleting additionally requires `investigations.update`.
+* A scan cannot be silently replaced: re-uploading over an existing file returns 409, so the
+  original stays as recorded until it is explicitly deleted.
+* **PDFs are always served as `attachment`** (never rendered inline in the app origin);
+  images are served `inline` with `nosniff` and `no-store`.
+* Every upload, view and deletion is audited (`SUBJECT_DOCUMENT_UPLOADED/_VIEWED/_DELETED`)
+  with the SHA-256 and document type, never the file content.
+* The frontend fetches scans with an authenticated request and opens an object URL, so the
+  access token never appears in a URL, browser history or server log.
+
 ## Uploads and storage
 
 * Allow-listed extensions/MIME, magic-byte sniffing, streaming size limits, sanitized file

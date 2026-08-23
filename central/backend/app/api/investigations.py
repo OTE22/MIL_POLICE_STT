@@ -13,6 +13,7 @@ from app.core.deps import client_ip, get_accessible_session, get_current_user, r
 from app.db.session import get_db
 from app.models import (
     AssignmentRole,
+    PersonType,
     AudioRecording,
     AuditAction,
     InvestigationSession,
@@ -21,11 +22,14 @@ from app.models import (
     SessionInvestigator,
     SessionStatus,
     Subject,
+    SubjectDocument,
     Transcript,
     User,
 )
 from app.schemas.investigations import (
     MAX_SUPPORTED_SPEAKERS,
+    SubjectDocumentOut,
+    SubjectOut,
     DashboardOut,
     InvestigationCreate,
     InvestigationListItem,
@@ -164,7 +168,7 @@ def serialize_session(db: Session, s: InvestigationSession) -> InvestigationOut:
         created_at=s.created_at,
         updated_at=s.updated_at,
         investigators=_investigator_briefs(s),
-        subjects=list(s.subjects),
+        subjects=[_subject_out(db, sub) for sub in s.subjects],
         recordings=[RecordingOut.model_validate(r) for r in recordings],
         latest_job_status=latest_job.status.value if latest_job else None,
         has_transcript=has_transcript,
@@ -188,13 +192,114 @@ def _apply_investigators(db: Session, session: InvestigationSession, items) -> N
         )
 
 
-def _apply_subjects(session: InvestigationSession, items) -> None:
-    session.subjects.clear()
+SUBJECT_FIELDS = (
+    "subject_name",
+    "reference_number",
+    "person_type",
+    "military_id",
+    "rank",
+    "unit",
+    "department",
+    "security_branch",
+    "nationality_code",
+    "nationality_name",
+    "register_number",
+    "place_of_registration",
+    "is_unregistered",
+    "is_undocumented",
+    "undocumented_reason",
+    "identity_confidence",
+    "notes",
+)
+DOCUMENT_FIELDS = ("document_type", "document_number", "issuing_country", "issue_date", "expiry_date", "notes")
+
+
+def _subject_is_empty(item) -> bool:  # noqa: ANN001
+    """A subject row is only kept when it carries some real information."""
+    if item.documents or item.is_undocumented or item.person_type != PersonType.CIVILIAN:
+        return False
+    return not any(
+        getattr(item, f) for f in SUBJECT_FIELDS if f not in ("person_type", "identity_confidence")
+    )
+
+
+def _apply_subjects(db: Session, session: InvestigationSession, items) -> None:
+    """Replace the subject list, preserving already uploaded document scans by id."""
+    from app.services.document_storage import delete_document_file
+
+    existing_docs: dict[uuid.UUID, SubjectDocument] = {
+        doc.id: doc for subject in session.subjects for doc in subject.documents
+    }
+    kept: set[uuid.UUID] = set()
+    new_subjects: list[Subject] = []
     for item in items:
-        data = item.model_dump()
-        if not any(v for v in data.values()):
+        if _subject_is_empty(item):
             continue
-        session.subjects.append(Subject(**data))
+        subject = Subject(**{f: getattr(item, f) for f in SUBJECT_FIELDS})
+        for doc_in in item.documents:
+            if doc_in.id and doc_in.id in existing_docs:
+                doc = existing_docs[doc_in.id]
+                kept.add(doc.id)
+                for f in DOCUMENT_FIELDS:
+                    setattr(doc, f, getattr(doc_in, f))
+                subject.documents.append(doc)
+            else:
+                subject.documents.append(SubjectDocument(**{f: getattr(doc_in, f) for f in DOCUMENT_FIELDS}))
+        new_subjects.append(subject)
+
+    for doc_id, doc in existing_docs.items():
+        if doc_id not in kept and doc.storage_path:
+            delete_document_file(doc.storage_path)
+    session.subjects = new_subjects
+
+
+def _document_out(db: Session, doc: SubjectDocument) -> SubjectDocumentOut:
+    uploader = db.get(User, doc.uploaded_by) if doc.uploaded_by else None
+    name = uploader.profile.full_name if uploader and uploader.profile else (uploader.username if uploader else None)
+    return SubjectDocumentOut(
+        id=doc.id,
+        subject_id=doc.subject_id,
+        document_type=doc.document_type,
+        document_number=doc.document_number,
+        issuing_country=doc.issuing_country,
+        issue_date=doc.issue_date,
+        expiry_date=doc.expiry_date,
+        notes=doc.notes,
+        has_file=bool(doc.storage_path),
+        original_filename=doc.original_filename,
+        mime_type=doc.mime_type,
+        size_bytes=doc.size_bytes,
+        sha256=doc.sha256,
+        uploaded_by=doc.uploaded_by,
+        uploaded_by_name=name,
+        created_at=doc.created_at,
+        is_expired=bool(doc.expiry_date and doc.expiry_date < date.today()),
+    )
+
+
+def _duplicate_sessions(db: Session, subject: Subject) -> list[str]:
+    """Warn (never block) when a document number was already recorded in another session."""
+    numbers = [d.document_number for d in subject.documents if d.document_number]
+    if not numbers:
+        return []
+    rows = db.execute(
+        select(InvestigationSession.session_number)
+        .join(Subject, Subject.session_id == InvestigationSession.id)
+        .join(SubjectDocument, SubjectDocument.subject_id == Subject.id)
+        .where(SubjectDocument.document_number.in_(numbers), Subject.session_id != subject.session_id)
+        .distinct()
+        .limit(5)
+    ).all()
+    return [r[0] for r in rows]
+
+
+def _subject_out(db: Session, subject: Subject) -> SubjectOut:
+    return SubjectOut(
+        **{f: getattr(subject, f) for f in SUBJECT_FIELDS},
+        id=subject.id,
+        documents=[_document_out(db, d) for d in subject.documents],
+        duplicate_of_sessions=_duplicate_sessions(db, subject),
+    )
 
 
 @router.get("/dashboard", response_model=DashboardOut)
@@ -293,7 +398,7 @@ def create_investigation(
 
         investigators = [InvestigatorAssignmentIn(investigator_id=user.profile.id, assignment_role=AssignmentRole.LEAD)]
     _apply_investigators(db, session, investigators)
-    _apply_subjects(session, body.subjects)
+    _apply_subjects(db, session, body.subjects)
     record_audit(
         db,
         action=AuditAction.INVESTIGATION_CREATED,
@@ -340,7 +445,7 @@ def update_investigation(
         _apply_investigators(db, session, body.investigators)
         changed.append("investigators")
     if body.subjects is not None:
-        _apply_subjects(session, body.subjects)
+        _apply_subjects(db, session, body.subjects)
         changed.append("subjects")
     if changed:
         record_audit(

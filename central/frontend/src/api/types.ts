@@ -64,15 +64,63 @@ export interface InvestigatorBrief {
   assignment_role: AssignmentRole | null;
 }
 
+export type PersonType = "MILITARY" | "CIVILIAN" | "UNKNOWN";
+export type SecurityBranch = "ARMY" | "ISF" | "GENERAL_SECURITY" | "STATE_SECURITY" | "CUSTOMS" | "OTHER";
+export type IdentityConfidence = "DECLARED" | "DOCUMENT_SEEN" | "VERIFIED";
+export type UndocumentedReason = "NO_DOCUMENTS" | "REFUSED" | "UNIDENTIFIED" | "DOCUMENTS_WITHHELD" | "OTHER";
+export type SubjectDocumentType =
+  | "NATIONAL_ID"
+  | "CIVIL_EXTRACT"
+  | "PASSPORT"
+  | "RESIDENCY_PERMIT"
+  | "UNHCR_CARD"
+  | "UNRWA_CARD"
+  | "REFUGEE_TRAVEL_DOC"
+  | "MILITARY_ID"
+  | "DRIVING_LICENSE"
+  | "OTHER";
+
+export interface SubjectDocument {
+  id?: string;
+  subject_id?: string;
+  document_type: SubjectDocumentType;
+  document_number: string | null;
+  issuing_country: string | null;
+  issue_date: string | null;
+  expiry_date: string | null;
+  notes: string | null;
+  has_file?: boolean;
+  original_filename?: string | null;
+  mime_type?: string | null;
+  size_bytes?: number | null;
+  sha256?: string | null;
+  uploaded_by?: string | null;
+  uploaded_by_name?: string | null;
+  created_at?: string;
+  is_expired?: boolean;
+}
+
 export interface Subject {
   id?: string;
   subject_name: string | null;
   reference_number: string | null;
+  person_type: PersonType;
   military_id: string | null;
   rank: string | null;
   unit: string | null;
   department: string | null;
+  security_branch: SecurityBranch | null;
+  nationality_code: string | null;
+  nationality_name: string | null;
+  register_number: string | null;
+  place_of_registration: string | null;
+  is_unregistered: boolean;
+  is_undocumented: boolean;
+  undocumented_reason: UndocumentedReason | null;
+  identity_confidence: IdentityConfidence;
   notes: string | null;
+  documents: SubjectDocument[];
+  duplicate_of_sessions?: string[];
 }
 
 export interface Recording {

@@ -318,6 +318,27 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .player audio { width: 100%; direction: ltr; }
 .player .ptime { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; }
 
+/* ---------------------------------------------------------------- subjects */
+.subject-card { position: relative; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-alt); }
+.subject-card + .subject-card { margin-top: 14px; }
+.subject-remove { position: absolute; top: 8px; inset-inline-end: 8px; }
+.radio-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.radio-chip { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); cursor: pointer; font-weight: 500; transition: border-color 0.12s, background 0.12s; }
+.radio-chip:hover { border-color: var(--accent); }
+.radio-chip.selected { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-strong); }
+.radio-chip input { accent-color: var(--accent); }
+.doc-section { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.doc-title { font-size: 13px; color: var(--navy-700); }
+.doc-row { margin-top: 10px; padding: 12px; border: 1px solid var(--line-soft); border-radius: var(--radius); background: var(--surface); }
+.doc-file { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line-soft); }
+.doc-file .hint { align-self: center; }
+.doc-list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.doc-list li { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px solid var(--line-soft); font-size: 13.5px; }
+.doc-list li:last-child { border-bottom: none; }
+.subject-summary { padding: 14px 0; border-bottom: 1px solid var(--line-soft); }
+.subject-summary:last-child { border-bottom: none; }
+.subject-summary dt { font-size: 12px; color: var(--muted); }
+
 /* ------------------------------------------------------------------ misc */
 .muted { color: var(--muted); }
 .small { font-size: 12px; }

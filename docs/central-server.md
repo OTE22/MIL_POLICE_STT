@@ -33,8 +33,18 @@ investigation_sessions id, session_number(unique, INV-YYYY-NNNNN), title, descri
                       session_date, start_time, end_time, status(enum), notes,
                       expected_speaker_count, created_by, created_at, updated_at
 session_investigators id, session_id, investigator_id, assignment_role(LEAD|ASSISTANT)   [unique pair]
-subjects              id, session_id, subject_name, reference_number, military_id, rank, unit,
-                      department, notes
+subjects              id, session_id, subject_name, reference_number,
+                      person_type(MILITARY|CIVILIAN|UNKNOWN), identity_confidence
+                      (DECLARED|DOCUMENT_SEEN|VERIFIED),
+                      military_id, rank, unit, department, security_branch,
+                      nationality_code(ISO-3166 alpha-2), nationality_name,
+                      register_number, place_of_registration, is_unregistered,   -- Lebanese civil registry
+                      is_undocumented, undocumented_reason, notes
+subject_documents     id, subject_id, document_type(NATIONAL_ID|CIVIL_EXTRACT|PASSPORT|
+                      RESIDENCY_PERMIT|UNHCR_CARD|UNRWA_CARD|REFUGEE_TRAVEL_DOC|MILITARY_ID|
+                      DRIVING_LICENSE|OTHER), document_number, issuing_country, issue_date,
+                      expiry_date, notes, storage_path, original_filename, mime_type,
+                      size_bytes, sha256, uploaded_by     -- 0..n documents per person
 audio_recordings      id, session_id, original_filename, mime_type, size_bytes, duration_seconds,
                       sha256, source(BROWSER_RECORDING|FILE_UPLOAD), upload_status, storage_path, created_by
 workstations          id, agent_id(unique), device_name, agent_version, stt_*, diarization_*,
@@ -70,6 +80,7 @@ disk under `storage/recordings/{session_uuid}/{recording_uuid}.{ext}` (never as 
 | investigations.read_assigned (created by or assigned to me) | ✔ | ✔ | ✔ |
 | investigations.update / investigations.archive | ✔ | ✔ | |
 | recordings.create / processing.request | ✔ | ✔ | |
+| subjects.documents.view (ID/passport scans) | ✔ | ✔ | |
 | transcripts.read | ✔ | ✔ | ✔ |
 | transcripts.edit / speakers.assign | ✔ | ✔ | |
 | workstations.read / workstations.register | ✔ | ✔ | |
@@ -98,6 +109,7 @@ POST /api/local-processing/{job_id}/audio                        (agent, multipa
 GET  /api/investigations/{id}/transcript  PATCH /api/transcript-segments/{id}
 GET  /api/investigations/{id}/speakers    PATCH /api/investigations/{id}/speakers/{speaker_id}
 GET  /api/recordings/{id}/audio
+POST/GET/DELETE /api/investigations/{id}/subject-documents/{doc_id}/file
 GET  /api/workstations                    POST /api/workstations/register
 GET  /api/audit-logs                      GET /api/health
 ```

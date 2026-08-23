@@ -8,21 +8,12 @@ import { todayIso, nowTime } from "@/lib/format";
 import { T, errorMessage } from "@/lib/i18n";
 import { Alert, Field, Loading, useToast } from "@/components/ui";
 import { IconPlus, IconX } from "@/components/Icons";
+import { SubjectFields, emptySubject } from "@/components/subjects/SubjectFields";
 
 interface AssignmentRow {
   investigator_id: string;
   assignment_role: AssignmentRole;
 }
-
-const emptySubject = (): Subject => ({
-  subject_name: "",
-  reference_number: "",
-  military_id: "",
-  rank: "",
-  unit: "",
-  department: "",
-  notes: "",
-});
 
 const clean = (v: string | null | undefined) => (v && v.trim() ? v.trim() : null);
 
@@ -31,7 +22,7 @@ export function InvestigationFormPage() {
   const isEdit = Boolean(id);
   const navigate = useNavigate();
   const toast = useToast();
-  const { user } = useAuth();
+  const { user, can } = useAuth();
 
   const [investigators, setInvestigators] = useState<Profile[]>([]);
   const [loaded, setLoaded] = useState(!isEdit);
@@ -89,17 +80,34 @@ export function InvestigationFormPage() {
       notes: clean(notes),
       expected_speaker_count: expectedSpeakers,
       investigators: assignments.filter((a) => a.investigator_id),
-      subjects: subjects
-        .map((s) => ({
-          subject_name: clean(s.subject_name),
-          reference_number: clean(s.reference_number),
-          military_id: clean(s.military_id),
-          rank: clean(s.rank),
-          unit: clean(s.unit),
-          department: clean(s.department),
-          notes: clean(s.notes),
-        }))
-        .filter((s) => Object.values(s).some(Boolean)),
+      subjects: subjects.map((s) => ({
+        subject_name: clean(s.subject_name),
+        reference_number: clean(s.reference_number),
+        person_type: s.person_type,
+        military_id: clean(s.military_id),
+        rank: clean(s.rank),
+        unit: clean(s.unit),
+        department: clean(s.department),
+        security_branch: s.security_branch,
+        nationality_code: s.person_type === "CIVILIAN" ? clean(s.nationality_code) : null,
+        nationality_name: clean(s.nationality_name),
+        register_number: clean(s.register_number),
+        place_of_registration: clean(s.place_of_registration),
+        is_unregistered: s.is_unregistered,
+        is_undocumented: s.is_undocumented,
+        undocumented_reason: s.is_undocumented ? s.undocumented_reason : null,
+        identity_confidence: s.identity_confidence,
+        notes: clean(s.notes),
+        documents: s.documents.map((d) => ({
+          id: d.id,
+          document_type: d.document_type,
+          document_number: clean(d.document_number),
+          issuing_country: clean(d.issuing_country),
+          issue_date: d.issue_date || null,
+          expiry_date: d.expiry_date || null,
+          notes: clean(d.notes),
+        })),
+      })),
     };
     try {
       const saved = isEdit
@@ -116,8 +124,8 @@ export function InvestigationFormPage() {
 
   if (!loaded) return <Loading />;
 
-  const updateSubject = (i: number, key: keyof Subject, value: string) =>
-    setSubjects((prev) => prev.map((s, idx) => (idx === i ? { ...s, [key]: value } : s)));
+  // A scan can only be attached once the session (and its document row) has been saved.
+  const canUploadDocuments = can("subjects.documents.view");
 
   return (
     <>
@@ -193,39 +201,20 @@ export function InvestigationFormPage() {
 
             <div className="section-title">{T.subjectInfo}</div>
             {subjects.map((s, i) => (
-              <div className="field full" key={i}>
-                <div className="form-grid-3 form-grid" style={{ padding: 14, border: "1px solid var(--line-soft)", borderRadius: 8, position: "relative" }}>
-                  <Field label={T.subjectName}>
-                    <input className="input" value={s.subject_name ?? ""} onChange={(e) => updateSubject(i, "subject_name", e.target.value)} />
-                  </Field>
-                  <Field label={T.referenceNumber}>
-                    <input className="input" value={s.reference_number ?? ""} onChange={(e) => updateSubject(i, "reference_number", e.target.value)} />
-                  </Field>
-                  <Field label={T.militaryId}>
-                    <input className="input" value={s.military_id ?? ""} onChange={(e) => updateSubject(i, "military_id", e.target.value)} dir="ltr" />
-                  </Field>
-                  <Field label={T.rank}>
-                    <input className="input" value={s.rank ?? ""} onChange={(e) => updateSubject(i, "rank", e.target.value)} />
-                  </Field>
-                  <Field label={T.unit}>
-                    <input className="input" value={s.unit ?? ""} onChange={(e) => updateSubject(i, "unit", e.target.value)} />
-                  </Field>
-                  <Field label={T.department}>
-                    <input className="input" value={s.department ?? ""} onChange={(e) => updateSubject(i, "department", e.target.value)} />
-                  </Field>
-                  <Field label={T.notes} full>
-                    <textarea className="textarea" style={{ minHeight: 60 }} value={s.notes ?? ""} onChange={(e) => updateSubject(i, "notes", e.target.value)} />
-                  </Field>
-                  {subjects.length > 1 && (
-                    <button type="button" className="icon-btn" style={{ position: "absolute", top: 6, insetInlineEnd: 6 }} onClick={() => setSubjects((prev) => prev.filter((_, idx) => idx !== i))} aria-label={T.removeSubject}>
-                      <IconX />
-                    </button>
-                  )}
-                </div>
+              <div className="field full" key={s.id ?? `subject-${i}`}>
+                <SubjectFields
+                  sessionId={id}
+                  subject={s}
+                  index={i}
+                  canRemove={subjects.length > 1}
+                  canUploadDocuments={canUploadDocuments}
+                  onChange={(next) => setSubjects((prev) => prev.map((x, idx) => (idx === i ? next : x)))}
+                  onRemove={() => setSubjects((prev) => prev.filter((_, idx) => idx !== i))}
+                />
               </div>
             ))}
             <div className="field full">
-              <button type="button" className="btn btn-sm" onClick={() => setSubjects((prev) => [...prev, emptySubject()])}>
+              <button type="button" className="btn btn-sm" onClick={() => setSubjects((prev) => [...prev, emptySubject()])} data-testid="add-subject">
                 <IconPlus /> {T.addSubject}
               </button>
             </div>
