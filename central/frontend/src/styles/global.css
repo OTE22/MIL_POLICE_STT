@@ -64,7 +64,9 @@ a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 button, input, select, textarea { font: inherit; color: inherit; }
 code, .mono { font-family: Consolas, "Courier New", monospace; direction: ltr; unicode-bidi: embed; }
-.ltr { direction: ltr; unicode-bidi: isolate; display: inline-block; }
+.ltr { direction: ltr; unicode-bidi: isolate; }
+span.ltr { display: inline-block; }
+td.ltr, th.ltr { text-align: start; }
 .num { font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: isolate; }
 
 /* ----------------------------------------------------------------- layout */
