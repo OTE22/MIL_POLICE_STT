@@ -34,6 +34,21 @@ HF_TOKEN=hf_xxx python scripts/provision_models.py --model-dir ./bundle/models
 Then copy `bundle/models` to every workstation (USB / internal file share) and install the
 central public key (`central_public_key.pem`).
 
+### Slow or unstable links (resumable download of the 4 GB STT weights)
+
+`huggingface_hub` cannot always resume a partial download across processes. Use the
+resumable helper instead (each attempt continues from the current file size via HTTP Range):
+
+```powershell
+$env:HF_TOKEN = "hf_..."                               # not stored anywhere
+.\desktop-agent\scriptsesume_cohere_weights.ps1        # or run detached with Start-Process
+# when the file is complete the script runs finalize_cohere_weights.py automatically:
+#   size + SHA-256 (404ff5dc…1910a5) check, rename .part -> model.safetensors, MANIFEST.json
+```
+
+`python scripts/finalize_cohere_weights.py --model-dir <dir>` can also be run by hand after
+copying `model.safetensors` from another machine.
+
 ## Integrity verification
 
 `AGENT_VERIFY_MODEL_INTEGRITY`:
