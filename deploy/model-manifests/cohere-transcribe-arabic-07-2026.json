@@ -1,0 +1,61 @@
+{
+  "model": "CohereLabs/cohere-transcribe-arabic-07-2026",
+  "revision": "c3e911b42149bf7a1e53d5cef9878aee87515a23",
+  "source": "huggingface (gated - accept the licence on the model page, then download with an HF token)",
+  "dir_name": "cohere-transcribe-arabic-07-2026",
+  "answers": "WHAT WAS SAID",
+  "note": "required=true files are loaded by the agent and must verify. required=false files are verified only if present. Extra files in the directory are ignored.",
+  "required_bytes": 4134280796,
+  "files": {
+    "config.json": {
+      "size": 3420,
+      "sha256": "4dffe4228f3ae96693a85ccece5dfdcca921e02b7ce1a259bb4db6324b0fc436",
+      "required": true
+    },
+    "generation_config.json": {
+      "size": 229,
+      "sha256": "f735105bb69c9191923cc878eed81eecc485508d2fb533ed7b109cbe9b1a4828",
+      "required": true
+    },
+    "model.safetensors": {
+      "size": 4131862976,
+      "sha256": "404ff5dccd66b1985a06059b9d5ed970a676761c0821f9c10756db6e4a1910a5",
+      "required": true
+    },
+    "normalizer.json": {
+      "size": 52666,
+      "sha256": "bf1c507dc8724ca9cf9903640dacfb69dae2f00edee4f21ceba106a7392f26dd",
+      "required": true
+    },
+    "preprocessor_config.json": {
+      "size": 131,
+      "sha256": "d5eff85971bab7f42480856f8fb397d8dd966858d67049def99aa8a665aa87d5",
+      "required": true
+    },
+    "processor_config.json": {
+      "size": 140,
+      "sha256": "6e2d22512199905356a8866f4abdade89666e86d060977b0156b802ffe8a8708",
+      "required": true
+    },
+    "special_tokens_map.json": {
+      "size": 4091,
+      "sha256": "3f19725aba64b1513b2feb9223d50248380b7e8ef28a66b98cbd89f453e26a9b",
+      "required": true
+    },
+    "tokenizer.json": {
+      "size": 1816313,
+      "sha256": "007b3e6a3f6128f2ff838662681cf179c364c37dc7011dbc7383465b666657fd",
+      "required": true
+    },
+    "tokenizer.model": {
+      "size": 492827,
+      "sha256": "6d21e6a83b2d0d3e1241a7817e4bef8eb63bcb7cfe4a2675af9a35ff3bbf0e14",
+      "required": true
+    },
+    "tokenizer_config.json": {
+      "size": 48003,
+      "sha256": "953551c02426d09d4a52bb5067aa2b575d318189c24c264bf2a145d1a0d14535",
+      "required": true
+    }
+  }
+}

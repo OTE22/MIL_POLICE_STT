@@ -1,0 +1,17 @@
+{
+  "model": "nvidia/speakerverification_speakernet",
+  "revision": "1.16.0",
+  "source": "ngc",
+  "dir_name": "speakerverification_speakernet",
+  "answers": "WHAT DOES THIS VOICE SOUND LIKE (suggestion only)",
+  "note": "required=true files are loaded by the agent and must verify. required=false files are verified only if present. Extra files in the directory are ignored.",
+  "optional_model": true,
+  "required_bytes": 21850118,
+  "files": {
+    "speakerverification_speakernet.nemo": {
+      "size": 21850118,
+      "sha256": "07e9653ec9776260b6d5de92df2d1aacde798d7657f4d12937b36e22596acdb5",
+      "required": true
+    }
+  }
+}

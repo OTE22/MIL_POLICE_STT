@@ -65,11 +65,16 @@ MILITARY_STT_AI/
 │   ├── linux/                  # systemd unit + installer
 │   ├── docker-compose.yml      # containerised agent (CPU) + docker-compose.gpu.yml
 │   └── tests/
+├── deploy/                     # production deployment: deploy-central.sh, deploy-edge.sh
 ├── docs/                       # architecture, installation, security, testing …
 └── scripts/                    # helper scripts (TLS cert, E2E)
 ```
 
 ## Quick start (development, single machine)
+
+> Deploying for real? Use [docs/production-deployment.md](docs/production-deployment.md)
+> and the scripts in [deploy/](deploy/) instead — they generate secrets, verify the
+> models against their pinned SHA-256, and check the deployment afterwards.
 
 ```bash
 cp .env.example .env                        # edit secrets
@@ -91,6 +96,7 @@ Then open `http://localhost:8080`, create an investigator, create a session, ope
 | Document | Content |
 |---|---|
 | **[docs/how-it-works.md](docs/how-it-works.md)** | **Start here** — one recording followed end to end, and why the design holds |
+| **[docs/production-deployment.md](docs/production-deployment.md)** | **Deploying for real** — the two scripts, air-gapped installs, backups, go-live checklist |
 | [docs/architecture.md](docs/architecture.md) | Distributed architecture, data flow, responsibilities |
 | [docs/central-server.md](docs/central-server.md) | Services, configuration, PostgreSQL schema, roles/permissions, API |
 | [docs/desktop-agent.md](docs/desktop-agent.md) | Local agent architecture, API, job states, synchronization |

@@ -1,0 +1,19 @@
+# The build context is ./central/backend, so the repository-root .dockerignore
+# does NOT apply here. Without this file, test artefacts (including throw-away
+# private keys and sample recordings) are copied into the production image.
+.git
+__pycache__/
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.venv
+.venv-test
+tests/
+storage/
+*.sqlite3
+.env
+# Absolute paths accidentally materialised as directories by a misconfigured
+# CENTRAL_TEST_TMP (e.g. "C:/Users/...") must never enter the context.
+[A-Z]:/
