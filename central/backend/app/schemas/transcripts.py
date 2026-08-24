@@ -5,7 +5,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from app.models.enums import SpeakerRole, TranscriptStatus
+from app.models.enums import IdentificationStatus, SpeakerRole, TranscriptStatus
 
 
 class SegmentOut(BaseModel):
@@ -34,6 +34,12 @@ class SpeakerOut(BaseModel):
     segment_count: int = 0
     total_seconds: float = 0.0
     updated_at: datetime
+    # Voice-based suggestion (never applied automatically).
+    identification_status: IdentificationStatus = IdentificationStatus.NONE
+    suggested_name: str | None = None
+    suggested_score: float | None = None
+    suggested_model: str | None = None
+    has_voice_embedding: bool = False
 
 
 class TranscriptOut(BaseModel):

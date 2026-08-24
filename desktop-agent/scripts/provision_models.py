@@ -26,6 +26,10 @@ from app.config import (  # noqa: E402
     COHERE_STT_REVISION,
     NVIDIA_DIARIZATION_MODEL,
     NVIDIA_DIARIZATION_REVISION,
+    SPEAKERNET_MODEL,
+    SPEAKERNET_REVISION,
+    SPEAKERNET_SHA256,
+    SPEAKERNET_URL,
     get_settings,
 )
 
@@ -61,6 +65,27 @@ def provision_hf(repo: str, revision: str, target: Path, allow_patterns: list[st
     print(f"   {len(manifest['files'])} files, manifest written")
 
 
+def provision_speakernet(target: Path) -> None:
+    """SpeakerNet-M is distributed through NVIDIA NGC, not Hugging Face."""
+    import hashlib
+    import urllib.request
+
+    target.mkdir(parents=True, exist_ok=True)
+    dest = target / f"{SPEAKERNET_MODEL.split('/')[-1]}.nemo"
+    if not dest.exists():
+        print(f"-> downloading {SPEAKERNET_MODEL}@{SPEAKERNET_REVISION} from NGC")
+        tmp = dest.with_suffix(".nemo.part")
+        with urllib.request.urlopen(SPEAKERNET_URL, timeout=120) as r, tmp.open("wb") as fh:
+            shutil.copyfileobj(r, fh)
+        tmp.replace(dest)
+    digest = hashlib.sha256(dest.read_bytes()).hexdigest()
+    if digest != SPEAKERNET_SHA256:
+        dest.unlink(missing_ok=True)
+        raise RuntimeError(f"SpeakerNet sha256 mismatch: {digest}")
+    write_manifest(target, model=SPEAKERNET_MODEL, revision=SPEAKERNET_REVISION, source="ngc")
+    print(f"   verified sha256={digest[:16]}...")
+
+
 def provision_vad(target: Path) -> None:
     """Silero VAD ships inside the `silero-vad` wheel; record its identity for the manifest."""
     from importlib.metadata import version
@@ -80,7 +105,7 @@ def main() -> int:
     settings = get_settings()
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-dir", default=str(settings.model_dir))
-    parser.add_argument("--only", choices=["stt", "diarization", "vad"], default=None)
+    parser.add_argument("--only", choices=["stt", "diarization", "speaker_id", "vad"], default=None)
     parser.add_argument("--force", action="store_true", help="re-download even if a manifest exists")
     args = parser.parse_args()
     model_dir = Path(args.model_dir)
@@ -115,6 +140,12 @@ def main() -> int:
                 )
             else:
                 print(f"!! failed to provision {repo}: {msg}", file=sys.stderr)
+    if not args.only or args.only == "speaker_id":
+        try:
+            provision_speakernet(model_dir / SPEAKERNET_MODEL.split("/")[-1])
+        except Exception as exc:  # noqa: BLE001
+            ok = False
+            print(f"!! failed to provision {SPEAKERNET_MODEL}: {exc}", file=sys.stderr)
     if not args.only or args.only == "vad":
         try:
             provision_vad(model_dir / "silero-vad")

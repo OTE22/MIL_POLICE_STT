@@ -83,7 +83,8 @@ class JobPipeline:
             audio_meta, processing_path, duration = self._stage_preprocess(job)
             turns, speech = self._stage_diarize(job, processing_path, duration)
             segments, timings = self._stage_transcribe(job, processing_path, turns, speech, duration)
-            self._stage_finalize(job, audio_meta, duration, turns, segments, timings, started)
+            voice = self._stage_identify_speakers(job, processing_path, segments)
+            self._stage_finalize(job, audio_meta, duration, turns, segments, timings, started, voice)
             self._stage_sync(job)
         except JobCancelled:
             job.state = "CANCELLED"
@@ -226,7 +227,59 @@ class JobPipeline:
             raise PipelineFailure("transcription_empty", "the STT model returned no text for any segment", "TRANSCRIBING")
         return segments, timings
 
-    def _stage_finalize(self, job: JobRecord, audio_meta, duration: float, turns, segments: list[TranscriptSegment], timings: dict, started: float) -> None:
+    def _stage_identify_speakers(self, job: JobRecord, wav: Path, segments: list[TranscriptSegment]) -> dict:
+        """One voice embedding per anonymous speaker (optional, never fatal).
+
+        The embedding is sent to the central server, which compares it against the
+        enrolled voices and records a *suggestion*. No name is decided here.
+        """
+        if not self._settings.speaker_id_enabled:
+            return {}
+        self._check_cancel(job)
+        try:
+            self._runtime.speaker_id.load()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("job %s: speaker identification unavailable: %s", job.job_id, exc)
+            return {}
+
+        import soundfile as sf
+
+        from app.ai.speaker_id_service import SpeakerIdentificationError, collect_speaker_audio
+
+        spans: dict[str, list[tuple[float, float]]] = {}
+        for seg in segments:
+            spans.setdefault(seg.speaker_label, []).append((seg.start_seconds, seg.end_seconds))
+
+        audio, sr = sf.read(str(wav), dtype="float32", always_2d=False)
+        if audio.ndim > 1:
+            audio = audio.mean(axis=1)
+        embeddings: dict[str, dict] = {}
+        for label, label_spans in sorted(spans.items()):
+            clip = collect_speaker_audio(audio, sr, label_spans, self._settings.speaker_id_max_seconds)
+            seconds = len(clip) / float(sr)
+            try:
+                vec = self._runtime.speaker_id.embed(clip, sr)
+            except SpeakerIdentificationError as exc:
+                log.info("job %s: no embedding for %s (%s)", job.job_id, label, exc.code)
+                continue
+            except Exception as exc:  # noqa: BLE001
+                log.warning("job %s: embedding failed for %s: %s", job.job_id, label, exc)
+                continue
+            embeddings[label] = {"embedding": [round(float(x), 6) for x in vec], "seconds": round(seconds, 2)}
+        if embeddings:
+            info = self._runtime.speaker_id.info()
+            log.info("job %s: %d speaker embedding(s) computed", job.job_id, len(embeddings))
+            return {
+                "provider": info.provider,
+                "model": info.model,
+                "model_revision": info.revision,
+                "embedding_dim": self._runtime.speaker_id.embedding_dim,
+                "device": self._runtime.speaker_id.device,
+                "speakers": embeddings,
+            }
+        return {}
+
+    def _stage_finalize(self, job: JobRecord, audio_meta, duration: float, turns, segments: list[TranscriptSegment], timings: dict, started: float, voice: dict | None = None) -> None:
         self._set_state(job, "FINALIZING", 0.92, "building structured transcript")
         labels = sorted({seg.speaker_label for seg in segments})
         warnings: list[str] = []
@@ -276,6 +329,11 @@ class JobPipeline:
                     "context_padding_seconds": self._settings.segment_context_padding_seconds,
                 },
                 "diarization_streaming": dia_info.extra.get("streaming"),
+                "speaker_identification": {
+                    "enabled": self._settings.speaker_id_enabled,
+                    "embeddings": len((voice or {}).get("speakers", {})),
+                    "model": (voice or {}).get("model"),
+                },
             },
             "audio": {
                 "original_filename": audio_meta.original_filename,
@@ -284,6 +342,7 @@ class JobPipeline:
                 "duration_seconds": round(duration, 3),
                 "sha256": audio_meta.sha256,
             },
+            "voice_identification": voice or None,
             "segments": [
                 {
                     "speaker_label": seg.speaker_label,

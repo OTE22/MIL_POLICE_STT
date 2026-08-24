@@ -99,6 +99,22 @@ class AudioMetadataIn(BaseModel):
     sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
 
+class VoiceSpeakerEmbeddingIn(BaseModel):
+    embedding: list[float] = Field(min_length=16, max_length=1024)
+    seconds: float | None = Field(default=None, ge=0)
+
+
+class VoiceIdentificationIn(BaseModel):
+    """Voice embeddings produced locally by SpeakerNet-M. Names are never sent by the agent."""
+
+    provider: str = Field(max_length=100)
+    model: str = Field(max_length=200)
+    model_revision: str | None = Field(default=None, max_length=100)
+    embedding_dim: int = Field(ge=16, le=1024)
+    device: str | None = Field(default=None, max_length=50)
+    speakers: dict[str, VoiceSpeakerEmbeddingIn] = Field(default_factory=dict)
+
+
 class ProcessingResultIn(BaseModel):
     idempotency_key: str = Field(min_length=8, max_length=128)
     language: str = Field(default="ar", max_length=10)
@@ -116,6 +132,7 @@ class ProcessingResultIn(BaseModel):
     processing_metadata: dict = Field(default_factory=dict)
     audio: AudioMetadataIn | None = None
     workstation: WorkstationInfo | None = None
+    voice_identification: VoiceIdentificationIn | None = None
     segments: list[SegmentIn]
     completed_at: datetime | None = None
 

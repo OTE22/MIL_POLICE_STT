@@ -432,6 +432,18 @@ def submit_result(
         if label not in existing_labels:
             db.add(SessionSpeaker(session_id=session.id, speaker_label=label, speaker_role=SpeakerRole.UNKNOWN))
 
+    db.flush()
+    # Optional: turn the locally computed voice embeddings into name SUGGESTIONS.
+    # Never fails the sync - a transcript must land even if identification does not.
+    from app.services.voice_matching import apply_voice_identification
+
+    suggested = apply_voice_identification(
+        db,
+        session_id=session.id,
+        voice=body.voice_identification.model_dump() if body.voice_identification else None,
+        user_id=user_id,
+    )
+
     job.status = JobStatus.COMPLETED
     job.agent_state = "COMPLETED"
     job.idempotency_key = body.idempotency_key
@@ -441,7 +453,7 @@ def submit_result(
     if recording.upload_status == RecordingUploadStatus.PENDING and not settings.storage_root:
         recording.upload_status = RecordingUploadStatus.DISABLED
 
-    record_audit(db, action=AuditAction.LOCAL_PROCESSING_COMPLETED, user_id=user_id, entity_type="local_processing_job", entity_id=job.id, metadata={"session_id": session.id, "segments": len(body.segments), "speakers": labels, "device": body.processing_device})
+    record_audit(db, action=AuditAction.LOCAL_PROCESSING_COMPLETED, user_id=user_id, entity_type="local_processing_job", entity_id=job.id, metadata={"session_id": session.id, "segments": len(body.segments), "speakers": labels, "device": body.processing_device, "voice_suggestions": suggested})
     record_audit(db, action=AuditAction.TRANSCRIPT_RECEIVED, user_id=user_id, entity_type="transcript", entity_id=transcript.id, metadata={"session_id": session.id, "job_id": job.id, "stt_model": body.stt_model, "stt_model_revision": body.stt_model_revision, "diarization_model": body.diarization_model, "diarization_model_revision": body.diarization_model_revision, "agent_version": body.agent_version})
     db.commit()
     return ProcessingResultOut(job_id=job.id, transcript_id=transcript.id, status=JobStatus.COMPLETED, duplicate=False)

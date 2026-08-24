@@ -87,6 +87,11 @@ def _speakers_out(db: Session, session_id: uuid.UUID, transcript: Transcript | N
                 segment_count=count,
                 total_seconds=round(total, 3),
                 updated_at=s.updated_at,
+                identification_status=s.identification_status,
+                suggested_name=s.suggested_name,
+                suggested_score=float(s.suggested_score) if s.suggested_score is not None else None,
+                suggested_model=s.suggested_model,
+                has_voice_embedding=bool(s.voice_embedding),
             )
         )
     return out

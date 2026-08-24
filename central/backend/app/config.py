@@ -54,6 +54,12 @@ class Settings(BaseSettings):
         "application/octet-stream",
     )
 
+    # Voice identification (suggestions only; a human confirms every one).
+    # Calibrated on the reference recordings: same speaker 0.76-0.90, different 0.34-0.52.
+    voice_match_threshold: float = 0.65
+    # Refuse to choose when the two best candidates are closer than this.
+    voice_match_margin: float = 0.05
+
     # CORS - the frontend is normally served by nginx on the same origin; extra
     # origins are only needed for local development (vite dev server).
     cors_allowed_origins: str = ""

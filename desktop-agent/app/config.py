@@ -18,6 +18,18 @@ NVIDIA_DIARIZATION_MODEL = "nvidia/diar_streaming_sortformer_4spk-v2.1"
 NVIDIA_DIARIZATION_REVISION = "fafaab5faa1617a0ca52d38dd3dc4bd636800d3d"
 SILERO_VAD_MODEL = "snakers4/silero-vad"
 
+# Speaker identification (voice embeddings). NVIDIA SpeakerNet-M, distributed through NGC.
+# It answers "does this voice match an enrolled person?" - it NEVER assigns a name by
+# itself; the investigator confirms every suggestion (see docs/speaker-identification.md).
+SPEAKERNET_MODEL = "nvidia/speakerverification_speakernet"
+SPEAKERNET_REVISION = "1.16.0"
+SPEAKERNET_SHA256 = "07e9653ec9776260b6d5de92df2d1aacde798d7657f4d12937b36e22596acdb5"
+SPEAKERNET_URL = (
+    "https://api.ngc.nvidia.com/v2/models/nvidia/nemo/speakerverification_speakernet"
+    "/versions/1.16.0/files/speakerverification_speakernet.nemo"
+)
+SPEAKER_EMBEDDING_DIM = 256
+
 # The Sortformer 4spk model supports at most four speakers.
 MAX_SUPPORTED_SPEAKERS = 4
 
@@ -76,6 +88,17 @@ class Settings(BaseSettings):
     diarization_update_period: int = 300
     diarization_speaker_cache_len: int = 188
     diarization_min_overlap_seconds: float = 0.2
+
+    # ---- speaker identification (SpeakerNet-M, local, suggestion only) ------
+    speaker_id_enabled: bool = True
+    speaker_id_provider: str = "nemo_speakernet"
+    speaker_id_model: str = SPEAKERNET_MODEL
+    speaker_id_model_revision: str = SPEAKERNET_REVISION
+    speaker_id_device: str = "auto"
+    # A shorter voice sample than this produces an unreliable embedding: skip it.
+    speaker_id_min_seconds: float = 2.0
+    # Cap the audio fed to the encoder so one long turn cannot dominate the runtime.
+    speaker_id_max_seconds: float = 30.0
 
     # ---- VAD (Silero) ------------------------------------------------------
     vad_enabled: bool = True
@@ -137,6 +160,14 @@ class Settings(BaseSettings):
     @property
     def diarization_nemo_path(self) -> Path:
         return self.diarization_model_dir / f"{self.diarization_model.split('/')[-1]}.nemo"
+
+    @property
+    def speaker_id_model_dir(self) -> Path:
+        return self.model_dir / self.speaker_id_model.split("/")[-1]
+
+    @property
+    def speaker_id_nemo_path(self) -> Path:
+        return self.speaker_id_model_dir / f"{self.speaker_id_model.split('/')[-1]}.nemo"
 
 
 @lru_cache

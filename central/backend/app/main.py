@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from app import __version__
-from app.api import admin, auth, investigations, processing, subject_documents, transcripts, users
+from app.api import admin, auth, investigations, processing, subject_documents, transcripts, users, voice
 from app.config import get_settings
 from app.core.processing_tokens import ensure_keypair
 from app.db.session import SessionLocal, engine
@@ -87,6 +87,8 @@ def create_app() -> FastAPI:
     app.include_router(processing.router, prefix=api_prefix)
     app.include_router(subject_documents.router, prefix=api_prefix)
     app.include_router(transcripts.router, prefix=api_prefix)
+    app.include_router(subject_documents.router, prefix=api_prefix)
+    app.include_router(voice.router, prefix=api_prefix)
     app.include_router(admin.router, prefix=api_prefix)
 
     @app.get("/api/health", tags=["health"])
