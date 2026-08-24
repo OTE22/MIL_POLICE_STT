@@ -22,7 +22,9 @@ desktop-agent/secrets/*.pem
 storage/recordings/
 desktop-agent/data/
 desktop-agent/models/
-models/
+# NOT a bare "models/": that also matched central/backend/app/models/ and kept the
+# entire ORM package - the database schema - out of the repository.
+deploy/models/
 *.sqlite3
 *.db
 logs/
@@ -34,4 +36,5 @@ Thumbs.db
 .idea/
 
 # local test venvs
+.venv-test/
 .venv-test/

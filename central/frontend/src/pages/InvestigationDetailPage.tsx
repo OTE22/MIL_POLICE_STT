@@ -403,6 +403,8 @@ export function InvestigationDetailPage() {
           speakers={transcript?.speakers ?? []}
           candidates={speakerCandidates}
           onChange={(speakers) => transcript && setTranscript({ ...transcript, speakers })}
+          // A re-scan rewrites suggestions server-side, so refetch rather than patch state.
+          onReload={() => void loadTranscript(true)}
         />
       )}
 

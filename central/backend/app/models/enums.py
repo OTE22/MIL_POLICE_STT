@@ -1,0 +1,166 @@
+"""Enumerations shared by ORM models, schemas and services."""
+
+from __future__ import annotations
+
+import enum
+
+
+class SessionStatus(str, enum.Enum):
+    DRAFT = "DRAFT"
+    RECORDING = "RECORDING"
+    PROCESSING = "PROCESSING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    ARCHIVED = "ARCHIVED"
+
+
+class AssignmentRole(str, enum.Enum):
+    LEAD = "LEAD"
+    ASSISTANT = "ASSISTANT"
+
+
+class PersonType(str, enum.Enum):
+    """Top-level classification of an interviewed person."""
+
+    MILITARY = "MILITARY"
+    CIVILIAN = "CIVILIAN"
+    UNKNOWN = "UNKNOWN"  # refuses to identify / no documents / unidentified
+
+
+class SecurityBranch(str, enum.Enum):
+    """Which force a military/security subject belongs to."""
+
+    ARMY = "ARMY"
+    ISF = "ISF"
+    GENERAL_SECURITY = "GENERAL_SECURITY"
+    STATE_SECURITY = "STATE_SECURITY"
+    CUSTOMS = "CUSTOMS"
+    OTHER = "OTHER"
+
+
+class IdentityConfidence(str, enum.Enum):
+    """How the identity of the subject was established."""
+
+    DECLARED = "DECLARED"            # stated by the person, nothing seen
+    DOCUMENT_SEEN = "DOCUMENT_SEEN"  # the investigator saw a document
+    VERIFIED = "VERIFIED"            # checked against an official registry
+
+
+class UndocumentedReason(str, enum.Enum):
+    NO_DOCUMENTS = "NO_DOCUMENTS"
+    REFUSED = "REFUSED"
+    UNIDENTIFIED = "UNIDENTIFIED"
+    DOCUMENTS_WITHHELD = "DOCUMENTS_WITHHELD"  # e.g. passport held by an employer
+    OTHER = "OTHER"
+
+
+class SubjectDocumentType(str, enum.Enum):
+    NATIONAL_ID = "NATIONAL_ID"                # بطاقة هوية
+    CIVIL_EXTRACT = "CIVIL_EXTRACT"            # إخراج قيد
+    PASSPORT = "PASSPORT"                      # جواز سفر
+    RESIDENCY_PERMIT = "RESIDENCY_PERMIT"      # إقامة
+    UNHCR_CARD = "UNHCR_CARD"                  # بطاقة المفوضية
+    UNRWA_CARD = "UNRWA_CARD"                  # بطاقة الأونروا
+    REFUGEE_TRAVEL_DOC = "REFUGEE_TRAVEL_DOC"  # وثيقة سفر للاجئين
+    MILITARY_ID = "MILITARY_ID"                # بطاقة عسكرية
+    DRIVING_LICENSE = "DRIVING_LICENSE"
+    OTHER = "OTHER"
+
+
+class RecordingSource(str, enum.Enum):
+    BROWSER_RECORDING = "BROWSER_RECORDING"
+    FILE_UPLOAD = "FILE_UPLOAD"
+
+
+class RecordingUploadStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    UPLOADED = "UPLOADED"
+    DISABLED = "DISABLED"
+
+
+class JobStatus(str, enum.Enum):
+    REQUESTED = "REQUESTED"
+    ACCEPTED = "ACCEPTED"
+    PROCESSING = "PROCESSING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+
+
+class TranscriptStatus(str, enum.Enum):
+    RECEIVED = "RECEIVED"
+    REVIEWED = "REVIEWED"
+
+
+class SpeakerRole(str, enum.Enum):
+    INVESTIGATOR = "INVESTIGATOR"
+    SUBJECT = "SUBJECT"
+    WITNESS = "WITNESS"
+    OTHER = "OTHER"
+    UNKNOWN = "UNKNOWN"
+
+
+class IdentificationStatus(str, enum.Enum):
+    """Lifecycle of a voice-based identity *suggestion*.
+
+    A suggestion never becomes the speaker's name on its own: an investigator must
+    CONFIRM it (which copies it into display_name) or REJECT it.
+    """
+
+    NONE = "NONE"
+    SUGGESTED = "SUGGESTED"
+    CONFIRMED = "CONFIRMED"
+    REJECTED = "REJECTED"
+
+
+class WorkstationStatus(str, enum.Enum):
+    ONLINE = "ONLINE"
+    DEGRADED = "DEGRADED"
+    OFFLINE = "OFFLINE"
+
+
+class AuditAction(str, enum.Enum):
+    LOGIN = "LOGIN"
+    LOGIN_FAILED = "LOGIN_FAILED"
+    LOGOUT = "LOGOUT"
+
+    USER_CREATED = "USER_CREATED"
+    USER_UPDATED = "USER_UPDATED"
+    USER_DISABLED = "USER_DISABLED"
+    USER_ENABLED = "USER_ENABLED"
+    PASSWORD_RESET = "PASSWORD_RESET"
+    ROLE_CHANGED = "ROLE_CHANGED"
+
+    INVESTIGATION_CREATED = "INVESTIGATION_CREATED"
+    INVESTIGATION_UPDATED = "INVESTIGATION_UPDATED"
+
+    RECORDING_CREATED = "RECORDING_CREATED"
+    RECORDING_UPLOADED = "RECORDING_UPLOADED"
+
+    LOCAL_PROCESSING_REQUESTED = "LOCAL_PROCESSING_REQUESTED"
+    LOCAL_PROCESSING_STARTED = "LOCAL_PROCESSING_STARTED"
+    DIARIZATION_STARTED = "DIARIZATION_STARTED"
+    DIARIZATION_COMPLETED = "DIARIZATION_COMPLETED"
+    DIARIZATION_FAILED = "DIARIZATION_FAILED"
+    TRANSCRIPTION_STARTED = "TRANSCRIPTION_STARTED"
+    TRANSCRIPTION_COMPLETED = "TRANSCRIPTION_COMPLETED"
+    TRANSCRIPTION_FAILED = "TRANSCRIPTION_FAILED"
+    LOCAL_PROCESSING_COMPLETED = "LOCAL_PROCESSING_COMPLETED"
+    LOCAL_PROCESSING_FAILED = "LOCAL_PROCESSING_FAILED"
+    LOCAL_PROCESSING_CANCELLED = "LOCAL_PROCESSING_CANCELLED"
+
+    TRANSCRIPT_RECEIVED = "TRANSCRIPT_RECEIVED"
+    TRANSCRIPT_SEGMENT_EDITED = "TRANSCRIPT_SEGMENT_EDITED"
+    SPEAKER_RENAMED = "SPEAKER_RENAMED"
+    VOICE_ENROLLED = "VOICE_ENROLLED"
+    VOICE_ENROLLMENT_DELETED = "VOICE_ENROLLMENT_DELETED"
+    VOICE_IDENTITY_SUGGESTED = "VOICE_IDENTITY_SUGGESTED"
+    VOICE_IDENTITY_CONFIRMED = "VOICE_IDENTITY_CONFIRMED"
+    VOICE_IDENTITY_REJECTED = "VOICE_IDENTITY_REJECTED"
+    VOICE_REMATCH_RUN = "VOICE_REMATCH_RUN"
+
+    SUBJECT_DOCUMENT_UPLOADED = "SUBJECT_DOCUMENT_UPLOADED"
+    SUBJECT_DOCUMENT_VIEWED = "SUBJECT_DOCUMENT_VIEWED"
+    SUBJECT_DOCUMENT_DELETED = "SUBJECT_DOCUMENT_DELETED"
+
+    WORKSTATION_REGISTERED = "WORKSTATION_REGISTERED"

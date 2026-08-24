@@ -155,17 +155,60 @@ export function SpeakersPanel({
   speakers,
   candidates = [],
   onChange,
+  onReload,
 }: {
   sessionId: string;
   speakers: Speaker[];
   candidates?: SpeakerCandidate[];
   onChange: (s: Speaker[]) => void;
+  onReload?: () => void;
 }) {
+  const toast = useToast();
+  const { can } = useAuth();
+  const [rematching, setRematching] = useState(false);
+
+  /* Voice matching runs once, when the agent submits its result. A voice enrolled after
+     that would never reach this session, so the investigator can ask for a re-check.
+     Confirmed and rejected speakers are left alone by the server. */
+  const rematch = async () => {
+    setRematching(true);
+    try {
+      const res = await http.post<{ scanned: number; suggested: number }>(
+        `/investigations/${sessionId}/voice-rematch`,
+        {},
+      );
+      toast.success(
+        res.suggested > 0 ? T.voiceRematchDone.replace("{n}", String(res.suggested)) : T.voiceRematchNone,
+      );
+      onReload?.();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? errorMessage(err.code) : T.err_generic);
+    } finally {
+      setRematching(false);
+    }
+  };
+
+  const canRematch = can("voice.identify") && speakers.some((s) => s.has_voice_embedding);
+
   return (
     <div className="card">
       <div className="card-header">
         <h3>{T.speakers}</h3>
-        <span className="muted small">{speakers.length > 4 ? T.speakerLimitWarning : ""}</span>
+        <div className="flex gap">
+          <span className="muted small">{speakers.length > 4 ? T.speakerLimitWarning : ""}</span>
+          {canRematch && (
+            <button
+              className="btn btn-sm"
+              type="button"
+              onClick={rematch}
+              disabled={rematching}
+              title={T.voiceRematchHint}
+              data-testid="voice-rematch"
+            >
+              {rematching ? T.voiceRematchRunning : T.voiceRematch}
+            </button>
+          )}
+        </div>
       </div>
       <div className="card-body">
         {speakers.length === 0 && <div className="muted center">{T.noTranscript}</div>}

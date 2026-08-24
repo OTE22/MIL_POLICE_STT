@@ -36,6 +36,7 @@ from app.schemas.voice import (
     VoiceEnrollmentUpdate,
 )
 from app.services.audit import record_audit
+from app.services.voice_matching import rematch_speakers
 
 router = APIRouter(tags=["voice"])
 
@@ -104,20 +105,23 @@ def enroll_from_speaker(
         # Enrolling a biometric template without recorded consent is refused outright.
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="consent_required")
 
-    # Check identity collisions first: "already enrolled" is the more specific and more
-    # actionable answer than "you did not supply a name".
+    person_name = (body.person_name or speaker.display_name or "").strip()
+    if not person_name:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="person_name_required")
+
+    # Several prints per person are intended - different recording conditions give better
+    # coverage, and the matcher groups them by person_reference so they reinforce each
+    # other. What is refused is attaching a print to a reference that belongs to someone
+    # else: that is a data-entry error, and silently mis-filing a biometric template is
+    # exactly what must not happen here.
     existing = db.scalar(
         select(VoiceEnrollment).where(
             VoiceEnrollment.person_reference == body.person_reference,
             VoiceEnrollment.model == body.model,
         )
     )
-    if existing is not None:
-        raise HTTPException(status.HTTP_409_CONFLICT, detail="person_already_enrolled")
-
-    person_name = (body.person_name or speaker.display_name or "").strip()
-    if not person_name:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="person_name_required")
+    if existing is not None and existing.person_name.strip() != person_name:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="person_reference_name_mismatch")
 
     enrollment = VoiceEnrollment(
         person_name=person_name,
@@ -200,7 +204,14 @@ def delete_enrollment(
         user_id=user.id,
         entity_type="voice_enrollment",
         entity_id=enrollment.id,
-        metadata={"person_name": enrollment.person_name, "person_reference": enrollment.person_reference},
+        metadata={
+            "person_name": enrollment.person_name,
+            "person_reference": enrollment.person_reference,
+            # Recorded because suggested_enrollment_id is ON DELETE SET NULL: without this
+            # a confirmed identification could no longer name the print it rested on.
+            "enrollment_id": enrollment.id,
+            "model": enrollment.model,
+        },
         ip_address=client_ip(request),
     )
     db.delete(enrollment)
@@ -253,6 +264,7 @@ def decide_suggestion(
             "session_id": session.id,
             "speaker_label": speaker.speaker_label,
             "suggested_name": speaker.suggested_name,
+            "enrollment_id": speaker.suggested_enrollment_id,
             "score": float(speaker.suggested_score) if speaker.suggested_score is not None else None,
             "accepted": body.accept,
             "display_name": speaker.display_name,
@@ -266,3 +278,57 @@ def decide_suggestion(
         "identification_status": speaker.identification_status.value,
         "display_name": speaker.display_name,
     }
+
+
+@router.post("/investigations/{session_id}/voice-rematch")
+def rematch_session(
+    request: Request,
+    session: InvestigationSession = Depends(get_accessible_session),
+    user: User = Depends(require_permission("voice.identify")),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Re-run voice matching for one session from the embeddings already stored.
+
+    Matching normally happens once, when the agent submits its result, so a voice
+    enrolled afterwards is never applied to an existing session. This closes that gap
+    without reprocessing any audio. Confirmed and rejected speakers are left untouched.
+    """
+    _, scanned, suggested = rematch_speakers(db, session_ids=[session.id], user_id=user.id)
+    record_audit(
+        db,
+        action=AuditAction.VOICE_REMATCH_RUN,
+        user_id=user.id,
+        entity_type="investigation_session",
+        entity_id=session.id,
+        metadata={"scope": "session", "scanned": scanned, "suggested": suggested},
+        ip_address=client_ip(request),
+    )
+    db.commit()
+    return {"scanned": scanned, "suggested": suggested}
+
+
+@router.post("/voice-enrollments/rematch")
+def rematch_all(
+    request: Request,
+    user: User = Depends(require_permission("voice.identify")),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Re-scan every still-unidentified speaker across all sessions.
+
+    Restricted to speakers currently at NONE: a re-scan must never disturb a session an
+    investigator has already decided.
+    """
+    sessions, scanned, suggested = rematch_speakers(
+        db, session_ids=None, user_id=user.id, only_undecided=True
+    )
+    record_audit(
+        db,
+        action=AuditAction.VOICE_REMATCH_RUN,
+        user_id=user.id,
+        entity_type="voice_enrollment",
+        entity_id=None,
+        metadata={"scope": "all", "sessions": sessions, "scanned": scanned, "suggested": suggested},
+        ip_address=client_ip(request),
+    )
+    db.commit()
+    return {"sessions": sessions, "scanned": scanned, "suggested": suggested}

@@ -16,6 +16,7 @@ export function VoiceEnrollmentsPage() {
   const [q, setQ] = useState("");
   const [includeInactive, setIncludeInactive] = useState(true);
   const manage = can("voice.enroll");
+  const [rematching, setRematching] = useState(false);
 
   const load = useCallback(() => {
     void http
@@ -28,6 +29,26 @@ export function VoiceEnrollmentsPage() {
     const h = setTimeout(load, 200);
     return () => clearTimeout(h);
   }, [load]);
+
+  /* Matching runs when a result is submitted, so sessions processed before a person was
+     enrolled stay unidentified. This re-checks only speakers still at "غير محدد" - it
+     never disturbs a session an investigator has already decided. */
+  const rematchAll = async () => {
+    setRematching(true);
+    try {
+      const res = await http.post<{ sessions: number; scanned: number; suggested: number }>(
+        "/voice-enrollments/rematch",
+        {},
+      );
+      toast.success(
+        res.suggested > 0 ? T.voiceRematchDone.replace("{n}", String(res.suggested)) : T.voiceRematchNone,
+      );
+    } catch (err) {
+      toast.error(err instanceof ApiError ? errorMessage(err.code) : T.err_generic);
+    } finally {
+      setRematching(false);
+    }
+  };
 
   const setActive = async (row: VoiceEnrollment, is_active: boolean) => {
     try {
@@ -57,6 +78,17 @@ export function VoiceEnrollmentsPage() {
           <h1>{T.voiceEnrollments}</h1>
           <p>{T.voiceRegistryIntro}</p>
         </div>
+        {can("voice.identify") && (
+          <button
+            className="btn"
+            type="button"
+            onClick={rematchAll}
+            disabled={rematching}
+            data-testid="voice-rematch-all"
+          >
+            <IconRefresh /> {rematching ? T.voiceRematchRunning : T.voiceRematchAll}
+          </button>
+        )}
         <button className="btn" type="button" onClick={load}>
           <IconRefresh /> {T.refresh}
         </button>

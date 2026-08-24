@@ -193,9 +193,16 @@ UI     : "اقتراح: الرائد علي حسن — درجة التطابق 8
 ```
 
 The matcher **abstains** rather than guesses: no suggestion below **0.65**, and none when
-the two best candidates are within **0.05** of each other. Embeddings are only compared
-within the same model. Measured separation on the reference Arabic recording: same speaker
-**0.755–0.898**, different speakers **0.343–0.522**.
+the two best *people* are within **0.05** of each other. Candidates are grouped by
+`person_reference` first, so several prints of one person reinforce each other instead of
+looking like rivals. Embeddings are only compared within the model that produced them.
+Measured separation on the reference Arabic recording: same speaker **0.755–0.898**,
+different speakers **0.343–0.522**.
+
+Matching runs when the result is submitted, and again whenever an investigator asks for a
+re-scan — needed because a voice enrolled *after* a session was processed would otherwise
+never reach it. A re-scan never touches a speaker a human has already confirmed or
+rejected.
 
 Full detail, including consent and calibration:
 [speaker-identification.md](speaker-identification.md).

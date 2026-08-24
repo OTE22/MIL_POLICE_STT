@@ -50,6 +50,7 @@ def _clean_db():
         conn.execute(
             text(
                 "TRUNCATE TABLE audit_logs, transcript_segments, transcripts, session_speakers, "
+                "voice_enrollments, subject_documents, "
                 "local_processing_jobs, audio_recordings, subjects, session_investigators, "
                 "investigation_sessions, workstations, investigator_profiles, user_roles, users RESTART IDENTITY CASCADE"
             )

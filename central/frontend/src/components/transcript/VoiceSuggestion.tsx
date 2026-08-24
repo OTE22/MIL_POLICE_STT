@@ -133,7 +133,10 @@ export function VoiceEnrollButton({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (!can("voice.enroll") || !speaker.has_voice_embedding) return null;
+  // Rendered even without an embedding, but disabled with the reason in the tooltip:
+  // hiding the control entirely left the investigator with no explanation of why
+  // enrolment was unavailable for this speaker.
+  if (!can("voice.enroll")) return null;
 
   const submit = async () => {
     setBusy(true);
@@ -169,8 +172,16 @@ export function VoiceEnrollButton({
           setError(null);
           setOpen(true);
         }}
-        title={speaker.display_name ? T.voiceEnroll : T.voiceEnrollNeedsName}
-        disabled={!speaker.display_name}
+        title={
+          !speaker.display_name
+            ? T.voiceEnrollNeedsName
+            : !speaker.has_voice_embedding
+              ? T.voiceEnrollNeedsEmbedding
+              : T.voiceEnroll
+        }
+        // The API refuses both cases (409). Reflect that here instead of letting the
+        // investigator fill the form and record consent before it can possibly fail.
+        disabled={!speaker.display_name || !speaker.has_voice_embedding}
         data-testid="voice-enroll"
       >
         <IconMic width={14} height={14} /> {T.voiceEnroll}

@@ -40,6 +40,12 @@ SpeakerNet does not replace diarization and does not produce text.
    * the best score ≥ `CENTRAL_VOICE_MATCH_THRESHOLD` (default **0.65**);
    * the best score beats the runner-up by ≥ `CENTRAL_VOICE_MATCH_MARGIN` (default 0.05) —
      otherwise the result is ambiguous and the system **abstains**.
+
+   Candidates are grouped by `person_reference` **before** the margin is applied, and each
+   person is represented by their best print. Several prints of one person therefore
+   reinforce each other; the margin only ever separates two *different people*. Identity is
+   the reference, never the display name — two people share a common name often enough that
+   merging them would let the matcher confidently suggest the wrong person.
 3. **Investigator.** The speakers tab shows `اقتراح: <name> (score)` with تأكيد / تجاهل.
    Confirming copies the name into `display_name` and requires `speakers.assign` — the same
    permission as typing the name by hand. Rejecting keeps the suggestion for the audit trail.
@@ -66,9 +72,56 @@ shift these numbers. Raise the threshold to reduce false suggestions; lower it t
 * **Consent is mandatory**: the request is refused with `consent_required` unless
   `consent_recorded` is true. The flag, the enrolling user and the source session/speaker
   are stored with the template.
-* One template per `person_reference` + model; a second attempt returns `person_already_enrolled`.
+* **Several prints per person are supported and encouraged** — enrol the same person again
+  from a different session to cover other recording conditions. Use the *same*
+  `person_reference` each time; that is what ties the prints together.
+* A reference already registered under a **different** name is refused with
+  `person_reference_name_mismatch`. Mis-filing a biometric template under someone else's
+  identity is the one mistake this area must not make quietly.
 * Deactivate (`is_active=false`) to stop future suggestions without destroying the record;
   delete to remove it entirely. Names already **confirmed** by a human are unaffected.
+
+## Re-scanning after a later enrolment
+
+Matching runs when the agent submits its result. A session processed **before** a person was
+enrolled would therefore never receive a suggestion, however many prints are added later.
+Two actions close that gap, using only embeddings already stored — no audio is reprocessed
+and no model runs:
+
+| Where | Action | Scope |
+|---|---|---|
+| A session's المتحدثون tab | **إعادة فحص البصمات** | that session |
+| بصمات الأصوات page | **إعادة فحص الجلسات غير المحددة** | every speaker still at `NONE` |
+
+`POST /api/investigations/{id}/voice-rematch` and `POST /api/voice-enrollments/rematch`,
+both requiring `voice.identify`. **Confirmed and rejected speakers are never touched** — a
+human decision stands — and every run is audited as `VOICE_REMATCH_RUN` with its counts.
+
+A speaker whose embedding predates the recording of its producing model is skipped rather
+than guessed at; embeddings are only ever compared within the model that made them.
+
+## Consolidating a person enrolled under several references
+
+Before multiple prints were supported, re-enrolling a person was refused, so operators
+worked around it by inventing a new reference number for the same human. Those rows now
+look like **different people**, and two of them scoring alike makes the matcher abstain —
+suppressing suggestions for exactly the person who is best enrolled.
+
+Check for it:
+
+```sql
+SELECT person_name, count(DISTINCT person_reference) AS refs,
+       string_agg(DISTINCT person_reference, ', ') AS which
+FROM voice_enrollments WHERE is_active GROUP BY 1 HAVING count(DISTINCT person_reference) > 1;
+```
+
+Consolidate onto the person's real identifier, then re-scan. This is deliberately a manual
+step: the system cannot safely decide that three reference numbers are one human.
+
+```sql
+UPDATE voice_enrollments SET person_reference = '<the real ID number>'
+WHERE person_name = '<the person>' AND person_reference IN ('<old-1>', '<old-2>');
+```
 
 ## Permissions and privacy
 
