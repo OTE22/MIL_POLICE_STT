@@ -22,13 +22,23 @@ correct the transcript without losing the AI result, and keep a complete audit t
          DESKTOP 01            DESKTOP 02            DESKTOP 03
          Local AI Agent        Local AI Agent        Local AI Agent
          127.0.0.1:17117       127.0.0.1:17117       127.0.0.1:17117
-         FFmpeg → Silero VAD → NVIDIA Sortformer (who) → Cohere Transcribe Arabic (what)
+         FFmpeg → Silero VAD → Sortformer (who) → Cohere (what) → SpeakerNet-M (voice)
+```
+
+**Who does what**
+
+```
+NVIDIA Sortformer   →  من تكلّم ومتى؟   (anonymous SPEAKER_00 … + timestamps)
+Cohere Transcribe   →  ماذا قيل؟        (Arabic text per speaker turn)
+NVIDIA SpeakerNet-M →  كيف يبدو الصوت؟  (a voice vector → a name SUGGESTION)
+the investigator    →  من هو الشخص؟     (confirms; only this writes the name)
 ```
 
 | Concern | Technology |
 |---|---|
 | Speaker diarization (**who spoke when**) | `nvidia/diar_streaming_sortformer_4spk-v2.1` via NVIDIA NeMo — revision `fafaab5faa1617a0ca52d38dd3dc4bd636800d3d` |
 | Arabic speech-to-text (**what was said**) | `CohereLabs/cohere-transcribe-arabic-07-2026` via Transformers ≥ 5.4 — revision `c3e911b42149bf7a1e53d5cef9878aee87515a23` |
+| Speaker identification (**does this voice match an enrolled person?**) | `nvidia/speakerverification_speakernet` (SpeakerNet-M) via NeMo — NGC `1.16.0`. **Suggestion only; a human confirms every one** |
 | Voice activity detection | Silero VAD (bundled in the `silero-vad` wheel, no download) |
 | Audio preprocessing | FFmpeg → 16 kHz mono PCM WAV processing copy; original never modified |
 | Central server | FastAPI · SQLAlchemy 2 · Alembic · PostgreSQL 16 · PyJWT · Argon2 · nginx |
@@ -80,12 +90,15 @@ Then open `http://localhost:8080`, create an investigator, create a session, ope
 
 | Document | Content |
 |---|---|
+| **[docs/how-it-works.md](docs/how-it-works.md)** | **Start here** — one recording followed end to end, and why the design holds |
 | [docs/architecture.md](docs/architecture.md) | Distributed architecture, data flow, responsibilities |
 | [docs/central-server.md](docs/central-server.md) | Services, configuration, PostgreSQL schema, roles/permissions, API |
 | [docs/desktop-agent.md](docs/desktop-agent.md) | Local agent architecture, API, job states, synchronization |
 | [docs/audio-pipeline.md](docs/audio-pipeline.md) | Validation, FFmpeg, VAD, segmentation and reconciliation rules |
 | [docs/cohere-stt.md](docs/cohere-stt.md) | The Arabic STT model, loading, configuration |
 | [docs/nvidia-diarization.md](docs/nvidia-diarization.md) | Sortformer diarization, speaker change vs diarization, overlap, limits |
+| [docs/speaker-identification.md](docs/speaker-identification.md) | SpeakerNet-M voice suggestions, enrolment, consent, calibration |
+| [docs/subject-identity.md](docs/subject-identity.md) | Interviewed person: classification, nationality, documents and scans |
 | [docs/windows-installation.md](docs/windows-installation.md) | Windows workstation installation (service) |
 | [docs/linux-installation.md](docs/linux-installation.md) | Linux workstation installation (systemd / Docker) |
 | [docs/offline-provisioning.md](docs/offline-provisioning.md) | Model provisioning, integrity manifests, air-gapped operation |
@@ -95,6 +108,19 @@ Then open `http://localhost:8080`, create an investigator, create a session, ope
 
 ## Status
 
-See [docs/testing.md](docs/testing.md) for the exact verification status of every layer,
-including what has been verified end-to-end on this machine and what still requires a
-GPU workstation / Hugging Face access for the gated Cohere model.
+Verified on a CPU-only machine with the real models (see [docs/testing.md](docs/testing.md)
+for commands and full output):
+
+| Layer | Result |
+|---|---|
+| Central server tests (isolated PostgreSQL) | **40 passed** |
+| Local Agent tests in the Docker image (real models) | **47 passed, 0 skipped** |
+| Real NVIDIA diarization on a two-speaker Arabic recording | **PASS** — `SPEAKER_00 → SPEAKER_01 → SPEAKER_00 → SPEAKER_01 → SPEAKER_00` |
+| Real Cohere Arabic transcription | **PASS** — RTFx 1.1 on CPU |
+| Voice identification (API + browser) | **31/31** and **20/20** PASS |
+| Browser UI smoke (every Arabic page) | **19/19 PASS** |
+| **Full E2E (spec §81)** | **ALL 19 STEPS PASSED** |
+
+Remaining limitations are listed at the end of
+[docs/how-it-works.md](docs/how-it-works.md) — chiefly the four-speaker ceiling, CPU speed,
+and the voice threshold needing calibration on real recordings.
