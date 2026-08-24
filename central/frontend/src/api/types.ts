@@ -334,6 +334,10 @@ export interface AgentCapabilities {
   supported_formats: string[];
   max_upload_bytes: number;
   ready: boolean;
+  /** Every model is provisioned (files present) so a load can be attempted. */
+  loadable: boolean;
+  /** A background model load is in progress. */
+  loading: boolean;
   busy: boolean;
   central_sync_enabled: boolean;
 }

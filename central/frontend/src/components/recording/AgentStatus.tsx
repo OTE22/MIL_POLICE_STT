@@ -47,6 +47,8 @@ export function useAgentStatus(pollMs = 10000): AgentStatusState {
   return { availability, caps, refresh, lastError };
 }
 
+/* One distinct message per state: "installed but not loaded" is normal lazy loading
+   (spec §42) and must not be reported as a failure. */
 function modelBadge(m: AgentModelStatus | undefined) {
   if (!m) return <Badge kind="gray">{T.unknown}</Badge>;
   switch (m.state) {
@@ -55,12 +57,30 @@ function modelBadge(m: AgentModelStatus | undefined) {
     case "LOADING":
       return <Badge kind="blue">{T.modelLoading}</Badge>;
     case "PROVISIONED":
-      return <Badge kind="amber">{T.modelNotReady}</Badge>;
-    case "ERROR":
+      return <Badge kind="amber">{T.modelNotLoaded}</Badge>;
     case "NOT_PROVISIONED":
+      return <Badge kind="red">{T.modelNotInstalled}</Badge>;
+    case "ERROR":
     default:
-      return <Badge kind="red">{T.modelNotReady}</Badge>;
+      return <Badge kind="red">{T.modelLoadFailed}</Badge>;
   }
+}
+
+/** Highest-severity truthful condition across both models: ERROR/NOT_PROVISIONED > LOADING > PROVISIONED > READY. */
+function overallModelIssue(caps: AgentCapabilities | null): "blocked" | "loading" | "not_loaded" | "ready" | null {
+  if (!caps) return null;
+  const states = [caps.stt.state, caps.diarization.state];
+  if (states.some((s) => s === "ERROR" || s === "NOT_PROVISIONED")) return "blocked";
+  if (caps.loading || states.some((s) => s === "LOADING")) return "loading";
+  if (states.some((s) => s === "PROVISIONED")) return "not_loaded";
+  return "ready";
+}
+
+/** Per-model line inside the blocking alert, naming the real cause. */
+function blockedReason(label: string, m: AgentModelStatus, unavailableMsg: string): string | null {
+  if (m.state === "NOT_PROVISIONED") return `${label}: ${T.modelNotInstalled} — ${T.modelNotInstalledHint}`;
+  if (m.state === "ERROR") return `${label}: ${unavailableMsg}${m.error ? ` (${m.error})` : ""}`;
+  return null;
 }
 
 export function AgentStatusPanel({ status }: { status: AgentStatusState }) {
@@ -110,6 +130,7 @@ export function AgentStatusPanel({ status }: { status: AgentStatusState }) {
     }
   };
 
+  const issue = overallModelIssue(caps);
   const overall =
     availability === "checking" ? (
       <Badge kind="gray">{T.loading}</Badge>
@@ -117,8 +138,12 @@ export function AgentStatusPanel({ status }: { status: AgentStatusState }) {
       <Badge kind="red">{T.serviceUnavailable}</Badge>
     ) : caps?.ready ? (
       <Badge kind="green">{T.ready}</Badge>
+    ) : issue === "blocked" ? (
+      <Badge kind="red">{T.modelNotReady}</Badge>
+    ) : issue === "loading" ? (
+      <Badge kind="blue">{T.modelLoading}</Badge>
     ) : (
-      <Badge kind="amber">{T.modelNotReady}</Badge>
+      <Badge kind="amber">{T.modelNotLoaded}</Badge>
     );
 
   return (
@@ -175,19 +200,40 @@ export function AgentStatusPanel({ status }: { status: AgentStatusState }) {
             </Alert>
           </div>
         )}
-        {caps && !caps.ready && (
+        {/* Exactly one alert, for the highest-severity truthful condition. */}
+        {issue === "blocked" && (
           <div className="mt-16">
-            <Alert kind="warning">
-              {caps.stt.state !== "READY" && <div>{caps.stt.error ? `${T.err_agent_stt_unavailable} (${caps.stt.error})` : T.err_agent_stt_unavailable}</div>}
-              {caps.diarization.state !== "READY" && <div>{caps.diarization.error ? `${T.err_agent_diar_unavailable} (${caps.diarization.error})` : T.err_agent_diar_unavailable}</div>}
+            <Alert kind="danger">
+              {blockedReason(T.sttModelStatus, caps!.stt, T.err_agent_stt_unavailable) && (
+                <div>{blockedReason(T.sttModelStatus, caps!.stt, T.err_agent_stt_unavailable)}</div>
+              )}
+              {blockedReason(T.diarModelStatus, caps!.diarization, T.err_agent_diar_unavailable) && (
+                <div>{blockedReason(T.diarModelStatus, caps!.diarization, T.err_agent_diar_unavailable)}</div>
+              )}
               <div className="small mt-8">{T.err_no_fallback}</div>
             </Alert>
           </div>
         )}
+        {issue === "loading" && (
+          <div className="mt-16">
+            <Alert kind="info">{T.modelsLoadingNotice}</Alert>
+          </div>
+        )}
+        {issue === "not_loaded" && (
+          <div className="mt-16">
+            <Alert kind="warning">{T.modelsNotLoadedNotice}</Alert>
+          </div>
+        )}
         <div className="flex wrap mt-16">
-          {caps && !caps.ready && (caps.stt.state === "PROVISIONED" || caps.diarization.state === "PROVISIONED") && (
-            <button className="btn btn-sm" onClick={() => void warmup()} disabled={warming} type="button">
-              {T.modelLoading.replace("…", "")}
+          {caps && caps.loadable && !caps.ready && (
+            <button
+              className="btn btn-sm"
+              onClick={() => void warmup()}
+              disabled={warming || caps.loading || issue === "loading"}
+              type="button"
+              data-testid="load-models"
+            >
+              {issue === "loading" ? T.modelLoading : T.modelsLoadAction}
             </button>
           )}
           {caps && can("workstations.register") && (

@@ -358,3 +358,8 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .tl-item .what { font-weight: 500; }
 .tl-item .meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+/* speaker name quick-pick (people already in the session) */
+.candidate-chips { margin-top: 4px; }
+.candidate-chips .radio-chip { gap: 6px; padding: 5px 12px; font-size: 13px; }
+.candidate-chips .radio-chip .small { font-weight: 400; }

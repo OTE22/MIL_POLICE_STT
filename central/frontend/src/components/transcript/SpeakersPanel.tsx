@@ -9,11 +9,36 @@ import { Field, useToast } from "@/components/ui";
 
 const ROLES: SpeakerRole[] = ["INVESTIGATOR", "SUBJECT", "WITNESS", "OTHER", "UNKNOWN"];
 
-function SpeakerForm({ sessionId, speaker, onSaved }: { sessionId: string; speaker: Speaker; onSaved: (s: Speaker) => void }) {
+/** A person already recorded in the session: an assigned investigator or a listed subject. */
+export interface SpeakerCandidate {
+  name: string;
+  role: SpeakerRole;
+  hint: string;
+}
+
+function SpeakerForm({
+  sessionId,
+  speaker,
+  candidates,
+  onSaved,
+}: {
+  sessionId: string;
+  speaker: Speaker;
+  candidates: SpeakerCandidate[];
+  onSaved: (s: Speaker) => void;
+}) {
   const toast = useToast();
   const { can } = useAuth();
   const [name, setName] = useState(speaker.display_name ?? "");
   const [role, setRole] = useState<SpeakerRole>(speaker.speaker_role);
+
+  /* Picking someone already in the session fills the الصفة too, but never overrides a
+     role the investigator has deliberately set. */
+  const changeName = (value: string) => {
+    setName(value);
+    const match = candidates.find((c) => c.name === value);
+    if (match && role === "UNKNOWN") setRole(match.role);
+  };
   const [ref, setRef] = useState(speaker.reference_number ?? "");
   const [notes, setNotes] = useState(speaker.notes ?? "");
   const [busy, setBusy] = useState(false);
@@ -51,8 +76,25 @@ function SpeakerForm({ sessionId, speaker, onSaved }: { sessionId: string; speak
         </span>
       </div>
       <div className="form-grid">
-        <Field label={T.displayName}>
-          <input className="input" value={name} onChange={(e) => setName(e.target.value)} disabled={!editable} maxLength={200} />
+        <Field label={T.displayName} hint={candidates.length ? T.speakerCandidateHint : undefined}>
+          <input
+            className="input"
+            list={`speaker-candidates-${speaker.id}`}
+            value={name}
+            onChange={(e) => changeName(e.target.value)}
+            disabled={!editable}
+            maxLength={200}
+            data-testid="speaker-name"
+          />
+          {candidates.length > 0 && (
+            <datalist id={`speaker-candidates-${speaker.id}`}>
+              {candidates.map((c) => (
+                <option key={`${c.role}-${c.name}`} value={c.name}>
+                  {c.hint}
+                </option>
+              ))}
+            </datalist>
+          )}
         </Field>
         <Field label={T.speakerRole}>
           <select className="select" value={role} onChange={(e) => setRole(e.target.value as SpeakerRole)} disabled={!editable}>
@@ -70,6 +112,23 @@ function SpeakerForm({ sessionId, speaker, onSaved }: { sessionId: string; speak
           <input className="input" value={notes} onChange={(e) => setNotes(e.target.value)} disabled={!editable} maxLength={2000} />
         </Field>
       </div>
+      {editable && candidates.length > 0 && (
+        <div className="flex wrap candidate-chips">
+          {candidates.map((c) => (
+            <button
+              key={`${c.role}-${c.name}`}
+              type="button"
+              className={`radio-chip ${name === c.name ? "selected" : ""}`}
+              onClick={() => changeName(c.name)}
+              title={c.hint}
+              data-testid="speaker-candidate"
+            >
+              {c.name}
+              <span className="muted small">{c.hint}</span>
+            </button>
+          ))}
+        </div>
+      )}
       {editable && (
         <div>
           <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => void save()} type="button">
@@ -81,7 +140,17 @@ function SpeakerForm({ sessionId, speaker, onSaved }: { sessionId: string; speak
   );
 }
 
-export function SpeakersPanel({ sessionId, speakers, onChange }: { sessionId: string; speakers: Speaker[]; onChange: (s: Speaker[]) => void }) {
+export function SpeakersPanel({
+  sessionId,
+  speakers,
+  candidates = [],
+  onChange,
+}: {
+  sessionId: string;
+  speakers: Speaker[];
+  candidates?: SpeakerCandidate[];
+  onChange: (s: Speaker[]) => void;
+}) {
   return (
     <div className="card">
       <div className="card-header">
@@ -91,7 +160,13 @@ export function SpeakersPanel({ sessionId, speakers, onChange }: { sessionId: st
       <div className="card-body">
         {speakers.length === 0 && <div className="muted center">{T.noTranscript}</div>}
         {speakers.map((s) => (
-          <SpeakerForm key={s.id} sessionId={sessionId} speaker={s} onSaved={(u) => onChange(speakers.map((x) => (x.id === u.id ? u : x)))} />
+          <SpeakerForm
+            key={s.id}
+            sessionId={sessionId}
+            speaker={s}
+            candidates={candidates}
+            onSaved={(u) => onChange(speakers.map((x) => (x.id === u.id ? u : x)))}
+          />
         ))}
       </div>
     </div>

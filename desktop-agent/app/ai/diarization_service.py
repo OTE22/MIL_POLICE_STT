@@ -135,7 +135,9 @@ class NvidiaSortformerDiarizationService(DiarizationService):
 
     def info(self) -> ModelInfo:
         if self._state == "NOT_PROVISIONED" and self._files_present():
+            # Files appeared after a failed check: the previous "missing files" error is stale.
             self._state = "PROVISIONED"
+            self._error = None
         return ModelInfo(
             name="diarization",
             provider=self.provider,
