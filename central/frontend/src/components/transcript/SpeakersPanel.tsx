@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth";
 import { formatDuration, speakerColor } from "@/lib/format";
 import { T, errorMessage, t } from "@/lib/i18n";
 import { Field, useToast } from "@/components/ui";
+import { VoiceEnrollButton, VoiceSuggestion } from "./VoiceSuggestion";
 
 const ROLES: SpeakerRole[] = ["INVESTIGATOR", "SUBJECT", "WITNESS", "OTHER", "UNKNOWN"];
 
@@ -64,6 +65,14 @@ function SpeakerForm({
 
   return (
     <div className="speaker-card" data-testid="speaker-card" data-label={speaker.speaker_label}>
+      <VoiceSuggestion
+        sessionId={sessionId}
+        speaker={speaker}
+        onDecided={(patch) => {
+          if (patch.display_name !== undefined && patch.display_name !== null) setName(patch.display_name);
+          onSaved({ ...speaker, ...patch });
+        }}
+      />
       <div className="head">
         <strong>
           <span className="sw" style={{ background: speakerColor(speaker.speaker_label) }} />
@@ -130,10 +139,11 @@ function SpeakerForm({
         </div>
       )}
       {editable && (
-        <div>
+        <div className="flex wrap">
           <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => void save()} type="button">
             {T.assignName}
           </button>
+          <VoiceEnrollButton sessionId={sessionId} speaker={speaker} onEnrolled={() => onSaved({ ...speaker })} />
         </div>
       )}
     </div>

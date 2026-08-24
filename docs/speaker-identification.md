@@ -86,6 +86,27 @@ API exposes only metadata, scores and names. Audit events: `VOICE_ENROLLED`,
 A speaker's own embedding is stored on the speaker row so that enrolling someone later can
 re-match earlier sessions without reprocessing audio.
 
+## Using it in the application
+
+**Speakers tab (تبويب المتحدثون)**
+
+* A pending suggestion appears above the speaker as a highlighted banner:
+  `اقتراح بناءً على بصمة الصوت: <name>` with `درجة التطابق: NN%`, the disclaimer
+  "هذا اقتراح آلي ولا يُعتمد إلا بعد تأكيد المحقق." and two buttons:
+  **تأكيد الاقتراح** / **تجاهل الاقتراح**.
+  الاسم المعروض stays **empty** until the investigator confirms.
+* After a decision the banner becomes a badge: `مؤكَّد من المحقق` or `مرفوض من المحقق`.
+* **تسجيل بصمة الصوت** next to تعيين الاسم opens the enrolment dialog. It is disabled
+  until the speaker has a name, and the submit button stays disabled until
+  **تم الحصول على الموافقة وتوثيقها** is ticked.
+
+**بصمات الأصوات page** (sidebar → الإدارة, requires `voice.identify`)
+
+Lists every template with the person, reference, model + revision, sample length, source
+session, consent flag, active state and who enrolled it. Holders of `voice.enroll` can
+تعطيل / تفعيل (stop or resume future suggestions) or حذف البصمة (permanent). Confirmed
+names are never affected by deactivating or deleting a template.
+
 ## Provisioning
 
 ```bash

@@ -231,6 +231,8 @@ export interface Segment {
   edited_at: string | null;
 }
 
+export type IdentificationStatus = "NONE" | "SUGGESTED" | "CONFIRMED" | "REJECTED";
+
 export interface Speaker {
   id: string;
   session_id: string;
@@ -241,6 +243,32 @@ export interface Speaker {
   notes: string | null;
   segment_count: number;
   total_seconds: number;
+  updated_at: string;
+  /** Voice-based suggestion. Never applied automatically - a human confirms it. */
+  identification_status: IdentificationStatus;
+  suggested_name: string | null;
+  suggested_score: number | null;
+  suggested_model: string | null;
+  has_voice_embedding: boolean;
+}
+
+export interface VoiceEnrollment {
+  id: string;
+  person_name: string;
+  person_reference: string;
+  notes: string | null;
+  model: string;
+  model_revision: string | null;
+  provider: string | null;
+  embedding_dim: number;
+  sample_seconds: number | null;
+  source_session_id: string | null;
+  source_speaker_label: string | null;
+  consent_recorded: boolean;
+  is_active: boolean;
+  enrolled_by: string | null;
+  enrolled_by_name: string | null;
+  created_at: string;
   updated_at: string;
 }
 

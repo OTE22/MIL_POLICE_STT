@@ -11,6 +11,7 @@ import {
   IconMic,
   IconMonitor,
   IconPlus,
+  IconMic as IconVoice,
   IconShield,
   IconUsers,
 } from "./Icons";
@@ -42,6 +43,7 @@ export function crumbsFor(pathname: string): Crumb[] {
   if (pathname.startsWith("/investigations")) return [{ label: T.investigations }];
   if (pathname.startsWith("/users")) return [{ label: T.users }];
   if (pathname.startsWith("/workstations")) return [{ label: T.workstations }];
+  if (pathname.startsWith("/voice-enrollments")) return [{ label: T.voiceEnrollments }];
   if (pathname.startsWith("/audit")) return [{ label: T.audit }];
   if (pathname.startsWith("/change-password")) return [{ label: T.changePassword }];
   return [];
@@ -79,7 +81,7 @@ export function Layout() {
               <IconPlus /> {T.newInvestigation}
             </NavLink>
           )}
-          {(can("users.manage") || can("workstations.read") || can("audit.read")) && <div className="nav-section">{T.administration}</div>}
+          {(can("users.manage") || can("workstations.read") || can("audit.read") || can("voice.identify")) && <div className="nav-section">{T.administration}</div>}
           {can("users.manage") && (
             <NavLink to="/users" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
               <IconUsers /> {T.users}
@@ -88,6 +90,11 @@ export function Layout() {
           {can("workstations.read") && (
             <NavLink to="/workstations" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
               <IconMonitor /> {T.workstations}
+            </NavLink>
+          )}
+          {can("voice.identify") && (
+            <NavLink to="/voice-enrollments" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <IconVoice /> {T.voiceEnrollments}
             </NavLink>
           )}
           {can("audit.read") && (

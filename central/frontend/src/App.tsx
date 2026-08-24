@@ -12,6 +12,7 @@ import { InvestigationDetailPage } from "@/pages/InvestigationDetailPage";
 import { UsersPage } from "@/pages/UsersPage";
 import { WorkstationsPage } from "@/pages/WorkstationsPage";
 import { AuditPage } from "@/pages/AuditPage";
+import { VoiceEnrollmentsPage } from "@/pages/VoiceEnrollmentsPage";
 import { ChangePasswordPage } from "@/pages/ChangePasswordPage";
 
 function RequireAuth({ children }: { children: ReactNode }) {
@@ -65,6 +66,14 @@ export function App() {
           element={
             <RequirePermission codes={["workstations.read"]}>
               <WorkstationsPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/voice-enrollments"
+          element={
+            <RequirePermission codes={["voice.identify"]}>
+              <VoiceEnrollmentsPage />
             </RequirePermission>
           }
         />

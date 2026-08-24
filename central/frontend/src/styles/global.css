@@ -363,3 +363,9 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .candidate-chips { margin-top: 4px; }
 .candidate-chips .radio-chip { gap: 6px; padding: 5px 12px; font-size: 13px; }
 .candidate-chips .radio-chip .small { font-weight: 400; }
+
+/* voice identification suggestion */
+.voice-suggestion { padding: 10px 12px; margin-bottom: 10px; border: 1px solid var(--accent-soft); border-inline-start: 3px solid var(--accent); border-radius: var(--radius); background: var(--accent-soft); display: flex; flex-direction: column; gap: 6px; }
+.voice-suggestion strong { color: var(--accent-strong); }
+.voice-suggestion .hint { color: var(--ink-soft); }
+.voice-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
