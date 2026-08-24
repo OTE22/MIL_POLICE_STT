@@ -151,8 +151,14 @@ def main() -> int:
         # 5. Create investigation via the form
         page.goto(f"{base}/investigations/new")
         page.fill("input.input >> nth=0", f"جلسة تحقيق تجريبية {stamp}")
-        page.locator(".field", has_text="اسم الشخص").locator("input").fill("أحمد محمد")
-        page.locator(".field", has_text="الموقع").first.locator("input").fill("بيروت")
+
+        # Exact label match: the subject section has several fields whose text contains
+        # these words (nationality, documents, …), so a loose has_text is ambiguous.
+        def form_field(label: str):
+            return page.locator(f".field:has(> label:text-is('{label}'))").first
+
+        form_field("اسم الشخص").locator("input").fill("أحمد محمد")
+        form_field("الموقع").locator("input").fill("بيروت")
         page.click("button[type=submit]")
         page.wait_for_url(lambda u: "/investigations/" in u and "/new" not in u, timeout=20000)
         session_id = page.url.rstrip("/").split("/")[-1].split("?")[0]
@@ -212,16 +218,26 @@ def main() -> int:
         page.click("role=tab[name='المتحدثون']")
         cards = page.locator("[data-testid=speaker-card]")
         expect(cards.first).to_be_visible()
-        c0 = page.locator("[data-testid=speaker-card][data-label=SPEAKER_00]")
-        c0.locator("input.input").first.fill("المحقق")
-        c0.locator("select").select_option("INVESTIGATOR")
-        c0.locator("button", has_text="تعيين الاسم").click()
-        expect(page.locator(".toast", has_text="تم حفظ بيانات المتحدث")).to_be_visible()
-        c1 = page.locator("[data-testid=speaker-card][data-label=SPEAKER_01]")
-        c1.locator("input.input").first.fill("الشخص الذي تتم مقابلته")
-        c1.locator("select").select_option("SUBJECT")
-        c1.locator("button", has_text="تعيين الاسم").click()
-        expect(page.locator(".toast", has_text="تم حفظ بيانات المتحدث").last).to_be_visible()
+        def map_speaker(label: str, display_name: str, role: str) -> None:
+            """Assign one speaker and wait for the value to be PERSISTED.
+
+            Waiting on a toast is unreliable: the previous save's toast is still on
+            screen, so `.last` can match a stale one. Poll the API instead.
+            """
+            card = page.locator(f"[data-testid=speaker-card][data-label={label}]")
+            card.locator("input.input").first.fill(display_name)
+            card.locator("select").select_option(role)
+            card.locator("button", has_text="تعيين الاسم").click()
+            deadline = time.time() + 30
+            while time.time() < deadline:
+                _, current = api(base, f"/api/investigations/{session_id}/speakers", token)
+                if any(s["speaker_label"] == label and s["display_name"] == display_name for s in current):
+                    return
+                time.sleep(0.5)
+            raise AssertionError(f"{label} was not persisted as {display_name!r}")
+
+        map_speaker("SPEAKER_00", "المحقق", "INVESTIGATOR")
+        map_speaker("SPEAKER_01", "الشخص الذي تتم مقابلته", "SUBJECT")
         shot(page, shots, "07-speakers")
         _, speakers = api(base, f"/api/investigations/{session_id}/speakers", token)
         names = {s["speaker_label"]: s["display_name"] for s in speakers}

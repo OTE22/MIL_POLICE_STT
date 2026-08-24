@@ -95,7 +95,7 @@ function UserModal({ user, onClose, onSaved }: { user: UserRow | null; onClose: 
         <div className="form-grid">
           <div className="section-title">{T.login}</div>
           <Field label={T.username} required>
-            <input className="input" value={username} onChange={(e) => setUsername(e.target.value)} disabled={!!user} required dir="ltr" pattern="[a-zA-Z0-9._-]{3,64}" />
+            <input className="input" value={username} onChange={(e) => setUsername(e.target.value)} disabled={!!user} required dir="ltr" pattern="[a-zA-Z0-9._\-]{3,64}" />
           </Field>
           {!user && (
             <Field label={T.password} required hint={T.passwordPolicy}>
