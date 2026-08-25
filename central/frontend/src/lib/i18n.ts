@@ -445,6 +445,22 @@ export const T = {
   err_agent_unsupported_audio: "الملف الصوتي غير مدعوم.",
   err_agent_replay: "تم استخدام تصريح المعالجة مسبقاً.",
   err_no_fallback: "لن تتم إعادة توجيه التسجيل إلى أي خدمة خارجية. أصلح الخدمة المحلية ثم أعد المحاولة.",
+  auditMatchScore: "مطابقة",
+  auditConfirmedByHuman: "مؤكَّد من المحقق",
+  auditSuggestionDismissed: "تم تجاهل الاقتراح",
+  auditNewSuggestions: "اقتراح",
+  auditNoNewSuggestions: "لا اقتراحات جديدة",
+  auditSegment: "مقطع",
+  auditSpeakersCount: "متحدثين",
+  auditSegmentsCount: "مقاطع",
+  auditRunCompleted: "اكتملت معالجة التسجيل",
+  auditRunFailed: "فشلت معالجة التسجيل",
+  auditRunCancelled: "أُلغيت معالجة التسجيل",
+  auditRunRunning: "معالجة تسجيل قيد التنفيذ",
+  auditTechnicalDetails: "التفاصيل التقنية",
+  auditStages: "مراحل المعالجة",
+  auditFilterAll: "الكل",
+  auditNoMatch: "لا توجد أحداث ضمن هذا التصنيف.",
 } as const;
 
 export type TKey = keyof typeof T;
@@ -494,5 +510,6 @@ export const AUDIT_ACTIONS: Record<string, string> = {
   VOICE_IDENTITY_SUGGESTED: "اقتراح هوية بناءً على الصوت",
   VOICE_IDENTITY_CONFIRMED: "تأكيد اقتراح الهوية",
   VOICE_IDENTITY_REJECTED: "رفض اقتراح الهوية",
+  VOICE_REMATCH_RUN: "إعادة فحص البصمات",
   WORKSTATION_REGISTERED: "تسجيل محطة عمل",
 };

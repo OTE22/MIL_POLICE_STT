@@ -5,7 +5,7 @@ import { ApiError, getToken, http } from "@/api/client";
 import type { AuditEntry, Investigation, Paged, SessionStatus, Transcript } from "@/api/types";
 import { useAuth } from "@/lib/auth";
 import { formatBytes, formatDate, formatDateTime, formatDuration, formatTime } from "@/lib/format";
-import { AUDIT_ACTIONS, T, errorMessage, t } from "@/lib/i18n";
+import { T, errorMessage, t } from "@/lib/i18n";
 import { countryName } from "@/lib/countries";
 import { documentSummary, subjectIdentitySummary } from "@/components/subjects/SubjectFields";
 import { Alert, Badge, Loading, SessionStatusBadge, useToast } from "@/components/ui";
@@ -14,6 +14,7 @@ import { AgentStatusPanel, useAgentStatus } from "@/components/recording/AgentSt
 import { Recorder, type PendingAudio } from "@/components/recording/Recorder";
 import { ProcessingPanel } from "@/components/recording/ProcessingPanel";
 import { TranscriptViewer } from "@/components/transcript/TranscriptViewer";
+import { ActivityTimeline } from "@/components/audit/ActivityTimeline";
 import { SpeakersPanel, type SpeakerCandidate } from "@/components/transcript/SpeakersPanel";
 
 type Tab = "details" | "recording" | "transcript" | "speakers" | "activity";
@@ -238,23 +239,8 @@ function ActivityTab({ sessionId }: { sessionId: string }) {
     <div className="card">
       <div className="card-header"><h3>{T.tabActivity}</h3></div>
       <div className="card-body">
-        <div className="timeline" data-testid="activity">
-          {data.items.length === 0 && <div className="muted center">{T.noData}</div>}
-          {data.items.map((e) => (
-            <div className="tl-item" key={e.id}>
-              <div className="when num">{formatDateTime(e.created_at)}</div>
-              <div>
-                <div className="what">{AUDIT_ACTIONS[e.action] ?? e.action}</div>
-                <div className="meta">
-                  {e.username ?? T.none}
-                  {e.safe_metadata && Object.keys(e.safe_metadata).length > 0 && (
-                    <span className="ltr" style={{ marginInlineStart: 8 }}>{JSON.stringify(e.safe_metadata)}</span>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+        {/* withinSession: the session id is on every record here and carries no information. */}
+        <ActivityTimeline entries={data.items} withinSession />
       </div>
     </div>
   );

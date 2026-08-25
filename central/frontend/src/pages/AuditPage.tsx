@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { http, qs } from "@/api/client";
 import type { AuditEntry, Paged } from "@/api/types";
 import { formatDateTime } from "@/lib/format";
+import { AuditCell } from "@/components/audit/ActivityTimeline";
 import { AUDIT_ACTIONS, T } from "@/lib/i18n";
 import { Loading, Pagination } from "@/components/ui";
 
@@ -71,7 +72,7 @@ export function AuditPage() {
                       <td>{e.username ?? T.none}</td>
                       <td>{AUDIT_ACTIONS[e.action] ?? e.action}</td>
                       <td className="ltr small">{e.entity_type ?? ""} {e.entity_id ? e.entity_id.slice(0, 8) : ""}</td>
-                      <td className="ltr small" style={{ maxWidth: 420, overflowWrap: "anywhere" }}>{e.safe_metadata ? JSON.stringify(e.safe_metadata) : ""}</td>
+                      <td className="small"><AuditCell entry={e} /></td>
                       <td className="ltr small">{e.ip_address ?? ""}</td>
                     </tr>
                   ))}

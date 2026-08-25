@@ -248,9 +248,29 @@ def main() -> int:
         # Activity tab
         page.click("role=tab[name='سجل النشاط']")
         act = page.locator("[data-testid=activity]")
-        for label in ("إنشاء جلسة", "طلب معالجة محلية", "بدء فصل المتحدثين", "استلام النص المفرغ", "تصحيح مقطع في النص", "تعيين اسم متحدث", "رفع التسجيل الأصلي"):
+
+        # The pipeline stages are folded into one run. Whether a given stage sits inside
+        # that run or stands alone depends on the order events arrived in, so assert the
+        # contract that actually matters: after expanding, nothing has been lost.
+        runs = page.locator("[data-testid=activity-run]")
+        # count() does not auto-wait; the tab fetches its data after mount.
+        expect(runs.first).to_be_visible(timeout=15000)
+        check("processing stages folded into a run", runs.count() >= 1, f"{runs.count()} run(s)")
+        expect(runs.first).to_contain_text("اكتملت معالجة التسجيل")
+        for i in range(runs.count()):
+            runs.nth(i).locator("button.audit-toggle", has_text="مراحل المعالجة").first.click()
+
+        for label in ("إنشاء جلسة", "إنشاء تسجيل", "طلب معالجة محلية", "بدء فصل المتحدثين",
+                      "استلام النص المفرغ", "تصحيح مقطع في النص", "تعيين اسم متحدث",
+                      "رفع التسجيل الأصلي"):
             expect(act).to_contain_text(label)
-        check("activity log (Arabic audit labels)", True)
+        check("activity log (Arabic audit labels, nothing lost by grouping)", True)
+
+        # Raw metadata must never be printed at people.
+        body = act.inner_text()
+        check("no JSON dumped in the activity log", "{" not in body and '":' not in body)
+        check("readable summary lines present", page.locator(".audit-summary").count() > 0,
+              f"{page.locator('.audit-summary').count()} summaries")
         shot(page, shots, "ui-08-activity")
 
         # Investigator cannot see admin pages
