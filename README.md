@@ -103,6 +103,7 @@ Then open `http://localhost:8080`, create an investigator, create a session, ope
 | [docs/audio-pipeline.md](docs/audio-pipeline.md) | Validation, FFmpeg, VAD, segmentation and reconciliation rules |
 | [docs/cohere-stt.md](docs/cohere-stt.md) | The Arabic STT model, loading, configuration |
 | [docs/nvidia-diarization.md](docs/nvidia-diarization.md) | Sortformer diarization, speaker change vs diarization, overlap, limits |
+| [docs/voice-enrollment-guide.md](docs/voice-enrollment-guide.md) | **بصمات الأصوات in practice** — enrolling a voice, re-scanning, and why suggestions go missing |
 | [docs/speaker-identification.md](docs/speaker-identification.md) | SpeakerNet-M voice suggestions, enrolment, consent, calibration |
 | [docs/subject-identity.md](docs/subject-identity.md) | Interviewed person: classification, nationality, documents and scans |
 | [docs/windows-installation.md](docs/windows-installation.md) | Windows workstation installation (service) |

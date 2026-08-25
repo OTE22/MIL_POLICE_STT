@@ -1,5 +1,9 @@
 # Speaker identification (SpeakerNet-M)
 
+> Looking for the day-to-day workflow — how to enrol a voice, re-scan a session, or work
+> out why a suggestion is missing? See [voice-enrollment-guide.md](voice-enrollment-guide.md).
+> This document covers the model and the matching rules.
+
 > **Scope change.** The original specification (§10, §83) excluded voice biometrics.
 > This capability was added later at the customer's request. It is built as an
 > **assistive suggestion that a human must confirm** — it never assigns a name by
