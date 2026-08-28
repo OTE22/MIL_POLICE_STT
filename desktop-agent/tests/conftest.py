@@ -222,6 +222,11 @@ def build_runtime(settings: Settings, *, vad=None, diarization=None, transcripti
     runtime.vad = vad or FakeVad()
     runtime.diarization = diarization or FakeDiarization()
     runtime.transcription = transcription or FakeTranscription()
+    # The real runtime always builds this; constructing it is cheap and does not import
+    # NeMo (that happens in load()). Without it runtime.status() raises AttributeError.
+    from app.ai.speaker_id_service import build_speaker_id_service
+
+    runtime.speaker_id = build_speaker_id_service(settings)
     import threading
 
     runtime._load_lock = threading.Lock()

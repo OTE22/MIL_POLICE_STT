@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { http, qs } from "@/api/client";
 import type { InvestigationListItem, Paged, Profile, SessionStatus } from "@/api/types";
 import { useAuth } from "@/lib/auth";
-import { formatDate, formatDuration } from "@/lib/format";
+import { formatDate, formatDuration, personLabel } from "@/lib/format";
 import { T, t } from "@/lib/i18n";
 import { IconPlus, IconSearch } from "@/components/Icons";
 import { Loading, Pagination, SessionStatusBadge } from "@/components/ui";
@@ -88,7 +88,7 @@ export function InvestigationsPage() {
               <option value="">{T.investigator}: {T.all}</option>
               {investigators.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.full_name}
+                  {personLabel(p.full_name, p.rank)}
                 </option>
               ))}
             </select>

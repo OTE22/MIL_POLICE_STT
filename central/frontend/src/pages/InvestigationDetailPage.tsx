@@ -15,7 +15,7 @@ import { Recorder, type PendingAudio } from "@/components/recording/Recorder";
 import { ProcessingPanel } from "@/components/recording/ProcessingPanel";
 import { TranscriptViewer } from "@/components/transcript/TranscriptViewer";
 import { ActivityTimeline } from "@/components/audit/ActivityTimeline";
-import { SpeakersPanel, type SpeakerCandidate } from "@/components/transcript/SpeakersPanel";
+import { SpeakersPanel } from "@/components/transcript/SpeakersPanel";
 
 type Tab = "details" | "recording" | "transcript" | "speakers" | "activity";
 const TABS: { key: Tab; label: string }[] = [
@@ -301,18 +301,6 @@ export function InvestigationDetailPage() {
 
   if (!session) return <Loading />;
 
-  /* Speaker-name suggestions come from the people already recorded in this جلسة:
-     the assigned investigators and the listed subjects. No extra request needed. */
-  const speakerCandidates: SpeakerCandidate[] = [
-    ...session.investigators.map((i) => ({
-      name: [i.rank, i.full_name].filter(Boolean).join(" "),
-      role: "INVESTIGATOR" as const,
-      hint: T.candidateInvestigator,
-    })),
-    ...session.subjects
-      .filter((s) => s.subject_name?.trim())
-      .map((s) => ({ name: s.subject_name!.trim(), role: "SUBJECT" as const, hint: T.candidateSubject })),
-  ].filter((c, i, all) => c.name && all.findIndex((x) => x.name === c.name) === i);
 
   const onCompleted = () => {
     void load();
@@ -387,7 +375,6 @@ export function InvestigationDetailPage() {
         <SpeakersPanel
           sessionId={session.id}
           speakers={transcript?.speakers ?? []}
-          candidates={speakerCandidates}
           onChange={(speakers) => transcript && setTranscript({ ...transcript, speakers })}
           // A re-scan rewrites suggestions server-side, so refetch rather than patch state.
           onReload={() => void loadTranscript(true)}

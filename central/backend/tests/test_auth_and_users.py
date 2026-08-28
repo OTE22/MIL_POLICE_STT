@@ -44,20 +44,20 @@ def test_user_creation_validation_and_profile(client, admin_token):
     user = create_user(client, admin_token, "Inv9", ["INVESTIGATOR"], full_name="م. خالد", rank="نقيب", military_id="M-9")
     assert user["username"] == "inv9" and user["profile"]["rank"] == "نقيب"
     # duplicate username / military id
-    res = client.post("/api/users", json={"username": "inv9", "password": "Password!1234", "roles": ["USER"], "profile": {"full_name": "x"}}, headers=auth(admin_token))
+    res = client.post("/api/users", json={"username": "inv9", "password": "Password!1234", "roles": ["USER"], "profile": {"full_name": "x", "military_id": "M-dup", "security_branch": "ARMY"}}, headers=auth(admin_token))
     assert res.status_code == 409 and res.json()["detail"] == "username_taken"
-    res = client.post("/api/users", json={"username": "inv10", "password": "Password!1234", "roles": ["USER"], "profile": {"full_name": "x", "military_id": "M-9"}}, headers=auth(admin_token))
+    res = client.post("/api/users", json={"username": "inv10", "password": "Password!1234", "roles": ["USER"], "profile": {"full_name": "x", "military_id": "M-9", "security_branch": "ARMY"}}, headers=auth(admin_token))
     assert res.status_code == 409 and res.json()["detail"] == "military_id_taken"
     # weak password / bad role
-    res = client.post("/api/users", json={"username": "inv11", "password": "short", "roles": ["USER"], "profile": {"full_name": "x"}}, headers=auth(admin_token))
+    res = client.post("/api/users", json={"username": "inv11", "password": "short", "roles": ["USER"], "profile": {"full_name": "x", "military_id": "M-11", "security_branch": "ARMY"}}, headers=auth(admin_token))
     assert res.status_code == 422
-    res = client.post("/api/users", json={"username": "inv11", "password": "Password!1234", "roles": ["ROOT"], "profile": {"full_name": "x"}}, headers=auth(admin_token))
+    res = client.post("/api/users", json={"username": "inv11", "password": "Password!1234", "roles": ["ROOT"], "profile": {"full_name": "x", "military_id": "M-12", "security_branch": "ARMY"}}, headers=auth(admin_token))
     assert res.status_code == 422
 
 
 def test_role_change_password_reset_and_audit(client, admin_token):
     user = create_user(client, admin_token, "roleuser", ["USER"])
-    res = client.put(f"/api/users/{user['id']}", json={"roles": ["INVESTIGATOR"], "profile": {"full_name": "الاسم الجديد", "unit": "الكتيبة 3"}}, headers=auth(admin_token))
+    res = client.put(f"/api/users/{user['id']}", json={"roles": ["INVESTIGATOR"], "profile": {"full_name": "الاسم الجديد", "unit": "الكتيبة 3", "military_id": "M-role", "security_branch": "ARMY"}}, headers=auth(admin_token))
     assert res.status_code == 200 and res.json()["roles"] == ["INVESTIGATOR"] and res.json()["profile"]["unit"] == "الكتيبة 3"
     res = client.post(f"/api/users/{user['id']}/reset-password", json={"new_password": "NewPassword!99", "must_change_password": True}, headers=auth(admin_token))
     assert res.status_code == 204

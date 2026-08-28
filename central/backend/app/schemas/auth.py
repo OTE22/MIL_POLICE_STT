@@ -5,6 +5,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.models.enums import SecurityBranch
+
 
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=64)
@@ -25,6 +27,9 @@ class InvestigatorProfileOut(BaseModel):
     full_name: str
     rank: str | None = None
     military_id: str | None = None
+    security_branch: SecurityBranch | None = None
+    # Null until they are assigned to a session, which is when they are registered as a person.
+    reference_number: str | None = None
     unit: str | None = None
     department: str | None = None
     job_title: str | None = None

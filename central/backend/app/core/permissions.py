@@ -17,12 +17,19 @@ PERMISSIONS: dict[str, str] = {
     "investigations.archive": "Archive investigation sessions",
     "recordings.create": "Record or upload audio",
     "subjects.documents.view": "View identity documents (ID/passport scans) of interviewed persons",
+    # الرقم المرجعي is normally DERIVED from the structured identifiers, never typed. This is
+    # the exceptional path: overriding a derived reference, or assigning one when derivation
+    # is not possible. It is its own permission because no existing one expresses it -
+    # investigations.update means "may edit this session" and investigations.read_all means
+    # "may see every session"; neither means "may hand-assign a canonical business key".
+    "subjects.reference.override": "Manually assign or override الرقم المرجعي of a person",
     "processing.request": "Request local AI processing",
     "transcripts.read": "View transcripts",
     "transcripts.edit": "Correct transcript text",
     "speakers.assign": "Map anonymous speakers to names",
     "voice.identify": "See voice-based identity suggestions and confirm or reject them",
     "voice.enroll": "Create and remove voice enrolments (biometric templates)",
+    "system.configure": "Change runtime system settings (logging, matching, limits) from the interface",
     "workstations.read": "View workstation status",
     "workstations.register": "Register / refresh the local workstation",
     "audit.read": "View audit logs",

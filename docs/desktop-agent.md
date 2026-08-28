@@ -16,6 +16,7 @@ desktop-agent/app/
 ├── ai/vad_service.py              Silero VAD
 ├── ai/diarization_service.py      DiarizationService interface + NvidiaSortformerDiarizationService
 ├── ai/transcription_service.py    TranscriptionService interface + CohereLocalTranscriptionService
+├── ai/speaker_id_service.py       SpeakerNet-M embeddings (optional; never fatal)
 ├── ai/segment_service.py          turn post-processing + STT windows (pure functions)
 ├── ai/model_files.py              MANIFEST.json integrity checks
 ├── ai/runtime.py                  resident models, lazy / background loading
@@ -33,8 +34,13 @@ centrally. It only processes authorized jobs and reports back.
 | Endpoint | Purpose |
 |---|---|
 | `GET /health` | liveness: agent id, version, device name, uptime |
-| `GET /capabilities` / `GET /model-status` | device (cuda/cpu, GPU name), FFmpeg, STT / diarization / VAD model state (`NOT_PROVISIONED, PROVISIONED, LOADING, READY, ERROR`), max speakers, formats, readiness, busy flag, central sync enabled, public key installed |
-| `POST /models/load` | trigger background model loading (warm-up) |
+| `GET /capabilities` / `GET /model-status` | device (cuda/cpu, GPU name), FFmpeg, **STT / diarization / VAD / speaker_id** model state (`NOT_PROVISIONED, PROVISIONED, LOADING, READY, ERROR`), max speakers, formats, readiness, busy flag, central sync enabled, public key installed |
+| `POST /models/load` | trigger background model loading (warm-up); returns the full `runtime.status()` |
+
+`ready` deliberately means **STT and diarization only**. Speaker identification is optional,
+so an agent with no `speaker_id` model is still `ready: true` and transcribes normally — check
+the `speaker_id` block itself to know whether voice prints will be produced. An agent whose
+response has **no `speaker_id` key at all** predates the feature and needs redeploying.
 | `POST /jobs` (multipart: `processing_token`, `file`) | validates the token, stores the original audio, queues the job → `202 { job_id, state … }` |
 | `GET /jobs/{id}` | state, sync_state, progress, message, error_code/message, failure_stage, speaker/segment counts, warnings |
 | `POST /jobs/{id}/cancel` | cooperative cancellation (checked between stages and segments) |

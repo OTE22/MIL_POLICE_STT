@@ -15,27 +15,43 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.deps import client_ip, get_accessible_session, require_permission
+from app.core.deps import accessible_sessions_stmt, client_ip, get_accessible_session, require_permission
 from app.db.session import get_db
 from app.models import (
     AuditAction,
     IdentificationStatus,
     InvestigationSession,
+    PersonIdentity,
     SessionSpeaker,
     SpeakerRole,
+    Subject,
+    Transcript,
+    TranscriptSegment,
     User,
     VoiceEnrollment,
 )
 from app.schemas.voice import (
+    EnrollmentCandidateOut,
+    IdentityConsolidateIn,
+    PersonSearchOut,
     SpeakerDecisionIn,
     VoiceEnrollmentCreate,
     VoiceEnrollmentOut,
     VoiceEnrollmentUpdate,
 )
 from app.services.audit import record_audit
+from app.services.person_identity import (
+    IdentityMergeConflict,
+    get_or_create_identity,
+    merge_identities,
+    repoint_identity,
+    normalize_reference,
+    resolve_identity,
+)
 from app.services.voice_matching import rematch_speakers
 
 router = APIRouter(tags=["voice"])
@@ -44,10 +60,19 @@ router = APIRouter(tags=["voice"])
 def _out(db: Session, e: VoiceEnrollment) -> VoiceEnrollmentOut:
     user = db.get(User, e.enrolled_by) if e.enrolled_by else None
     name = user.profile.full_name if user and user.profile else (user.username if user else None)
+    identity = db.get(PersonIdentity, e.identity_id) if e.identity_id else None
+    identity = resolve_identity(db, identity)
     return VoiceEnrollmentOut(
         id=e.id,
-        person_name=e.person_name,
-        person_reference=e.person_reference,
+        identity_id=identity.id if identity else None,
+        # ONLY the registry answers "who is this". A print whose identity cannot be resolved
+        # reports no current person rather than presenting its enrolment-time snapshot as one:
+        # that snapshot may be years old, may carry a rank, and may name someone who has since
+        # been merged away. The snapshot is still returned below, labelled as history.
+        person_name=identity.person_name if identity else "",
+        person_reference=identity.reference_display if identity else "",
+        enrolled_person_name=e.person_name,
+        enrolled_person_reference=e.person_reference,
         notes=e.notes,
         model=e.model,
         model_revision=e.model_revision,
@@ -78,7 +103,17 @@ def list_enrollments(
         stmt = stmt.where(VoiceEnrollment.is_active.is_(True))
     if q:
         like = f"%{q}%"
-        stmt = stmt.where(VoiceEnrollment.person_name.ilike(like) | VoiceEnrollment.person_reference.ilike(like))
+        # Search the CURRENT canonical identity, not the enrolment-time snapshot: after a
+        # person is renamed, searching their new name has to find their prints. The snapshot
+        # is still matched so an old name a user remembers keeps working.
+        identity_match = select(PersonIdentity.id).where(
+            PersonIdentity.person_name.ilike(like) | PersonIdentity.reference_display.ilike(like)
+        )
+        stmt = stmt.where(
+            VoiceEnrollment.person_name.ilike(like)
+            | VoiceEnrollment.person_reference.ilike(like)
+            | VoiceEnrollment.identity_id.in_(identity_match)
+        )
     return [_out(db, e) for e in db.scalars(stmt.order_by(VoiceEnrollment.person_name)).all()]
 
 
@@ -105,27 +140,58 @@ def enroll_from_speaker(
         # Enrolling a biometric template without recorded consent is refused outright.
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="consent_required")
 
-    person_name = (body.person_name or speaker.display_name or "").strip()
-    if not person_name:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="person_name_required")
+    # Enrolment neither creates nor establishes a person - that is تحديد الهوية, which
+    # resolves identity from الرقم المرجعي. Every caller already requires an identified
+    # speaker (the candidate query below, and the button in VoiceSuggestion.tsx), so refuse
+    # rather than infer. There is deliberately no reference-based recovery here: deriving
+    # identity from a client-supplied reference IS establishing it.
+    if speaker.identity_id is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="speaker_identity_required")
+
+    # The stored id may point at a row that has since been merged away. Follow the alias to
+    # the survivor and converge the speaker onto it, so the print is filed under the person
+    # who actually survives rather than under a dead alias.
+    identity = resolve_identity(db, db.get(PersonIdentity, speaker.identity_id))
+    if identity is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="speaker_identity_required")
+    speaker.identity_id = identity.id
+    speaker.reference_number = identity.reference_display
 
     # Several prints per person are intended - different recording conditions give better
-    # coverage, and the matcher groups them by person_reference so they reinforce each
-    # other. What is refused is attaching a print to a reference that belongs to someone
-    # else: that is a data-entry error, and silently mis-filing a biometric template is
-    # exactly what must not happen here.
-    existing = db.scalar(
-        select(VoiceEnrollment).where(
-            VoiceEnrollment.person_reference == body.person_reference,
-            VoiceEnrollment.model == body.model,
-        )
+    # coverage, and the matcher groups them by canonical identity so they reinforce each
+    # other rather than competing.
+    #
+    # The registry is the sole authority for both snapshot values. body.person_name and
+    # body.person_reference are no longer consulted, and display_name never was eligible:
+    # it is a session label that may carry a rank, so trusting it filed "الرائد علي عباس"
+    # as a person.
+    person_name = identity.person_name
+    person_reference = identity.reference_display
+
+    # Only one ACTIVE print per (session, speaker, model). Asked here so a second attempt
+    # gets an answer it can act on, naming the print that already holds the slot, instead of
+    # reaching the partial unique index and returning an unexplained 500.
+    existing = _active_print_for_source(
+        db,
+        session_id=session.id,
+        speaker_label=speaker.speaker_label,
+        model=body.model,
     )
-    if existing is not None and existing.person_name.strip() != person_name:
-        raise HTTPException(status.HTTP_409_CONFLICT, detail="person_reference_name_mismatch")
+    if existing is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "code": "speaker_already_enrolled",
+                "enrollment_id": str(existing.id),
+                "person_name": existing.person_name,
+                "enrolled_at": existing.created_at.isoformat() if existing.created_at else None,
+            },
+        )
 
     enrollment = VoiceEnrollment(
+        identity_id=identity.id,
         person_name=person_name,
-        person_reference=body.person_reference,
+        person_reference=person_reference,
         notes=body.notes,
         embedding=list(speaker.voice_embedding),
         embedding_dim=len(speaker.voice_embedding),
@@ -139,7 +205,16 @@ def enroll_from_speaker(
         enrolled_by=user.id,
     )
     db.add(enrollment)
-    db.flush()
+    # Two concurrent requests can both pass the check above and only one can win the index.
+    # The loser must still get the same 409 as the sequential case, not a 500.
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={"code": "speaker_already_enrolled"},
+        ) from exc
     record_audit(
         db,
         action=AuditAction.VOICE_ENROLLED,
@@ -150,7 +225,7 @@ def enroll_from_speaker(
             "session_id": session.id,
             "speaker_label": speaker.speaker_label,
             "person_name": person_name,
-            "person_reference": body.person_reference,
+            "person_reference": person_reference,
             "model": body.model,
             "consent_recorded": True,
         },
@@ -172,20 +247,109 @@ def update_enrollment(
     enrollment = db.get(VoiceEnrollment, enrollment_id)
     if enrollment is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="enrollment_not_found")
-    for field, value in body.model_dump(exclude_unset=True).items():
-        setattr(enrollment, field, value)
+
+    data = body.model_dump(exclude_unset=True)
+    wants_identity_change = "person_name" in data or "person_reference" in data
+    if wants_identity_change and not body.apply_to_person:
+        # Refusing is the point: a per-print rename would let one person's prints disagree
+        # about who they belong to.
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="apply_to_person_required")
+
+    identity = resolve_identity(db, db.get(PersonIdentity, enrollment.identity_id)) if enrollment.identity_id else None
+    before = {"person_name": identity.person_name, "person_reference": identity.reference_display} if identity else {}
+    affected: list[uuid.UUID] = []
+
+    if wants_identity_change:
+        if identity is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="enrollment_has_no_identity")
+        new_name = (data.get("person_name") or identity.person_name).strip()
+        new_reference = (data.get("person_reference") or identity.reference_display).strip()
+
+        if normalize_reference(new_reference) != identity.reference_normalized:
+            # A reference correction is a merge, not an in-place edit: rewriting
+            # reference_normalized would free the old value for a stale client to recreate.
+            target = get_or_create_identity(db, new_reference, new_name)
+            if target is None:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="person_reference_required")
+            try:
+                _, identity = merge_identities(db, identity.id, target.id)
+            except IdentityMergeConflict as exc:
+                raise HTTPException(status.HTTP_409_CONFLICT, detail="identity_merge_conflict") from exc
+            affected = repoint_identity(db, source_id=enrollment.identity_id, target=identity)["enrollment_ids"]
+        else:
+            # Same reference, new name: one row carries the whole person.
+            identity.person_name = new_name
+            affected = [e.id for e in db.scalars(
+                select(VoiceEnrollment).where(VoiceEnrollment.identity_id == identity.id)
+            ).all()]
+
+    if "is_active" in data and data["is_active"] and not enrollment.is_active:
+        _guard_reactivation(db, enrollment)
+
+    for field in ("notes", "is_active"):
+        if field in data:
+            setattr(enrollment, field, data[field])
+
     record_audit(
         db,
-        action=AuditAction.VOICE_ENROLLED,
+        action=AuditAction.VOICE_ENROLLMENT_UPDATED if wants_identity_change else AuditAction.VOICE_ENROLLED,
         user_id=user.id,
         entity_type="voice_enrollment",
         entity_id=enrollment.id,
-        metadata={"updated": list(body.model_dump(exclude_unset=True).keys()), "is_active": enrollment.is_active},
+        metadata={
+            "updated": list(data.keys()),
+            "is_active": enrollment.is_active,
+            **({"identity_before": before,
+                "identity_after": {"person_name": identity.person_name,
+                                   "person_reference": identity.reference_display},
+                "affected_enrollment_ids": affected} if wants_identity_change and identity else {}),
+        },
         ip_address=client_ip(request),
     )
     db.commit()
     db.refresh(enrollment)
     return _out(db, enrollment)
+
+
+def _active_print_for_source(
+    db: Session,
+    *,
+    session_id: uuid.UUID | None,
+    speaker_label: str,
+    model: str,
+    exclude_id: uuid.UUID | None = None,
+) -> VoiceEnrollment | None:
+    """The active print already filed against this (session, speaker, model), if any.
+
+    `uq_voice_enrollment_active_source` enforces one of these. Both the creation and the
+    reactivation path have to ask the same question, and asking it in one place is what stops
+    them drifting - the creation path did not ask at all, so a second enrolment reached the
+    index and came back as a raw IntegrityError, i.e. a 500 with no usable message.
+    """
+    stmt = select(VoiceEnrollment).where(
+        VoiceEnrollment.is_active.is_(True),
+        VoiceEnrollment.source_session_id == session_id,
+        VoiceEnrollment.source_speaker_label == speaker_label,
+        VoiceEnrollment.model == model,
+    )
+    if exclude_id is not None:
+        stmt = stmt.where(VoiceEnrollment.id != exclude_id)
+    return db.scalar(stmt)
+
+
+def _guard_reactivation(db: Session, enrollment: VoiceEnrollment) -> None:
+    """Reactivating must respect the one-active-print-per-source guarantee."""
+    if _active_print_for_source(
+        db,
+        session_id=enrollment.source_session_id,
+        speaker_label=enrollment.source_speaker_label,
+        model=enrollment.model,
+        exclude_id=enrollment.id,
+    ) is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="enrollment_already_active",
+        )
 
 
 @router.delete("/voice-enrollments/{enrollment_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
@@ -248,6 +412,15 @@ def decide_suggestion(
         if speaker.speaker_role == SpeakerRole.UNKNOWN:
             speaker.speaker_role = SpeakerRole.SUBJECT
         speaker.identification_status = IdentificationStatus.CONFIRMED
+        # Confirming a match means "this speaker IS that person", so link the canonical
+        # identity of the print that matched. Without this the speaker would carry a name but
+        # no identity - it could never be enrolled, and the link back to the person would be
+        # lost. No new identity is created: the matched one is reused.
+        matched = db.get(VoiceEnrollment, speaker.suggested_enrollment_id) if speaker.suggested_enrollment_id else None
+        identity = resolve_identity(db, db.get(PersonIdentity, matched.identity_id)) if matched and matched.identity_id else None
+        if identity is not None:
+            speaker.identity_id = identity.id
+            speaker.reference_number = identity.reference_display
         action = AuditAction.VOICE_IDENTITY_CONFIRMED
     else:
         speaker.identification_status = IdentificationStatus.REJECTED
@@ -268,6 +441,7 @@ def decide_suggestion(
             "score": float(speaker.suggested_score) if speaker.suggested_score is not None else None,
             "accepted": body.accept,
             "display_name": speaker.display_name,
+            "identity_id": speaker.identity_id,
         },
         ip_address=client_ip(request),
     )
@@ -332,3 +506,198 @@ def rematch_all(
     )
     db.commit()
     return {"sessions": sessions, "scanned": scanned, "suggested": suggested}
+
+
+def _speaker_seconds(db: Session, speaker: SessionSpeaker) -> float | None:
+    """How much speech this speaker contributed, summed from the transcript segments."""
+    total = db.scalar(
+        select(func.coalesce(func.sum(TranscriptSegment.end_seconds - TranscriptSegment.start_seconds), 0))
+        .select_from(TranscriptSegment)
+        .join(Transcript, Transcript.id == TranscriptSegment.transcript_id)
+        .where(
+            Transcript.session_id == speaker.session_id,
+            TranscriptSegment.speaker_label == speaker.speaker_label,
+        )
+    )
+    return round(float(total), 2) if total else None
+
+@router.get("/voice-enrollments/people", response_model=list[PersonSearchOut])
+def search_people(
+    q: str | None = Query(default=None, max_length=100),
+    limit: int = Query(default=20, ge=1, le=100),
+    user: User = Depends(require_permission("voice.identify")),
+    db: Session = Depends(get_db),
+) -> list[PersonSearchOut]:
+    """Canonical identities, for reusing a person when identifying an unknown speaker.
+
+    Merged identities are aliases, not people: they resolve to their survivor and are
+    de-duplicated, so a reference that was merged away can never appear as a second person.
+    """
+    stmt = select(PersonIdentity).where(PersonIdentity.merged_into_id.is_(None))
+    if q:
+        like = f"%{q}%"
+        stmt = stmt.where(
+            PersonIdentity.person_name.ilike(like) | PersonIdentity.reference_display.ilike(like)
+        )
+    identities = db.scalars(stmt.order_by(PersonIdentity.person_name).limit(limit)).all()
+    if not identities:
+        return []
+
+    accessible_ids = set(
+        db.scalars(accessible_sessions_stmt(db, user).with_only_columns(InvestigationSession.id)).all()
+    )
+
+    out: list[PersonSearchOut] = []
+    for identity in identities:
+        prints = db.scalars(
+            select(VoiceEnrollment).where(
+                VoiceEnrollment.identity_id == identity.id, VoiceEnrollment.is_active.is_(True)
+            )
+        ).all()
+        # Scope every total to what this user may see. Otherwise the counts alone would
+        # disclose activity in sessions they have no access to.
+        visible = [p for p in prints if p.source_session_id in accessible_ids]
+        sessions = {p.source_session_id for p in visible if p.source_session_id}
+        out.append(
+            PersonSearchOut(
+                identity_id=identity.id,
+                person_name=identity.person_name,
+                person_reference=identity.reference_display,
+                accessible_session_count=len(sessions),
+                accessible_print_count=len(visible),
+                accessible_sample_seconds=round(sum(p.sample_seconds or 0.0 for p in visible), 2),
+            )
+        )
+    return out
+
+
+@router.get("/voice-enrollments/candidates", response_model=list[EnrollmentCandidateOut])
+def list_candidates(
+    user: User = Depends(require_permission("voice.enroll")),
+    db: Session = Depends(get_db),
+) -> list[EnrollmentCandidateOut]:
+    """بانتظار التسجيل — speakers whose person is known and whose voice is ready to enrol.
+
+    Derived from application state, never copied: identify a speaker anywhere and they appear
+    here. A speaker with an INACTIVE print is reported as such rather than as a fresh
+    candidate, so the operator reactivates instead of creating a duplicate print.
+    """
+    speakers = db.scalars(
+        select(SessionSpeaker)
+        .where(
+            SessionSpeaker.session_id.in_(
+                accessible_sessions_stmt(db, user).with_only_columns(InvestigationSession.id)
+            ),
+            SessionSpeaker.identity_id.is_not(None),
+            SessionSpeaker.voice_embedding.is_not(None),
+            SessionSpeaker.voice_embedding_model.is_not(None),
+        )
+        .order_by(SessionSpeaker.updated_at.desc())
+    ).all()
+
+    out: list[EnrollmentCandidateOut] = []
+    for speaker in speakers:
+        prints = db.scalars(
+            select(VoiceEnrollment).where(
+                VoiceEnrollment.source_session_id == speaker.session_id,
+                VoiceEnrollment.source_speaker_label == speaker.speaker_label,
+                VoiceEnrollment.model == speaker.voice_embedding_model,
+            )
+        ).all()
+        if any(p.is_active for p in prints):
+            continue  # already enrolled from this exact sample
+        identity = resolve_identity(db, db.get(PersonIdentity, speaker.identity_id))
+        if identity is None:
+            continue
+        session = db.get(InvestigationSession, speaker.session_id)
+        inactive = next((p for p in prints if not p.is_active), None)
+        out.append(
+            EnrollmentCandidateOut(
+                speaker_id=speaker.id,
+                session_id=speaker.session_id,
+                session_number=session.session_number if session else "",
+                session_title=session.title if session else None,
+                speaker_label=speaker.speaker_label,
+                # The session label, exactly as it is - empty when the speaker was never
+                # labelled. It must not borrow the canonical name: the two mean different
+                # things, and conflating them is what put a rank into the registry.
+                display_name=speaker.display_name or "",
+                person_name=identity.person_name,
+                speaker_role=speaker.speaker_role.value,
+                identity_id=identity.id,
+                person_reference=identity.reference_display,
+                sample_seconds=_speaker_seconds(db, speaker),
+                enrollment_state="enrolled_inactive" if inactive else "never_enrolled",
+                inactive_enrollment_id=inactive.id if inactive else None,
+                created_at=speaker.updated_at,
+            )
+        )
+    return out
+
+
+@router.post("/voice-enrollments/people/{identity_id}/consolidate")
+def consolidate_identity(
+    identity_id: uuid.UUID,
+    body: IdentityConsolidateIn,
+    request: Request,
+    user: User = Depends(require_permission("voice.enroll")),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Merge one canonical person into another, prints or no prints.
+
+    PATCH /voice-enrollments/{id} cannot express this: it is reached through an enrolment, and
+    two identities can need consolidating while neither owns one - both may be referenced only
+    by subjects and speakers. This is the smallest route that addresses an identity directly,
+    and it reuses the same merge and repoint implementation as the print-originated path.
+
+    Guarded by investigations.read_all as well, which only ADMIN holds: consolidation rewrites
+    canonical ownership across sessions the caller may not be able to open, so the ability to
+    enrol a voice must not confer it.
+    """
+    if "investigations.read_all" not in user.permission_codes:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="forbidden")
+
+    source = resolve_identity(db, db.get(PersonIdentity, identity_id))
+    target = resolve_identity(db, db.get(PersonIdentity, body.into_identity_id))
+    if source is None or target is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="identity_not_found")
+
+    before = {"person_name": source.person_name, "person_reference": source.reference_display}
+    try:
+        merged, survivor = merge_identities(db, source.id, target.id)
+    except IdentityMergeConflict as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="identity_merge_conflict") from exc
+
+    affected = repoint_identity(db, source_id=merged.id, target=survivor)
+
+    record_audit(
+        db,
+        action=AuditAction.VOICE_ENROLLMENT_UPDATED,
+        user_id=user.id,
+        entity_type="person_identity",
+        entity_id=survivor.id,
+        metadata={
+            "scope": "identity_consolidation",
+            "source_identity_id": merged.id,
+            "target_identity_id": survivor.id,
+            "identity_before": before,
+            "identity_after": {
+                "person_name": survivor.person_name,
+                "person_reference": survivor.reference_display,
+            },
+            # Zero prints is a normal outcome, not a failure.
+            "affected_enrollment_ids": affected["enrollment_ids"],
+            "affected_enrollments": len(affected["enrollment_ids"]),
+            "affected_subjects": affected["subjects"],
+            "affected_speakers": affected["speakers"],
+        },
+        ip_address=client_ip(request),
+    )
+    db.commit()
+    return {
+        "identity_id": str(survivor.id),
+        "person_name": survivor.person_name,
+        "person_reference": survivor.reference_display,
+        **{k: v for k, v in affected.items() if k != "enrollment_ids"},
+        "affected_enrollments": len(affected["enrollment_ids"]),
+    }

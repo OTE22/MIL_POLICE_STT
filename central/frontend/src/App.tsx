@@ -8,6 +8,7 @@ import { LoginPage } from "@/pages/LoginPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { InvestigationsPage } from "@/pages/InvestigationsPage";
 import { InvestigationFormPage } from "@/pages/InvestigationFormPage";
+import { SystemConfigPage } from "@/pages/SystemConfigPage";
 import { InvestigationDetailPage } from "@/pages/InvestigationDetailPage";
 import { UsersPage } from "@/pages/UsersPage";
 import { WorkstationsPage } from "@/pages/WorkstationsPage";
@@ -58,6 +59,14 @@ export function App() {
           element={
             <RequirePermission codes={["users.manage"]}>
               <UsersPage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <RequirePermission codes={["system.configure"]}>
+              <SystemConfigPage />
             </RequirePermission>
           }
         />

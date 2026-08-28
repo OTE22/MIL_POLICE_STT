@@ -7,51 +7,43 @@ import { formatDuration, speakerColor } from "@/lib/format";
 import { T, errorMessage, t } from "@/lib/i18n";
 import { Field, useToast } from "@/components/ui";
 import { VoiceEnrollButton, VoiceSuggestion } from "./VoiceSuggestion";
+import { IdentifySpeakerDialog } from "@/components/voice/IdentifySpeakerDialog";
+import { SpeakerPicker } from "./SpeakerPicker";
 
 const ROLES: SpeakerRole[] = ["INVESTIGATOR", "SUBJECT", "WITNESS", "OTHER", "UNKNOWN"];
-
-/** A person already recorded in the session: an assigned investigator or a listed subject. */
-export interface SpeakerCandidate {
-  name: string;
-  role: SpeakerRole;
-  hint: string;
-}
 
 function SpeakerForm({
   sessionId,
   speaker,
-  candidates,
   onSaved,
+  onReloadRequested,
 }: {
   sessionId: string;
   speaker: Speaker;
-  candidates: SpeakerCandidate[];
   onSaved: (s: Speaker) => void;
+  /** Identifying rewrites the speaker and the session server-side, so refetch rather
+      than patch local state. */
+  onReloadRequested: () => void;
 }) {
   const toast = useToast();
   const { can } = useAuth();
-  const [name, setName] = useState(speaker.display_name ?? "");
+  const [identifying, setIdentifying] = useState(false);
   const [role, setRole] = useState<SpeakerRole>(speaker.speaker_role);
-
-  /* Picking someone already in the session fills the الصفة too, but never overrides a
-     role the investigator has deliberately set. */
-  const changeName = (value: string) => {
-    setName(value);
-    const match = candidates.find((c) => c.name === value);
-    if (match && role === "UNKNOWN") setRole(match.role);
-  };
-  const [ref, setRef] = useState(speaker.reference_number ?? "");
   const [notes, setNotes] = useState(speaker.notes ?? "");
   const [busy, setBusy] = useState(false);
   const editable = can("speakers.assign");
+
+  /* الصفة and ملاحظات are the ONLY things حفظ writes. Identity is established by اختيار الشخص
+     and nothing else - which is what the old تعيين الاسم got wrong: it either labelled a
+     speaker or created a canonical person depending on which chip had been clicked, and
+     nothing on screen said which. */
+  const dirty = role !== speaker.speaker_role || notes !== (speaker.notes ?? "");
 
   const save = async () => {
     setBusy(true);
     try {
       const updated = await http.patch<Speaker>(`/investigations/${sessionId}/speakers/${speaker.id}`, {
-        display_name: name.trim() || null,
         speaker_role: role,
-        reference_number: ref.trim() || null,
         notes: notes.trim() || null,
       });
       onSaved(updated);
@@ -65,13 +57,20 @@ function SpeakerForm({
 
   return (
     <div className="speaker-card" data-testid="speaker-card" data-label={speaker.speaker_label}>
+      {identifying && (
+        <IdentifySpeakerDialog
+          sessionId={sessionId}
+          speaker={speaker}
+          onClose={() => setIdentifying(false)}
+          onIdentified={onReloadRequested}
+        />
+      )}
       <VoiceSuggestion
         sessionId={sessionId}
         speaker={speaker}
-        onDecided={(patch) => {
-          if (patch.display_name !== undefined && patch.display_name !== null) setName(patch.display_name);
-          onSaved({ ...speaker, ...patch });
-        }}
+        /* No local name state to sync any more: the picker renders speaker.display_name, so
+           updating the speaker is enough. */
+        onDecided={(patch) => onSaved({ ...speaker, ...patch })}
       />
       <div className="head">
         <strong>
@@ -85,25 +84,16 @@ function SpeakerForm({
         </span>
       </div>
       <div className="form-grid">
-        <Field label={T.displayName} hint={candidates.length ? T.speakerCandidateHint : undefined}>
-          <input
-            className="input"
-            list={`speaker-candidates-${speaker.id}`}
-            value={name}
-            onChange={(e) => changeName(e.target.value)}
-            disabled={!editable}
-            maxLength={200}
-            data-testid="speaker-name"
+        <Field label={T.speakerPerson}>
+          {/* One control. Selecting a person IS identifying them - there is no separate
+              "set the name" step that sometimes also created a canonical person. */}
+          <SpeakerPicker
+            sessionId={sessionId}
+            speaker={speaker}
+            onLinked={onReloadRequested}
+            onAddNew={() => setIdentifying(true)}
+            disabled={!editable || busy}
           />
-          {candidates.length > 0 && (
-            <datalist id={`speaker-candidates-${speaker.id}`}>
-              {candidates.map((c) => (
-                <option key={`${c.role}-${c.name}`} value={c.name}>
-                  {c.hint}
-                </option>
-              ))}
-            </datalist>
-          )}
         </Field>
         <Field label={T.speakerRole}>
           <select className="select" value={role} onChange={(e) => setRole(e.target.value as SpeakerRole)} disabled={!editable}>
@@ -115,33 +105,35 @@ function SpeakerForm({
           </select>
         </Field>
         <Field label={T.referenceNumber}>
-          <input className="input" value={ref} onChange={(e) => setRef(e.target.value)} disabled={!editable} maxLength={100} />
+          {/* Whatever the server stored. It arrives by picking a person and is never typed;
+              after a merge the backend converges it onto the survivor, so this shows what is
+              stored rather than what was sent. */}
+          <input
+            className="input ltr"
+            value={speaker.identity_reference || speaker.reference_number || ""}
+            readOnly
+            data-testid="speaker-reference"
+          />
         </Field>
         <Field label={T.notes}>
           <input className="input" value={notes} onChange={(e) => setNotes(e.target.value)} disabled={!editable} maxLength={2000} />
         </Field>
       </div>
-      {editable && candidates.length > 0 && (
-        <div className="flex wrap candidate-chips">
-          {candidates.map((c) => (
-            <button
-              key={`${c.role}-${c.name}`}
-              type="button"
-              className={`radio-chip ${name === c.name ? "selected" : ""}`}
-              onClick={() => changeName(c.name)}
-              title={c.hint}
-              data-testid="speaker-candidate"
-            >
-              {c.name}
-              <span className="muted small">{c.hint}</span>
-            </button>
-          ))}
+      {speaker.display_name && !speaker.identity_id && (
+        <div className="muted small mt-8" data-testid="speaker-not-identified">
+          {T.speakerNeedsIdentity}
         </div>
       )}
       {editable && (
         <div className="flex wrap">
-          <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => void save()} type="button">
-            {T.assignName}
+          <button
+            className="btn btn-primary btn-sm"
+            disabled={busy || !dirty}
+            onClick={() => void save()}
+            type="button"
+            data-testid="speaker-save"
+          >
+            {T.save}
           </button>
           <VoiceEnrollButton sessionId={sessionId} speaker={speaker} onEnrolled={() => onSaved({ ...speaker })} />
         </div>
@@ -153,13 +145,11 @@ function SpeakerForm({
 export function SpeakersPanel({
   sessionId,
   speakers,
-  candidates = [],
   onChange,
   onReload,
 }: {
   sessionId: string;
   speakers: Speaker[];
-  candidates?: SpeakerCandidate[];
   onChange: (s: Speaker[]) => void;
   onReload?: () => void;
 }) {
@@ -217,8 +207,8 @@ export function SpeakersPanel({
             key={s.id}
             sessionId={sessionId}
             speaker={s}
-            candidates={candidates}
             onSaved={(u) => onChange(speakers.map((x) => (x.id === u.id ? u : x)))}
+            onReloadRequested={() => onReload?.()}
           />
         ))}
       </div>

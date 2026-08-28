@@ -16,12 +16,15 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ENV_FILE="$REPO_ROOT/.env"
 
 HOSTNAME_FQDN=""
 CERT_SRC=""; KEY_SRC=""
 SELF_SIGNED="false"
 HTTP_PORT="8080"; HTTPS_PORT="8443"
+HTTP_PORT_SET=false; HTTPS_PORT_SET=false
 FORCE_TLS="false"
+QUIET="false"
 IMAGE_TAR=""
 ADMIN_USER="admin"
 ADMIN_PASSWORD=""
@@ -35,6 +38,20 @@ warn() { printf '  %s[warn]%s %s\n' "$YEL" "$RST" "$*"; }
 die()  { printf '\n%s[FAIL]%s %s\n\n' "$RED" "$RST" "$*" >&2; exit 1; }
 note() { printf '  %s%s%s\n' "$DIM" "$*" "$RST"; }
 
+# explain WHAT / WHY / SUCCESS / IF-IT-FAILS
+#
+# Each step says, in plain words, what it is about to do and how to tell whether it worked.
+# A deployment is done once, often by someone who did not build the system, and a bare
+# "[ ok ] postgres started" tells that person nothing about whether they can continue.
+# Pass --quiet to suppress these if you already know the system.
+explain() {
+  [ "$QUIET" = "true" ] && return 0
+  printf '\n  %s┌ WHAT %s %s\n' "$DIM" "$RST" "$1"
+  printf '  %s│ WHY  %s %s\n'   "$DIM" "$RST" "$2"
+  printf '  %s│ GOOD %s %s\n'   "$DIM" "$RST" "$3"
+  printf '  %s└ FAIL %s %s\n\n' "$DIM" "$RST" "$4"
+}
+
 usage() {
   sed -n '2,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   cat <<'EOF'
@@ -47,6 +64,7 @@ Options
   --http-port PORT    Published HTTP port                          (default: 8080)
   --https-port PORT   Published HTTPS port                         (default: 8443)
   --force-tls         Redirect all plain HTTP to HTTPS (recommended in production)
+  --quiet             Skip the plain-language explanation printed before each step
   --admin-user NAME   Bootstrap administrator username             (default: admin)
   --admin-password P  Bootstrap administrator password  (default: generated and printed once)
   --image-tar FILE    Load prebuilt images instead of building (air-gapped servers)
@@ -62,9 +80,10 @@ while [ $# -gt 0 ]; do
     --cert)           CERT_SRC="${2:?}"; shift 2 ;;
     --key)            KEY_SRC="${2:?}"; shift 2 ;;
     --self-signed)    SELF_SIGNED="true"; shift ;;
-    --http-port)      HTTP_PORT="${2:?}"; shift 2 ;;
-    --https-port)     HTTPS_PORT="${2:?}"; shift 2 ;;
+    --http-port)      HTTP_PORT="${2:?}"; HTTP_PORT_SET=true; shift 2 ;;
+    --https-port)     HTTPS_PORT="${2:?}"; HTTPS_PORT_SET=true; shift 2 ;;
     --force-tls)      FORCE_TLS="true"; shift ;;
+    --quiet)          QUIET="true"; shift ;;
     --admin-user)     ADMIN_USER="${2:?}"; shift 2 ;;
     --admin-password) ADMIN_PASSWORD="${2:?}"; shift 2 ;;
     --image-tar)      IMAGE_TAR="${2:?}"; shift 2 ;;
@@ -81,6 +100,24 @@ if [ "$SELF_SIGNED" = "false" ] && { [ -z "$CERT_SRC" ] || [ -z "$KEY_SRC" ]; };
 fi
 
 # =============================================================================
+explain \
+  "Check this machine can run the server: Docker, disk space, and the ports we need." \
+  "Every later step assumes these. Finding out now takes seconds; finding out during the database start costs an hour." \
+  "Every line below says [ ok ]." \
+  "Install Docker, free up disk, or stop whatever already uses ports 80/443. Then run this script again - it is safe to re-run."
+
+# A kept .env is the port authority on re-runs. Flags still win when given explicitly.
+if [ -f "$ENV_FILE" ]; then
+  env_http="$(grep -E '^CENTRAL_HTTP_PORT=' "$ENV_FILE" | tail -1 | cut -d= -f2 | tr -d '[:space:]')"
+  env_https="$(grep -E '^CENTRAL_HTTPS_PORT=' "$ENV_FILE" | tail -1 | cut -d= -f2 | tr -d '[:space:]')"
+  if [ "$HTTP_PORT_SET" = "false" ] && [ -n "$env_http" ] && [ "$env_http" != "$HTTP_PORT" ]; then
+    HTTP_PORT="$env_http";  note "using HTTP port $HTTP_PORT from the existing $ENV_FILE"
+  fi
+  if [ "$HTTPS_PORT_SET" = "false" ] && [ -n "$env_https" ] && [ "$env_https" != "$HTTPS_PORT" ]; then
+    HTTPS_PORT="$env_https"; note "using HTTPS port $HTTPS_PORT from the existing $ENV_FILE"
+  fi
+fi
+
 step "1/7  Preflight"
 # =============================================================================
 [ "$(id -u)" -eq 0 ] || die "run as root (sudo $0 ...)"
@@ -92,17 +129,27 @@ command -v openssl >/dev/null || die "openssl is required (secret generation)"
 ok "docker $(docker version --format '{{.Server.Version}}' 2>/dev/null || echo '?')"
 
 for p in "$HTTP_PORT" "$HTTPS_PORT"; do
-  if command -v ss >/dev/null && ss -lnt "sport = :$p" 2>/dev/null | grep -q LISTEN; then
-    die "port $p is already in use"
+  if ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${p}$"; then
+    # Our own nginx holding the port is a re-run, not a conflict.
+    if docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null | grep -q "mstt-nginx.*:${p}->"; then
+      note "port $p is held by this stack's own nginx (re-run) - fine"
+    else
+      die "port $p is already in use by something else on this host"
+    fi
   fi
 done
-ok "ports $HTTP_PORT and $HTTPS_PORT are free"
+ok "ports $HTTP_PORT and $HTTPS_PORT are available to this stack"
 note "hostname: $HOSTNAME_FQDN"
 
 # =============================================================================
+explain \
+  "Create the passwords and signing keys this server will use, and write them to a private file (.env)." \
+  "These are generated ONCE and never regenerated. The signing key proves to every desktop that a job really came from this server - regenerate it and every desktop stops trusting you." \
+  "'secrets generated' or 'existing .env kept'. Re-running never overwrites what is already there." \
+  "If .env exists but is unreadable, fix its permissions. NEVER delete it to 'start clean' - you would invalidate every desktop already deployed."
+
 step "2/7  Secrets and configuration"
 # =============================================================================
-ENV_FILE="$REPO_ROOT/.env"
 GENERATED_ADMIN_PW=""
 if [ -f "$ENV_FILE" ]; then
   ok "reusing the existing $ENV_FILE (secrets are NOT regenerated)"
@@ -148,6 +195,12 @@ note "the ES256 processing keypair is generated by the backend on first start,"
 note "into $REPO_ROOT/secrets - back it up, and never copy the private key to a desktop."
 
 # =============================================================================
+explain \
+  "Install the HTTPS certificate so browsers and desktops can reach this server securely." \
+  "Investigators send interview audio over this connection. Without TLS it crosses the network readable by anyone on it." \
+  "'certificate installed'. With --self-signed you also get a warning - that is expected for a pilot, not for production." \
+  "Check that --cert and --key point at real files and that the key matches the certificate. A mismatch is the usual cause."
+
 step "3/7  TLS certificate"
 # =============================================================================
 CERT_DIR="$REPO_ROOT/central/nginx/certs"
@@ -198,6 +251,12 @@ if [ "$FORCE_TLS" = "true" ]; then
 fi
 
 # =============================================================================
+explain \
+  "Build the four application images: database, backend, web interface, and the web server in front of them." \
+  "This machine runs the system from these images. Building takes the longest of any step - several minutes is normal, and nothing is wrong if it looks paused." \
+  "'images built'. Some steps print a lot of output; that is the build, not an error." \
+  "Almost always no disk space or no network to fetch base images. Check 'df -h' and your proxy settings."
+
 step "4/7  Images"
 # =============================================================================
 DC=(docker compose --env-file "$ENV_FILE" -f "$REPO_ROOT/docker-compose.yml")
@@ -214,24 +273,111 @@ else
 fi
 
 # =============================================================================
+explain \
+  "Start everything, then update the database structure to match this version." \
+  "The database update runs automatically. If it finds data it cannot safely convert it STOPS rather than guessing - that refusal is a feature, and this script prints what it means." \
+  "'postgres, backend, frontend and nginx started', with no [REFUSED] block after it." \
+  "If you see [REFUSED], read the explanation printed with it. It names the exact data problem, and it is a question only your unit can answer - never a bug to work around."
+
 step "5/7  Starting the stack"
 # =============================================================================
 "${DC[@]}" up -d --remove-orphans || die "the stack did not start"
 systemctl enable docker >/dev/null 2>&1 || true    # come back after a reboot
 ok "postgres, backend, frontend and nginx started"
 
+# nginx caches the backend's container IP from config-load time. If this deploy recreated
+# the backend (an upgrade always does), nginx still points at the OLD IP and serves 502s.
+# One restart re-resolves it; on a fresh install it is a harmless second.
+"${DC[@]}" restart nginx >/dev/null 2>&1 || true
+ok "nginx re-resolved the backend address"
+
+# --- collation safety after the pgvector image switch ------------------------
+# The database image moved from postgres:16-alpine to pgvector/pgvector:pg16 (same major
+# version, so the data volume mounts unchanged). Alpine uses musl and Debian uses glibc,
+# and their collations sort text differently - indexes built under one can be silently
+# wrong under the other. Postgres records the collation version a database was built
+# with; when the running library disagrees, reindex once and record the new version.
+# On a fresh install the versions agree and this does nothing.
+for _db in military_stt military_stt_test; do
+  mismatch="$("${DC[@]}" exec -T postgres psql -U stt -d postgres -tAc \
+    "SELECT 1 FROM pg_database WHERE datname='${_db}'
+       AND datcollversion IS DISTINCT FROM pg_database_collation_actual_version(oid)" \
+    2>/dev/null | tr -d '[:space:]' || true)"
+  if [ "$mismatch" = "1" ]; then
+    warn "collation library changed for ${_db} (image switch) - reindexing once"
+    # REFRESH COLLATION VERSION cannot transition from alpine's NULL version, so the
+    # recorded version is stamped directly - the documented workaround for exactly this
+    # alpine(musl) -> debian(glibc) move. The REINDEX is the part that protects the data.
+    "${DC[@]}" exec -T postgres psql -U stt -d "${_db}" -c "REINDEX DATABASE ${_db};" >/dev/null \
+      && "${DC[@]}" exec -T postgres psql -U stt -d postgres -c \
+           "UPDATE pg_database SET datcollversion = pg_database_collation_actual_version(oid) WHERE datname='${_db}';" >/dev/null \
+      && ok "${_db} reindexed for the new collation library" \
+      || warn "could not reindex ${_db} - run manually: REINDEX DATABASE ${_db};"
+  fi
+done
+
+# A migration that refuses is a DATA question only an operator can answer, so it must never
+# be buried under a generic health-check failure. Each entry is a marker the migration prints
+# and the one-line explanation an operator needs.
+migration_refusals() {
+  cat <<'MARKERS'
+Cannot backfill canonical identities|One reference number is recorded under two different names.
+Cannot retire family-keyed references|One reference is recorded against more than one person: رقم السجل identifies a family, so these may be relatives collapsed into one identity.
+MARKERS
+}
+
+# Report a refusal if the logs contain one. Returns 0 when it reported something.
+report_migration_refusal() {
+  local logs marker explanation
+  logs="$("${DC[@]}" logs backend 2>&1 || true)"
+  while IFS='|' read -r marker explanation; do
+    [ -n "$marker" ] || continue
+    if printf '%s' "$logs" | grep -q "$marker"; then
+      printf '\n%s[REFUSED]%s a database migration stopped on purpose.\n' "$RED" "$RST" >&2
+      printf '          %s\n' "$explanation" >&2
+      printf '          Nothing was changed. Resolve it, then run again:\n\n' >&2
+      printf '%s' "$logs" | grep -A 2 "$marker" | sed 's/^/          /' >&2
+      printf '\n' >&2
+      return 0
+    fi
+  done < <(migration_refusals)
+  return 1
+}
+
 printf '  waiting for the database and Alembic migrations '
 for i in $(seq 1 90); do
   if "${DC[@]}" exec -T backend curl -fsS --max-time 3 http://127.0.0.1:8000/api/health >/dev/null 2>&1; then
     printf ' up\n'; break
   fi
-  [ "$i" -eq 90 ] && { printf '\n'; "${DC[@]}" logs --tail 40 backend; die "the backend never became healthy"; }
+  # Fail fast when the backend has EXITED. A migration that refuses takes seconds; waiting the
+  # full three minutes to say so wastes the operator time and hides the reason.
+  if [ -z "$("${DC[@]}" ps -q --status running backend 2>/dev/null)" ] \
+     && [ -n "$("${DC[@]}" ps -aq backend 2>/dev/null)" ]; then
+    printf '\n'
+    report_migration_refusal && exit 1
+    # Any other startup failure: show what Alembic actually said rather than a tail of noise.
+    printf '%s[FAILED]%s the backend exited during startup.\n' "$RED" "$RST" >&2
+    "${DC[@]}" logs backend 2>&1 | grep -iE "error|traceback|alembic|refus" | tail -20 | sed 's/^/          /' >&2
+    die "the backend exited before becoming healthy"
+  fi
+  if [ "$i" -eq 90 ]; then
+    printf '\n'
+    report_migration_refusal && exit 1
+    "${DC[@]}" logs --tail 40 backend
+    die "the backend never became healthy"
+  fi
   printf '.'; sleep 2
 done
 rev="$("${DC[@]}" exec -T backend alembic current 2>/dev/null | tail -1 || true)"
 ok "backend healthy - schema at ${rev:-unknown}"
 
 # =============================================================================
+explain \
+  "Prove the server actually works: answer over HTTPS, serve the Arabic interface, and hand out the key the desktops need." \
+  "A container that is 'running' is not the same as a server that works. This step checks the things a user would notice, and exports the public key file you will carry to each desktop." \
+  "'API reachable over HTTPS', 'Arabic RTL frontend is being served', and 'public key exported'." \
+  "A failure here means the stack started but is not usable - do NOT deploy desktops yet. The message names which check failed."
+
 step "6/7  Verifying the deployment"
 # =============================================================================
 BASE_HTTP="http://127.0.0.1:$HTTP_PORT"
@@ -271,6 +417,37 @@ grep -q "BEGIN PUBLIC KEY" "$SCRIPT_DIR/central_public_key.pem" \
   || die "the exported public key is not valid PEM"
 ok "public key exported to deploy/central_public_key.pem"
 
+# --- schema level -----------------------------------------------------------
+# b2e94c1f7a06 is what makes an investigator a person in the registry. Without it the
+# picker cannot offer them and no voice print can ever be filed against one, so a stack
+# that came up on an older head is reported here rather than discovered by a user.
+if "${DC[@]}" exec -T postgres psql -U stt -d military_stt -tAc \
+     "SELECT 1 FROM alembic_version WHERE version_num='b2e94c1f7a06'" 2>/dev/null | grep -q 1; then
+  ok "schema at b2e94c1f7a06 (investigators are registry people)"
+else
+  warn "schema is NOT at b2e94c1f7a06 - investigators cannot be identified or voice-enrolled."
+  warn "  Check for a refused migration: ${DC[*]} logs backend | grep -i alembic"
+fi
+
+# --- staff who cannot yet be identified -------------------------------------
+# الجهاز + الرقم العسكري are what produce a user's الرقم المرجعي. Accounts created before
+# they became mandatory - the bootstrap administrator above is always one - have neither,
+# so they cannot be bound to a speaker or carry a voice print. This is not a failure: the
+# system works, and completing the profile fixes it. But it is invisible from the interface
+# until someone tries, so it is stated here.
+incomplete="$("${DC[@]}" exec -T postgres psql -U stt -d military_stt -tAc \
+  "SELECT string_agg(full_name, ', ') FROM investigator_profiles
+    WHERE COALESCE(NULLIF(btrim(military_id), ''), NULL) IS NULL
+       OR security_branch IS NULL" 2>/dev/null | tr -d '\r' | head -1 || true)"
+if [ -n "${incomplete// /}" ]; then
+  warn "these accounts have no الرقم المرجعي and cannot be identified as speakers:"
+  warn "    $incomplete"
+  warn "  Fix in إدارة المستخدمين: set الجهاز and الرقم العسكري. Until then they appear"
+  warn "  in the speaker picker DISABLED, and no voice print can be filed against them."
+else
+  ok "every staff account can be identified (الجهاز + الرقم العسكري present)"
+fi
+
 if [ "$KEEP_TEST_DB" = "false" ]; then
   if "${DC[@]}" exec -T postgres psql -U stt -lqt 2>/dev/null | cut -d'|' -f1 | grep -qw "military_stt_test"; then
     warn "a *_test database exists (created by an earlier development run)"
@@ -280,6 +457,12 @@ if [ "$KEEP_TEST_DB" = "false" ]; then
 fi
 
 # =============================================================================
+explain \
+  "Print what you need to keep: the address, the administrator password, and what to back up." \
+  "The administrator password is shown ONCE and cannot be recovered. The secrets folder cannot be recreated either." \
+  "A summary block with the URL and a first-run checklist. Copy the password into your password manager before closing this window." \
+  "If you lost the password, you can reset it, but only from this machine with database access."
+
 step "7/7  Done"
 # =============================================================================
 cat <<EOF
@@ -307,11 +490,25 @@ cat <<EOF
 
   logs             ${DC[*]} logs -f backend
   stop             ${DC[*]} down
+  people on a case curl -sk $BASE_TLS/api/investigations/<id>/people   (one shape, canonical names)
 
 Next, on each investigator desktop:
 
   sudo ./deploy-edge.sh --central-url https://$HOSTNAME_FQDN:$HTTPS_PORT \
        --public-key ./central_public_key.pem
+
+FIRST-RUN CHECKLIST (in this order)
+
+  1. Sign in as $ADMIN_USER and change the password when prompted.
+  2. إدارة المستخدمين -> edit the administrator and fill in الجهاز and الرقم العسكري.
+     These two produce the account's الرقم المرجعي (MIL-<الجهاز>-<الرقم>). Until they are
+     set the account cannot be bound to a speaker and cannot carry a voice print - it will
+     appear in the speaker picker DISABLED. Every user created from now on is required to
+     supply them, so this applies only to the bootstrap account.
+  3. Create the investigator accounts. الجهاز آخر is refused on purpose: it is a catch-all,
+     not a namespace, and two "other" forces sharing a serial would collapse into one
+     identity and pool two people's voice prints.
+  4. Deploy the desktops (below), then run one recording end to end before going live.
 
 Back up before going live: $REPO_ROOT/secrets, $REPO_ROOT/storage, and a
 pg_dump of the database. Losing secrets/ invalidates every processing token.

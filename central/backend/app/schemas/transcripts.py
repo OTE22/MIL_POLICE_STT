@@ -40,6 +40,13 @@ class SpeakerOut(BaseModel):
     suggested_score: float | None = None
     suggested_model: str | None = None
     has_voice_embedding: bool = False
+    # Canonical identity. Serialized outbound only - SpeakerUpdateIn deliberately has no
+    # identity_id, so a client can never attach a speaker to another person by UUID.
+    identity_id: uuid.UUID | None = None
+    # The canonical person behind identity_id. display_name is a session-local label and
+    # may be empty even when the speaker IS identified, so enrolment reads these instead.
+    identity_name: str | None = None
+    identity_reference: str | None = None
 
 
 class TranscriptOut(BaseModel):
@@ -76,3 +83,12 @@ class SpeakerUpdateIn(BaseModel):
     speaker_role: SpeakerRole | None = None
     reference_number: str | None = Field(default=None, max_length=100)
     notes: str | None = Field(default=None, max_length=2000)
+    # The canonical human name, rank EXCLUDED - the only field here that speaks for the
+    # registry. display_name is a session-local label: it may carry a rank, a nickname or
+    # nothing at all, so it must never become person_identities.person_name.
+    #
+    # Sent only when the client actually knows who this is (an exact participant selection,
+    # or the identification dialog), never re-sent to re-prove an identity the server already
+    # resolved. Still no identity_id: identity stays backend-owned, resolved from
+    # reference_number.
+    person_name: str | None = Field(default=None, max_length=200)

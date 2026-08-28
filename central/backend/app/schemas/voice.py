@@ -7,10 +7,15 @@ from pydantic import BaseModel, Field
 
 
 class VoiceEnrollmentCreate(BaseModel):
-    """Create a voice template from an already-identified speaker in a session."""
+    """Create a voice template from an already-identified speaker in a session.
 
-    person_reference: str = Field(min_length=1, max_length=100)
-    person_name: str | None = Field(default=None, max_length=200)
+    There is deliberately NO person_name or person_reference here. Who the print belongs to is
+    read from the registry via the speaker's identity_id - a client-supplied name or reference
+    was ignored, and a required field that changes nothing is worse than no field: it fails
+    requests that are otherwise correct, and it implies the caller gets to say who this is.
+    Extra keys are ignored, so an older client still sending them keeps working.
+    """
+
     notes: str | None = Field(default=None, max_length=2000)
     model: str = Field(max_length=200)
     model_revision: str | None = Field(default=None, max_length=100)
@@ -21,7 +26,13 @@ class VoiceEnrollmentCreate(BaseModel):
 
 
 class VoiceEnrollmentUpdate(BaseModel):
+    # Canonical identity fields. They live on the person, not the print, so they may only be
+    # changed with apply_to_person=true - otherwise one person's prints could disagree about
+    # who they belong to.
     person_name: str | None = Field(default=None, max_length=200)
+    person_reference: str | None = Field(default=None, max_length=100)
+    apply_to_person: bool = False
+    # Per-print fields, always scoped to the row addressed.
     notes: str | None = Field(default=None, max_length=2000)
     is_active: bool | None = None
 
@@ -30,8 +41,15 @@ class VoiceEnrollmentOut(BaseModel):
     """Enrolment metadata. The embedding itself is deliberately never exposed."""
 
     id: uuid.UUID
+    # CURRENT canonical identity, resolved through identity_id. Anything showing "who this
+    # person is" must use these.
+    identity_id: uuid.UUID | None = None
     person_name: str
     person_reference: str
+    # What was recorded when the print was taken. History: never overrides the registry, and
+    # never rewritten when the canonical identity changes.
+    enrolled_person_name: str | None = None
+    enrolled_person_reference: str | None = None
     notes: str | None
     model: str
     model_revision: str | None
@@ -52,3 +70,48 @@ class SpeakerDecisionIn(BaseModel):
     """A human decision on a voice suggestion. `accept=True` writes display_name."""
 
     accept: bool
+
+
+class PersonSearchOut(BaseModel):
+    """A canonical identity that can be reused when identifying a speaker.
+
+    Every aggregate here is computed over sessions the caller may access. The identity itself
+    is deliberately visible - reusing it is the whole point of the registry - but its activity
+    is not: "12 sessions" would tell an investigator with access to one that eleven others
+    exist, which is the same leak as returning their numbers.
+    """
+
+    identity_id: uuid.UUID
+    person_name: str
+    person_reference: str
+    accessible_session_count: int = 0
+    accessible_print_count: int = 0
+    accessible_sample_seconds: float = 0.0
+
+
+class EnrollmentCandidateOut(BaseModel):
+    """A speaker whose person is known and whose voice is ready to enrol."""
+
+    speaker_id: uuid.UUID
+    session_id: uuid.UUID
+    session_number: str
+    session_title: str | None = None
+    speaker_label: str
+    # The session-local label, for showing WHICH speaker this is. May carry a rank.
+    display_name: str
+    # The canonical registry name - the only value enrolment may assert as person_name.
+    person_name: str
+    speaker_role: str
+    identity_id: uuid.UUID
+    person_reference: str
+    sample_seconds: float | None = None
+    # never_enrolled | enrolled_inactive  (actively enrolled speakers are not candidates)
+    enrollment_state: str
+    inactive_enrollment_id: uuid.UUID | None = None
+    created_at: datetime
+
+
+class IdentityConsolidateIn(BaseModel):
+    """Merge one canonical identity into another. No voice print need exist."""
+
+    into_identity_id: uuid.UUID

@@ -255,16 +255,32 @@ class JobPipeline:
             audio = audio.mean(axis=1)
         embeddings: dict[str, dict] = {}
         for label, label_spans in sorted(spans.items()):
+            raw_seconds = sum(end - start for start, end in label_spans)
             clip = collect_speaker_audio(audio, sr, label_spans, self._settings.speaker_id_max_seconds)
             seconds = len(clip) / float(sr)
+            embed_started = time.perf_counter()
             try:
                 vec = self._runtime.speaker_id.embed(clip, sr)
             except SpeakerIdentificationError as exc:
-                log.info("job %s: no embedding for %s (%s)", job.job_id, label, exc.code)
+                log.info(
+                    "job %s: no embedding for %s (%s) - %d span(s), %.1fs of speech",
+                    job.job_id, label, exc.code, len(label_spans), raw_seconds,
+                )
                 continue
             except Exception as exc:  # noqa: BLE001
                 log.warning("job %s: embedding failed for %s: %s", job.job_id, label, exc)
                 continue
+            # The full story of this voiceprint, WITHOUT the vector itself: how much speech
+            # existed, how much of it was used (longest turns first, capped), and that the
+            # result is unit-length - the property cosine similarity depends on.
+            norm = float((vec * vec).sum()) ** 0.5
+            log.info(
+                "job %s: speaker %s embedded: %d span(s), %.1fs speech, %.1fs used (cap %.0fs) "
+                "-> dim=%d norm=%.4f in %dms",
+                job.job_id, label, len(label_spans), raw_seconds, seconds,
+                self._settings.speaker_id_max_seconds, len(vec), norm,
+                int((time.perf_counter() - embed_started) * 1000),
+            )
             embeddings[label] = {"embedding": [round(float(x), 6) for x in vec], "seconds": round(seconds, 2)}
         if embeddings:
             info = self._runtime.speaker_id.info()

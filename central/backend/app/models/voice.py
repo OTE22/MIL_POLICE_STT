@@ -14,8 +14,9 @@ from __future__ import annotations
 
 import uuid
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -32,13 +33,24 @@ class VoiceEnrollment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
 
     # ---- who ---------------------------------------------------------------
+    # Canonical person this row refers to. Backend-owned: resolved from the reference
+    # number, never accepted from a client.
+    identity_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("person_identities.id", ondelete="SET NULL"),
+        nullable=True, index=True
+    )
     person_name: Mapped[str] = mapped_column(String(200), nullable=False)
     # Stable identifier for the person: military id, case reference, registry number…
     person_reference: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # ---- the biometric template -------------------------------------------
-    embedding: Mapped[list] = mapped_column(JSONB, nullable=False)
+    # pgvector, deliberately WITHOUT a fixed dimension: the contract accepts 16-1024 dims
+    # (only the live SpeakerNet model is 256), and matching already filters candidates by
+    # embedding_dim before any distance is computed. A typed vector(256) would reject every
+    # other legitimate dimension. An ANN index would need a fixed-dim expression index -
+    # exact search is used until measurement says otherwise.
+    embedding: Mapped[list] = mapped_column(Vector(), nullable=False)
     embedding_dim: Mapped[int] = mapped_column(Integer, nullable=False)
     model: Mapped[str] = mapped_column(String(200), nullable=False)
     model_revision: Mapped[str | None] = mapped_column(String(100), nullable=True)

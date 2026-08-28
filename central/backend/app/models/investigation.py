@@ -97,6 +97,14 @@ class SessionInvestigator(UUIDPrimaryKeyMixin, Base):
 
 class Subject(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "subjects"
+    __table_args__ = (
+        # DEFERRABLE: a rebuild deletes the old row and inserts the new one carrying the same
+        # key in one transaction, and the delete is not guaranteed to flush first.
+        UniqueConstraint(
+            "session_id", "participant_key",
+            name="uq_subject_participant_key", deferrable=True, initially="DEFERRED",
+        ),
+    )
 
     session_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -104,7 +112,22 @@ class Subject(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=False,
         index=True,
     )
-    subject_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # Stable handle for this PARTICIPATION SLOT within this session. Subject rows are deleted
+    # and re-inserted on every save, so `id` cannot identify "the same participant" across
+    # saves; this can. Backend-minted and copied onto the rebuilt row. It is NOT a person
+    # identifier: it never keys person_identities, never takes part in identity matching and
+    # never crosses a session boundary.
+    participant_key: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False, default=uuid.uuid4, index=True
+    )
+    # Canonical person this row refers to. Backend-owned: resolved from the reference
+    # number, never accepted from a client.
+    identity_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("person_identities.id", ondelete="SET NULL"),
+        nullable=True, index=True
+    )
+    # A person is recorded by name. Enforced in the database too - see e5c8b19d4f27.
+    subject_name: Mapped[str] = mapped_column(String(200), nullable=False)
     reference_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     # ---- identity classification -----------------------------------------
@@ -125,6 +148,10 @@ class Subject(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # Lebanese civil-registry identity (رقم السجل + محل القيد are the authoritative identifiers)
     register_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
     place_of_registration: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # محل القيد as a recognised code. رقم السجل is unique within a قضاء, not nationally, so
+    # only this validated code may act as an identity namespace - the free-text field above
+    # stays for legacy rows and for anything off-list, and never keys an identity.
+    caza_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
     is_unregistered: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")  # مكتوم القيد
     # Undocumented / unidentified persons
     is_undocumented: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")

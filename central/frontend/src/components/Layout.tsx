@@ -12,6 +12,7 @@ import {
   IconMonitor,
   IconPlus,
   IconMic as IconVoice,
+  IconGear,
   IconShield,
   IconUsers,
 } from "./Icons";
@@ -45,6 +46,7 @@ export function crumbsFor(pathname: string): Crumb[] {
   if (pathname.startsWith("/workstations")) return [{ label: T.workstations }];
   if (pathname.startsWith("/voice-enrollments")) return [{ label: T.voiceEnrollments }];
   if (pathname.startsWith("/audit")) return [{ label: T.audit }];
+  if (pathname.startsWith("/settings")) return [{ label: T.systemConfig }];
   if (pathname.startsWith("/change-password")) return [{ label: T.changePassword }];
   return [];
 }
@@ -100,6 +102,11 @@ export function Layout() {
           {can("audit.read") && (
             <NavLink to="/audit" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
               <IconShield /> {T.audit}
+            </NavLink>
+          )}
+          {can("system.configure") && (
+            <NavLink to="/settings" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <IconGear /> {T.systemConfig}
             </NavLink>
           )}
         </nav>

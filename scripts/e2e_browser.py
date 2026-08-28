@@ -225,9 +225,13 @@ def main() -> int:
             screen, so `.last` can match a stale one. Poll the API instead.
             """
             card = page.locator(f"[data-testid=speaker-card][data-label={label}]")
-            card.locator("input.input").first.fill(display_name)
+            # A working label goes through تسمية مؤقتة in the picker: naming a voice and
+            # identifying a person are separate acts now. الصفة is saved on its own.
+            card.locator("[data-testid=speaker-person-picker]").click()
+            page.locator("[data-testid=pick-temporary-input]").fill(display_name)
+            page.locator("[data-testid=pick-temporary-save]").click()
             card.locator("select").select_option(role)
-            card.locator("button", has_text="تعيين الاسم").click()
+            card.locator("[data-testid=speaker-save]").click()
             deadline = time.time() + 30
             while time.time() < deadline:
                 _, current = api(base, f"/api/investigations/{session_id}/speakers", token)

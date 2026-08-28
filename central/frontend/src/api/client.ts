@@ -39,7 +39,15 @@ async function parseError(res: Response): Promise<ApiError> {
   let code = "generic";
   try {
     const data = await res.json();
-    if (typeof data?.detail === "string") code = data.detail;
+    // `detail` is a bare code for simple failures and an OBJECT when the server has something
+    // to say about them - which field is missing, which print already holds the slot. Reading
+    // only the string form silently degraded every structured error to "generic", hiding the
+    // one detail that made it actionable.
+    if (typeof data?.detail === "string") {
+      code = data.detail;
+    } else if (typeof data?.detail?.code === "string") {
+      code = data.detail.code;
+    }
   } catch {
     /* no body */
   }

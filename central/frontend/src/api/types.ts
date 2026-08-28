@@ -20,6 +20,8 @@ export interface Profile {
   full_name: string;
   rank: string | null;
   military_id: string | null;
+  security_branch: SecurityBranch | null;
+  reference_number: string | null;
   unit: string | null;
   department: string | null;
   job_title: string | null;
@@ -53,11 +55,48 @@ export interface UserRow {
   profile: Profile | null;
 }
 
+/** One person on a session, whatever row they came from.
+ *
+ * `person_name` is the CANONICAL name from the registry and `rank` is separate decoration -
+ * folding them together is what made the same human read as "MAJOR ALI" in one section and
+ * "ALI" in another. GET /investigations/{id}/people is the only source for these.
+ */
+export interface SessionPerson {
+  identity_id: string | null;
+  person_name: string;
+  rank: string | null;
+  reference_number: string | null;
+  source: "SUBJECT" | "INVESTIGATOR";
+  participant_key: string | null;
+  selectable: boolean;
+  blocked_reason: string | null;
+}
+
+/** One runtime-tunable setting, defined entirely by the backend's whitelist. */
+export interface ConfigField {
+  key: string;
+  group: string;
+  label: string;
+  description: string;
+  type: "int" | "float" | "select" | "text";
+  value: string | number;
+  min: number | null;
+  max: number | null;
+  options: string[] | null;
+}
+
+export interface ConfigOut {
+  fields: ConfigField[];
+}
+
 export interface InvestigatorBrief {
   id: string;
   full_name: string;
   rank: string | null;
   military_id: string | null;
+  /** Null until they are assigned to a session, which is when they are registered as a person. */
+  reference_number: string | null;
+  security_branch: SecurityBranch | null;
   unit: string | null;
   department: string | null;
   job_title: string | null;
@@ -102,6 +141,10 @@ export interface SubjectDocument {
 
 export interface Subject {
   id?: string;
+  /** Stable session-local handle for this participant. Absent on a row the operator has just
+      added; the backend mints it and echoes it back. Round-trip it or the server loses track
+      of which submitted person is which existing one. NOT a person identifier. */
+  participant_key?: string;
   subject_name: string | null;
   reference_number: string | null;
   person_type: PersonType;
@@ -114,6 +157,9 @@ export interface Subject {
   nationality_name: string | null;
   register_number: string | null;
   place_of_registration: string | null;
+  /** محل القيد as a recognised code. Only this validated value keys an identity;
+      the free-text field above is kept for legacy rows and never derives. */
+  caza_code: string | null;
   is_unregistered: boolean;
   is_undocumented: boolean;
   undocumented_reason: UndocumentedReason | null;
@@ -250,12 +296,22 @@ export interface Speaker {
   suggested_score: number | null;
   suggested_model: string | null;
   has_voice_embedding: boolean;
+  /** Canonical person this speaker is. Backend-owned; never sent by the client. */
+  identity_id: string | null;
+  identity_name: string | null;
+  identity_reference: string | null;
 }
 
 export interface VoiceEnrollment {
   id: string;
+  /** Canonical identity this print belongs to. Backend-owned. */
+  identity_id: string | null;
+  /** CURRENT canonical name/reference, resolved through identity_id. */
   person_name: string;
   person_reference: string;
+  /** What was recorded when the print was taken. History, never authoritative. */
+  enrolled_person_name: string | null;
+  enrolled_person_reference: string | null;
   notes: string | null;
   model: string;
   model_revision: string | null;
@@ -270,6 +326,35 @@ export interface VoiceEnrollment {
   enrolled_by_name: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface PersonSearchResult {
+  identity_id: string;
+  person_name: string;
+  person_reference: string;
+  /** Totals cover only sessions this user may access - never global activity. */
+  accessible_session_count: number;
+  accessible_print_count: number;
+  accessible_sample_seconds: number;
+}
+
+export interface EnrollmentCandidate {
+  speaker_id: string;
+  session_id: string;
+  session_number: string;
+  session_title: string | null;
+  speaker_label: string;
+  /** Session-local label. May carry a rank - never send it as a canonical name. */
+  display_name: string;
+  /** Canonical registry name. The only value enrolment may assert as person_name. */
+  person_name: string;
+  speaker_role: SpeakerRole;
+  identity_id: string;
+  person_reference: string;
+  sample_seconds: number | null;
+  enrollment_state: "never_enrolled" | "enrolled_inactive";
+  inactive_enrollment_id: string | null;
+  created_at: string;
 }
 
 export interface Transcript {
@@ -358,6 +443,9 @@ export interface AgentCapabilities {
   stt: AgentModelStatus;
   diarization: AgentModelStatus;
   vad: AgentModelStatus;
+  /** Optional on purpose: an agent older than speaker identification omits it entirely, and
+      that absence is exactly what the status panel needs to be able to show. */
+  speaker_id?: AgentModelStatus;
   max_speakers: number;
   supported_formats: string[];
   max_upload_bytes: number;

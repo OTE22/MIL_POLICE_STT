@@ -163,3 +163,181 @@ def session_activity(
         )
     _ = client_ip(request)
     return AuditListOut(items=items, total=total, page=page, page_size=page_size)
+
+
+# ---------------------------------------------------------------------------
+# Runtime configuration (the إعدادات النظام page)
+# ---------------------------------------------------------------------------
+#
+# A WHITELIST, not a reflection of Settings: secrets (JWT, DB URL, key paths) and
+# boot-structural values (storage root, CORS) must never reach a browser or change under a
+# running server. Only settings that take effect immediately are listed - every one below is
+# read per-request via get_settings() or applied through the logging runtime, so a change
+# here changes the very next request. Changes are EPHEMERAL by design: boot always re-reads
+# the environment, so a bad interactive change is one restart away from undone - and the
+# page says so.
+#
+# Changes are recorded by the logging system itself (logger "app.admin", which carries the
+# admin's username and request id via the context filter) - old value, new value, who, when.
+
+import logging as _logging
+
+from app.config import get_settings as _get_settings
+from app.core.logging_setup import apply_runtime_logging, get_runtime_logging
+from app.schemas.admin import ConfigFieldOut, ConfigOut, ConfigUpdateIn
+
+_admin_log = _logging.getLogger("app.admin")
+
+_LOG_LEVEL_OPTIONS = ["DEBUG", "INFO", "WARNING", "ERROR"]
+
+# key -> (group, label, description, type, min, max, options)
+_CONFIG_REGISTRY: dict[str, dict] = {
+    "log_level": {
+        "group": "السجلّات",
+        "label": "مستوى السجلّ العام",
+        "description": "DEBUG يُظهر كل شيء (بما فيه فحوص الصحة)؛ INFO هو المعتاد للتشغيل.",
+        "type": "select", "options": _LOG_LEVEL_OPTIONS,
+    },
+    "log_levels": {
+        "group": "السجلّات",
+        "label": "مستويات لسجلّات محددة",
+        "description": "مثال: app.services.voice_matching=DEBUG,sqlalchemy.engine=WARNING — لرفع تفصيل نظامٍ واحد دون إغراق الباقي.",
+        "type": "text",
+    },
+    "slow_query_ms": {
+        "group": "السجلّات",
+        "label": "عتبة الاستعلام البطيء (مللي ثانية)",
+        "description": "كل استعلام أبطأ من هذا يُسجَّل تحذيراً (النص مختصر، والقيم لا تُسجَّل أبداً).",
+        "type": "int", "min": 10, "max": 60000,
+    },
+    "voice_match_threshold": {
+        "group": "المطابقة الصوتية",
+        "label": "عتبة اقتراح الهوية",
+        "description": "أقل تشابه يُنتج اقتراحاً. مُعايَرة على 0.65 (نفس المتحدث 0.76–0.90، مختلفان 0.34–0.52) — خفضها يزيد الاقتراحات الخاطئة.",
+        "type": "float", "min": 0.50, "max": 0.95,
+    },
+    "voice_match_margin": {
+        "group": "المطابقة الصوتية",
+        "label": "هامش الغموض بين شخصين",
+        "description": "إذا تقارب أفضل شخصين أكثر من هذا، يمتنع النظام عن الاقتراح بدل أن يخمّن.",
+        "type": "float", "min": 0.0, "max": 0.30,
+    },
+    "access_token_expire_minutes": {
+        "group": "الجلسات والرموز",
+        "label": "مدة صلاحية جلسة الدخول (دقائق)",
+        "description": "تسري على تسجيلات الدخول الجديدة فقط؛ الجلسات القائمة تُكمل مدتها.",
+        "type": "int", "min": 15, "max": 1440,
+    },
+    "processing_token_accept_ttl_seconds": {
+        "group": "الجلسات والرموز",
+        "label": "مهلة قبول تصريح المعالجة (ثوانٍ)",
+        "description": "المدة بين إصدار التصريح وقبول الوكيل للمهمة على المحطة.",
+        "type": "int", "min": 60, "max": 3600,
+    },
+    "processing_token_submit_ttl_seconds": {
+        "group": "الجلسات والرموز",
+        "label": "مهلة إرسال النتائج (دقائق)",
+        "description": "المدة التي يظل فيها للوكيل حق مزامنة نتيجة المهمة وصوتها. 1440 دقيقة = يوم كامل.",
+        # Edited in MINUTES for humans; stored canonically in seconds (the .env value and
+        # every consumer stay in seconds). Bounds are in the DISPLAYED unit.
+        "type": "int", "min": 60, "max": 10080, "scale": 60,
+    },
+    "max_upload_bytes": {
+        "group": "الرفع",
+        "label": "الحد الأقصى لحجم الملف الصوتي (ميغابايت)",
+        "description": "يُطبَّق عند التحقق من كل رفع. 2048 ميغابايت = 2 غيغابايت.",
+        # Edited in MB; stored canonically in bytes. Bounds are in the DISPLAYED unit.
+        "type": "int", "min": 1, "max": 8192, "scale": 1_048_576,
+    },
+}
+
+_LOGGING_KEYS = {"log_level", "log_levels", "slow_query_ms"}
+
+
+def _canonical_value(key: str):
+    if key in _LOGGING_KEYS:
+        return get_runtime_logging()[key]
+    return getattr(_get_settings(), key)
+
+
+def _current_value(key: str):
+    """What the page shows: the canonical value divided into its display unit."""
+    value = _canonical_value(key)
+    scale = _CONFIG_REGISTRY[key].get("scale", 1)
+    return round(value / scale) if scale != 1 else value
+
+
+def _config_out() -> ConfigOut:
+    fields = []
+    for key, spec in _CONFIG_REGISTRY.items():
+        fields.append(
+            ConfigFieldOut(
+                key=key, group=spec["group"], label=spec["label"],
+                description=spec["description"], type=spec["type"],
+                value=_current_value(key),
+                min=spec.get("min"), max=spec.get("max"), options=spec.get("options"),
+            )
+        )
+    return ConfigOut(fields=fields)
+
+
+def _validate(key: str, raw):
+    from fastapi import HTTPException, status as _status
+
+    spec = _CONFIG_REGISTRY.get(key)
+    if spec is None:
+        raise HTTPException(_status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            detail={"code": "unknown_config_key", "key": key})
+    try:
+        if spec["type"] == "int":
+            value = int(raw)
+        elif spec["type"] == "float":
+            value = float(raw)
+        else:
+            value = str(raw).strip()
+    except (TypeError, ValueError):
+        raise HTTPException(_status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            detail={"code": "invalid_config_value", "key": key}) from None
+    if spec["type"] in ("int", "float"):
+        lo, hi = spec.get("min"), spec.get("max")
+        if (lo is not None and value < lo) or (hi is not None and value > hi):
+            raise HTTPException(_status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                detail={"code": "config_value_out_of_bounds", "key": key,
+                                        "min": lo, "max": hi})
+    if spec["type"] == "select" and value not in (spec.get("options") or []):
+        raise HTTPException(_status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            detail={"code": "invalid_config_value", "key": key})
+    # Bounds were checked in the DISPLAYED unit; what gets stored is canonical.
+    scale = spec.get("scale", 1)
+    return value * scale if scale != 1 else value
+
+
+@router.get("/admin/config", response_model=ConfigOut)
+def get_runtime_config(
+    _: User = Depends(require_permission("system.configure")),
+) -> ConfigOut:
+    return _config_out()
+
+
+@router.put("/admin/config", response_model=ConfigOut)
+def update_runtime_config(
+    body: ConfigUpdateIn,
+    user: User = Depends(require_permission("system.configure")),
+) -> ConfigOut:
+    # Validate EVERYTHING before applying ANYTHING: a request with one bad key must not
+    # half-apply the rest.
+    validated = {key: _validate(key, raw) for key, raw in body.values.items()}
+
+    settings = _get_settings()
+    for key, value in validated.items():
+        old = _canonical_value(key)
+        if old == value:
+            continue
+        if key in _LOGGING_KEYS:
+            apply_runtime_logging(**{key: value})
+        else:
+            setattr(settings, key, value)
+        # The logging system records its own reconfiguration - the context filter stamps
+        # the admin's username and the request id onto this line.
+        _admin_log.info("config changed %s: %s -> %s", key, old, value)
+    return _config_out()

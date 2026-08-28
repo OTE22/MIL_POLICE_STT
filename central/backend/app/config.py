@@ -60,6 +60,18 @@ class Settings(BaseSettings):
     # Refuse to choose when the two best candidates are closer than this.
     voice_match_margin: float = 0.05
 
+    # Logging. The JSON file sink lives under /storage so it SURVIVES container
+    # recreation and travels with the existing /storage backups. This is the engineering
+    # record of what the system did; the audit_logs table remains the legal record of
+    # who did what - deliberately separate.
+    log_level: str = "INFO"
+    # Per-logger overrides, e.g. "sqlalchemy.engine=WARNING,app.services.voice_matching=DEBUG"
+    log_levels: str = ""
+    # None -> <storage>/logs. Empty string -> file sink disabled (the test default: the
+    # suite must not write into /storage, and `docker compose run` has no such volume).
+    log_dir: str | None = None
+    slow_query_ms: int = 200
+
     # CORS - the frontend is normally served by nginx on the same origin; extra
     # origins are only needed for local development (vite dev server).
     cors_allowed_origins: str = ""
@@ -76,6 +88,15 @@ class Settings(BaseSettings):
     @property
     def recordings_dir(self) -> Path:
         return self.storage_root / "recordings"
+
+    @property
+    def resolved_log_dir(self) -> Path | None:
+        """Where the JSON sink writes; None disables it (CENTRAL_LOG_DIR="")."""
+        if self.log_dir is None:
+            return self.storage_root / "logs"
+        if not self.log_dir.strip():
+            return None
+        return Path(self.log_dir)
 
 
 @lru_cache

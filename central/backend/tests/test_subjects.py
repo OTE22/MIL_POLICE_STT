@@ -47,7 +47,10 @@ SYRIAN = {
     "nationality_code": "SY",
     "documents": [{"document_type": "UNHCR_CARD", "document_number": "UN-9", "issuing_country": "لبنان"}],
 }
-UNIDENTIFIED = {"person_type": "UNKNOWN", "is_undocumented": True, "undocumented_reason": "REFUSED"}
+# Even someone who refuses to identify themselves is recorded under a name the OPERATOR
+# writes. The system never invents one - that is the whole distinction.
+UNIDENTIFIED = {"subject_name": "مجهول الهوية", "person_type": "UNKNOWN",
+                "is_undocumented": True, "undocumented_reason": "REFUSED"}
 
 
 def test_person_types_and_lebanese_fields(client, investigator):
@@ -67,11 +70,20 @@ def test_person_types_and_lebanese_fields(client, investigator):
 
 def test_unidentified_person_needs_no_data(client, investigator):
     """An interview with an unidentified person must always be recordable (spec §33)."""
-    s = create_session(client, investigator["token"], subjects=[{"person_type": "UNKNOWN", "is_undocumented": True}])
+    s = create_session(client, investigator["token"], subjects=[
+        {"subject_name": "مجهول الهوية", "person_type": "UNKNOWN", "is_undocumented": True}])
     assert len(s["subjects"]) == 1 and s["subjects"][0]["person_type"] == "UNKNOWN"
-    # A completely empty civilian row is dropped instead of creating a blank subject.
-    s2 = create_session(client, investigator["token"], subjects=[{"person_type": "CIVILIAN"}])
-    assert s2["subjects"] == []
+
+    # §33 still holds - the interview is recordable - but the person is recorded under a name
+    # the operator chose. A row with no name at all is now a validation error rather than being
+    # silently dropped: silence is what let a nameless subject reach the registry and be filed
+    # under its own reference number.
+    res = client.post("/api/investigations", json={
+        "title": "بلا اسم", "location": "بيروت", "session_date": "2026-08-27",
+        "start_time": "10:00", "expected_speaker_count": 1,
+        "subjects": [{"person_type": "CIVILIAN"}],
+    }, headers=auth(investigator["token"]))
+    assert res.status_code == 422, res.text
 
 
 def test_document_scan_upload_download_and_hash(client, investigator):
@@ -145,6 +157,9 @@ def test_editing_a_session_preserves_uploaded_scans(client, investigator):
         headers=auth(investigator["token"]),
     )
     keys = [
+        # participant_key: the handle the form round-trips so the server knows this is the
+        # SAME participant being edited rather than a new one claiming their reference.
+        "participant_key",
         "subject_name", "reference_number", "person_type", "military_id", "rank", "unit", "department",
         "security_branch", "nationality_code", "nationality_name", "register_number", "place_of_registration",
         "is_unregistered", "is_undocumented", "undocumented_reason", "identity_confidence", "notes",
@@ -191,6 +206,6 @@ def test_subject_validation(client, investigator):
         "/api/investigations", json={"title": "x", "subjects": [bad_nationality]}, headers=auth(investigator["token"])
     )
     assert res.status_code == 422
-    bad_doc = {"person_type": "CIVILIAN", "documents": [{"document_type": "NOT_A_TYPE"}]}
+    bad_doc = {"subject_name": "سمير", "person_type": "CIVILIAN", "documents": [{"document_type": "NOT_A_TYPE"}]}
     res = client.post("/api/investigations", json={"title": "x", "subjects": [bad_doc]}, headers=auth(investigator["token"]))
     assert res.status_code == 422

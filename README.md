@@ -105,7 +105,7 @@ Then open `http://localhost:8080`, create an investigator, create a session, ope
 | [docs/nvidia-diarization.md](docs/nvidia-diarization.md) | Sortformer diarization, speaker change vs diarization, overlap, limits |
 | [docs/voice-enrollment-guide.md](docs/voice-enrollment-guide.md) | **بصمات الأصوات in practice** — enrolling a voice, re-scanning, and why suggestions go missing |
 | [docs/speaker-identification.md](docs/speaker-identification.md) | SpeakerNet-M voice suggestions, enrolment, consent, calibration |
-| [docs/subject-identity.md](docs/subject-identity.md) | Interviewed person: classification, nationality, documents and scans |
+| [docs/subject-identity.md](docs/subject-identity.md) | Interviewed person: classification, nationality, documents, scans, and how الرقم المرجعي is derived |
 | [docs/windows-installation.md](docs/windows-installation.md) | Windows workstation installation (service) |
 | [docs/linux-installation.md](docs/linux-installation.md) | Linux workstation installation (systemd / Docker) |
 | [docs/offline-provisioning.md](docs/offline-provisioning.md) | Model provisioning, integrity manifests, air-gapped operation |
@@ -120,7 +120,7 @@ for commands and full output):
 
 | Layer | Result |
 |---|---|
-| Central server tests (isolated PostgreSQL) | **40 passed** |
+| Central server tests (isolated PostgreSQL) | **197 passed** |
 | Local Agent tests in the Docker image (real models) | **47 passed, 0 skipped** |
 | Real NVIDIA diarization on a two-speaker Arabic recording | **PASS** — `SPEAKER_00 → SPEAKER_01 → SPEAKER_00 → SPEAKER_01 → SPEAKER_00` |
 | Real Cohere Arabic transcription | **PASS** — RTFx 1.1 on CPU |

@@ -172,16 +172,75 @@ the AI output and the human correction both survive, with who changed it and whe
 
 ## 3. How a speaker gets a name
 
-Three independent routes, in increasing order of assistance:
+Two routes: a person **picks**, or the voice **suggests** and a person confirms. Nothing else
+writes a name.
 
-**a. Typing it.** Free text in الاسم المعروض.
+### a. The investigator picks — اختيار الشخص
 
-**b. Suggested from the session** (`components/transcript/SpeakersPanel.tsx`).
-The people already recorded in this جلسة — assigned investigators and listed subjects —
-appear as one-click chips. Picking one fills the الصفة too, but never overrides a role the
-investigator set deliberately. No AI involved.
+One control, `components/transcript/SpeakerPicker.tsx`. It replaced a free-text box, three
+look-alike chips and two separate buttons that each established identity through a different
+door — which is how the same soldier ended up as three canonical people.
 
-**c. Suggested from the voice** (SpeakerNet-M).
+Five choices, each stating what it will do:
+
+| Section | Offers | Result |
+|---|---|---|
+| **مشاركو الجلسة** | The subjects recorded on this جلسة | Linked immediately |
+| **مُحقّقو الجلسة** | The investigators running it | Linked immediately |
+| **البحث عن شخص مسجل** | The canonical registry | Recorded on the session, then linked |
+| **إضافة شخص جديد** | The *same* person form used by إضافة شخص | Created, then linked |
+| **تسمية مؤقتة** | A working label, nothing more | No identity established |
+
+**An investigator is a person, not staff.** They speak in the interviews they run, so they are
+identified and voice-enrolled by exactly the same machinery as a subject. They are registered
+in `person_identities` under `MIL-<BRANCH>-<serial>` at the moment they are **assigned to a
+session** — which is when they can first appear in a recording.
+
+That is why `الجهاز` and `الرقم العسكري` are **required** on every user: a serial is unique only
+*within* its force, so `MIL-ARMY-4471` and `MIL-ISF-4471` are two people. `آخر` is refused
+outright — a catch-all is not a namespace, and two "other" forces would collide into one
+identity, pooling two humans' voice prints.
+
+A profile predating that requirement cannot yield a reference, and a guessed branch would be
+invented identity evidence. Such an investigator is left unregistered and shown in the picker
+**disabled**, naming the missing fields — the assignment itself still succeeds, because the
+session creator is auto-assigned as lead and failing here would stop them creating a session at
+all.
+
+Every row comes from **one endpoint** — `GET /investigations/{id}/people` — rather than the
+interface flattening subjects, investigators and registry hits into three shapes of its own.
+That is not tidiness: three shapes meant three ideas of what "the name" was, so the same
+soldier read as **MAJOR ALI** in one section and **ALI** in another, and appeared twice because
+the de-duplication only knew about one of the sources.
+
+**One person, one name, everywhere.** The name is the canonical `person_name` from the
+registry; the **rank is rendered beside it and never folded in**. A rank is a role that changes
+with promotion while the person does not, and `person_identities` has no column for one — so a
+name carrying a rank could never match what بصمات الأصوات displays. What gets *stored* as the
+speaker's label is the canonical name too, otherwise the transcript would disagree with the
+voice registry for the same human.
+
+Three further properties are load-bearing:
+
+* **Rows resolve through الرقم المرجعي, never the displayed name.** Two people in one session
+  may share a rank and a name, so each row carries its person, not its string. Picking by name
+  is how a speaker — and later their voice print — gets attached to the wrong human.
+* **A person is offered once.** Registry results are de-duplicated against the session's
+  participants by canonical reference, again never by name.
+* **الصفة is not touched.** Identifying a person and setting their role are separate acts on
+  the card; `speaker_role` is deliberately absent from every identity PATCH, so linking never
+  quietly rewrites a role the investigator chose.
+
+**تسمية مؤقتة is offered only while nobody has been identified.** Once a speaker *is* someone,
+a working label would be a way to quietly disagree with the registry. A speaker given only a
+label stays legal and stays out of بصمات الأصوات; the card says so —
+*لن يظهر في بصمات الأصوات حتى تُحدَّد هويته*.
+
+Picking a person is a claim about a human, so it needs `voice.identify` — not merely
+`speakers.assign`, which permits labelling only. The check is enforced in the API before the
+speaker row is touched, not just in React.
+
+### b. Suggested from the voice (SpeakerNet-M)
 
 ```
 agent  : one 256-d embedding per anonymous speaker   (the model runs locally)
@@ -193,9 +252,10 @@ UI     : "اقتراح: الرائد علي حسن — درجة التطابق 8
 ```
 
 The matcher **abstains** rather than guesses: no suggestion below **0.65**, and none when
-the two best *people* are within **0.05** of each other. Candidates are grouped by
-`person_reference` first, so several prints of one person reinforce each other instead of
-looking like rivals. Embeddings are only compared within the model that produced them.
+the two best *people* are within **0.05** of each other. Candidates are grouped by canonical
+`identity_id` first, so several prints of one person reinforce each other instead of looking
+like rivals — and renaming or merging a person carries their prints with them, because the
+identity is the authority, not the name stored on the print. Embeddings are only compared within the model that produced them.
 Measured separation on the reference Arabic recording: same speaker **0.755–0.898**,
 different speakers **0.343–0.522**.
 

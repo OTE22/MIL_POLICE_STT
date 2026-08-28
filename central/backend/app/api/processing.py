@@ -410,13 +410,59 @@ def submit_result(
     )
     db.add(transcript)
     db.flush()
+    # ---- resolve this recording's diarization labels to speaker observations ---------
+    # A diarizer label (SPEAKER_00) is a cluster index local to THIS recording. Keying rows
+    # on the session-wide label made recording B's SPEAKER_00 resolve to recording A's row,
+    # so a person confirmed in one recording was inherited by whoever spoke in the next, and
+    # the row's probe embedding was overwritten by each new voice (measured: a voice scoring
+    # 0.5372 against its row's person - a different-speaker score - displayed as them).
+    # Observations are keyed on (recording, source label): reprocessing the same recording
+    # reuses its rows; a different recording gets NEW rows under the next free session-wide
+    # label. Legacy rows (recording_id NULL) are never adopted - adoption IS the collision.
+    local_labels = sorted({s.speaker_label for s in body.segments})
+    session_rows = list(
+        db.scalars(select(SessionSpeaker).where(SessionSpeaker.session_id == session.id)).all()
+    )
+    by_observation = {
+        (r.recording_id, r.source_label): r for r in session_rows if r.recording_id is not None
+    }
+    taken_labels = {r.speaker_label for r in session_rows}
+
+    def _next_free_label(preferred: str) -> str:
+        # The first recording keeps the diarizer's own labels; later recordings shift past
+        # whatever the session already uses, deterministically (locals processed sorted).
+        if preferred not in taken_labels:
+            return preferred
+        n = 0
+        while f"SPEAKER_{n:02d}" in taken_labels:
+            n += 1
+        return f"SPEAKER_{n:02d}"
+
+    label_map: dict[str, str] = {}
+    for local in local_labels:
+        speaker_row = by_observation.get((recording.id, local))
+        if speaker_row is None:
+            allocated = _next_free_label(local)
+            speaker_row = SessionSpeaker(
+                session_id=session.id,
+                speaker_label=allocated,
+                speaker_role=SpeakerRole.UNKNOWN,
+                recording_id=recording.id,
+                source_label=local,
+            )
+            db.add(speaker_row)
+            taken_labels.add(allocated)
+        label_map[local] = speaker_row.speaker_label
+
     ordered = sorted(body.segments, key=lambda s: (s.start_seconds, s.end_seconds, s.speaker_label))
     for index, seg in enumerate(ordered):
         db.add(
             TranscriptSegment(
                 transcript_id=transcript.id,
                 sequence=index,
-                speaker_label=seg.speaker_label,
+                # Stored under the ALLOCATED session-wide label, so the segment->speaker
+                # join, the transcript view and /people keep working unchanged.
+                speaker_label=label_map[seg.speaker_label],
                 start_seconds=round(seg.start_seconds, 3),
                 end_seconds=round(seg.end_seconds, 3),
                 original_text=seg.text,
@@ -424,13 +470,7 @@ def submit_result(
                 is_overlap=seg.is_overlap,
             )
         )
-    labels = sorted({s.speaker_label for s in body.segments})
-    existing_labels = {
-        s.speaker_label for s in db.scalars(select(SessionSpeaker).where(SessionSpeaker.session_id == session.id)).all()
-    }
-    for label in labels:
-        if label not in existing_labels:
-            db.add(SessionSpeaker(session_id=session.id, speaker_label=label, speaker_role=SpeakerRole.UNKNOWN))
+    labels = sorted(set(label_map.values()))
 
     db.flush()
     # Optional: turn the locally computed voice embeddings into name SUGGESTIONS.
@@ -440,6 +480,8 @@ def submit_result(
     suggested = apply_voice_identification(
         db,
         session_id=session.id,
+        recording_id=recording.id,
+        label_map=label_map,
         voice=body.voice_identification.model_dump() if body.voice_identification else None,
         user_id=user_id,
     )

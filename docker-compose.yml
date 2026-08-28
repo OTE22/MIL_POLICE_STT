@@ -8,7 +8,11 @@ name: military-stt-central
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # pgvector build of postgres 16 (voice matching runs as one SQL operation in the DB).
+    # Same major version as the previous postgres:16-alpine, so the data volume mounts
+    # unchanged - but alpine(musl) -> debian(glibc) changes collation, so deploy-central.sh
+    # reindexes once when it detects the collation version moved.
+    image: pgvector/pgvector:pg16
     container_name: mstt-postgres
     restart: unless-stopped
     environment:
@@ -50,6 +54,9 @@ services:
       CENTRAL_PROCESSING_TOKEN_PRIVATE_KEY_PATH: /secrets/processing_token_private.pem
       CENTRAL_PROCESSING_TOKEN_PUBLIC_KEY_PATH: /secrets/processing_token_public.pem
       CENTRAL_STORAGE_ROOT: /storage
+      CENTRAL_LOG_LEVEL: ${CENTRAL_LOG_LEVEL:-INFO}
+      CENTRAL_LOG_LEVELS: ${CENTRAL_LOG_LEVELS:-}
+      CENTRAL_SLOW_QUERY_MS: ${CENTRAL_SLOW_QUERY_MS:-200}
       CENTRAL_MAX_UPLOAD_BYTES: ${CENTRAL_MAX_UPLOAD_BYTES:-2147483648}
       CENTRAL_CORS_ALLOWED_ORIGINS: ${CENTRAL_CORS_ALLOWED_ORIGINS:-}
       CENTRAL_BOOTSTRAP_ADMIN_USERNAME: ${CENTRAL_BOOTSTRAP_ADMIN_USERNAME:-admin}

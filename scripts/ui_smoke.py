@@ -229,15 +229,19 @@ def main() -> int:
 
         # Speakers tab
         page.click("role=tab[name='المتحدثون']")
-        c0 = page.locator("[data-testid=speaker-card][data-label=SPEAKER_00]")
-        c0.locator("input.input").first.fill("المحقق")
-        c0.locator("select").select_option("INVESTIGATOR")
-        c0.locator("button", has_text="تعيين الاسم").click()
-        expect(page.locator(".toast", has_text="تم حفظ بيانات المتحدث")).to_be_visible()
-        c1 = page.locator("[data-testid=speaker-card][data-label=SPEAKER_01]")
-        c1.locator("input.input").first.fill("أحمد محمد")
-        c1.locator("select").select_option("SUBJECT")
-        c1.locator("button", has_text="تعيين الاسم").click()
+        def label_speaker(card, name, role):
+            """تسمية مؤقتة for the label, حفظ for الصفة - they are separate acts now."""
+            card.locator("[data-testid=speaker-person-picker]").click()
+            page.locator("[data-testid=pick-temporary-input]").fill(name)
+            page.locator("[data-testid=pick-temporary-save]").click()
+            expect(page.locator(".toast", has_text="تم حفظ بيانات المتحدث")).to_be_visible()
+            card.locator("select").select_option(role)
+            card.locator("[data-testid=speaker-save]").click()
+
+        label_speaker(page.locator("[data-testid=speaker-card][data-label=SPEAKER_00]"),
+                      "المحقق", "INVESTIGATOR")
+        label_speaker(page.locator("[data-testid=speaker-card][data-label=SPEAKER_01]"),
+                      "أحمد محمد", "SUBJECT")
         time.sleep(0.5)
         page.click("role=tab[name='النص المفرغ']")
         expect(page.locator("[data-testid=segment]").first).to_contain_text("المحقق")

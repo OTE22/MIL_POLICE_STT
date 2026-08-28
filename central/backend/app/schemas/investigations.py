@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime, time
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.enums import (
     AssignmentRole,
@@ -63,7 +63,17 @@ class SubjectDocumentOut(BaseModel):
 
 
 class SubjectIn(BaseModel):
-    subject_name: str | None = Field(default=None, max_length=200)
+    # The ONLY handle that identifies which existing participant this is. `Subject.id` is
+    # deliberately absent: the save rebuilds every row, so an id is dead the moment it is
+    # issued, and accepting one would invite a fallback that works once and then starts
+    # issuing second references. The backend mints this and rejects a value it did not issue.
+    # NOT a person identifier.
+    participant_key: uuid.UUID | None = None
+    # A person is recorded by NAME. It was optional, and the consequence was an identity
+    # named after its own reference - one missing field silently becoming fake data.
+    # Latin script is deliberately accepted: a passport or UNHCR paper may carry the only
+    # spelling there is, and transliterating it would be inventing evidence.
+    subject_name: str = Field(min_length=1, max_length=200)
     reference_number: str | None = Field(default=None, max_length=100)
     person_type: PersonType = PersonType.CIVILIAN
     # military
@@ -77,6 +87,7 @@ class SubjectIn(BaseModel):
     nationality_name: str | None = Field(default=None, max_length=100)
     register_number: str | None = Field(default=None, max_length=64)
     place_of_registration: str | None = Field(default=None, max_length=200)
+    caza_code: str | None = Field(default=None, max_length=32)
     is_unregistered: bool = False
     # unidentified / undocumented
     is_undocumented: bool = False
@@ -84,6 +95,42 @@ class SubjectIn(BaseModel):
     identity_confidence: IdentityConfidence = IdentityConfidence.DECLARED
     notes: str | None = Field(default=None, max_length=4000)
     documents: list[SubjectDocumentIn] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _military_must_be_identifiable(self):
+        """A military subject must carry the two halves of their الرقم المرجعي.
+
+        `MIL-<BRANCH>-<serial>` needs both: a serial is unique only WITHIN its force, so a
+        missing branch derives no key at all, and Army 4471 and ISF 4471 would otherwise be
+        one person sharing one set of voice prints. `OTHER` is a catch-all rather than a
+        namespace, so it cannot serve as the force half either.
+
+        An operator with `subjects.reference.override` may still supply a reference by hand
+        for paperwork the rule does not fit - that path sends `reference_number` and is
+        checked separately, so it is exempted here rather than blocked.
+        """
+        if self.person_type != PersonType.MILITARY or self.reference_number:
+            return self
+        # A soldier whose serial is simply NOT KNOWN must stay recordable - an interview
+        # happens whether or not the person can be identified, and they honestly get no
+        # reference. Refusing that would make the system unusable exactly when it matters.
+        if not (self.military_id or "").strip():
+            return self
+        # A serial WITHOUT a usable force is the incoherent case: it looks like identity
+        # evidence and is not, because a serial is unique only within its force. OTHER is a
+        # catch-all, not a namespace, so it cannot supply the missing half either.
+        if self.security_branch is None or self.security_branch == SecurityBranch.OTHER:
+            raise ValueError("military_id_needs_security_branch")
+        return self
+
+    @field_validator("subject_name")
+    @classmethod
+    def _real_name(cls, value: str) -> str:
+        """Stored trimmed, and never whitespace pretending to be a name."""
+        name = (value or "").strip()
+        if not name:
+            raise ValueError("subject_name_required")
+        return name
 
     @field_validator("nationality_code")
     @classmethod
@@ -95,6 +142,7 @@ class SubjectOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    participant_key: uuid.UUID
     subject_name: str | None
     reference_number: str | None
     person_type: PersonType
@@ -107,6 +155,7 @@ class SubjectOut(BaseModel):
     nationality_name: str | None
     register_number: str | None
     place_of_registration: str | None
+    caza_code: str | None = None
     is_unregistered: bool
     is_undocumented: bool
     undocumented_reason: UndocumentedReason | None
@@ -143,9 +192,45 @@ class InvestigationUpdate(BaseModel):
     status: SessionStatus | None = None
     investigators: list[InvestigatorAssignmentIn] | None = None
     subjects: list[SubjectIn] | None = None
+    # Participants the operator deliberately removed. Absence alone is ambiguous under
+    # replacement semantics - it could equally mean the client lost the row - so deletion is
+    # stated rather than inferred. Without it, "delete B and add C in one save" cannot be
+    # told apart from "B's key went missing".
+    removed_participant_keys: list[uuid.UUID] = Field(default_factory=list)
+
+
+class SessionPersonOut(BaseModel):
+    """One person on a session, in ONE shape, whatever kind of row they came from.
+
+    The UI used to assemble this three different ways - a Subject, an InvestigatorBrief and a
+    PersonSearchResult - each with its own idea of what "the name" is. The same human then
+    rendered as "MAJOR ALI" in one section and "ALI" in another, and appeared twice because the
+    de-duplication only knew about one of the sources.
+
+    `person_name` is always the CANONICAL name from `person_identities`, resolved through any
+    merge, so it is the registry's answer and not a copy that drifted. `rank` is display
+    decoration carried separately - it belongs to the role, not the person, and must never be
+    folded into a name that gets stored.
+    """
+
+    identity_id: uuid.UUID | None = None
+    person_name: str
+    rank: str | None = None
+    reference_number: str | None = None
+    # SUBJECT or INVESTIGATOR - which section of the picker this belongs under.
+    source: str
+    # Present for subjects: the session-local handle that survives reordering.
+    participant_key: uuid.UUID | None = None
+    # False when the row cannot be picked yet, with `blocked_reason` saying why.
+    selectable: bool = True
+    blocked_reason: str | None = None
 
 
 class InvestigatorBrief(BaseModel):
+    # The reference is what lets a speaker be bound to this person, and through that a voice
+    # print. It is null until they are assigned to a session, which is when they are registered.
+    reference_number: str | None = None
+    security_branch: SecurityBranch | None = None
     id: uuid.UUID
     full_name: str
     rank: str | None = None

@@ -172,6 +172,14 @@ export function AgentStatusPanel({ status }: { status: AgentStatusState }) {
             <span>{modelBadge(caps?.diarization)}</span>
           </div>
           <div className="status-row">
+            {/* Without this row a stale agent is indistinguishable from a recording that
+                simply had no usable speech: both end as "no voice print for this speaker".
+                modelBadge renders an absent model as غير معروف, which is the honest answer
+                for an agent that does not know the capability exists. */}
+            <span className="k">{T.speakerIdModelStatus}</span>
+            <span>{modelBadge(caps?.speaker_id)}</span>
+          </div>
+          <div className="status-row">
             <span className="k">{T.device}</span>
             <span className="ltr">
               {caps ? (caps.processing_device === "cuda" ? `GPU — ${caps.gpu_name ?? "CUDA"}` : "CPU") : T.notAvailable}

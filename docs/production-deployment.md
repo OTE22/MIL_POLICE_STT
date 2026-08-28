@@ -200,6 +200,37 @@ same-size modification** (tested). Use `full` for the initial install of every m
 
 ---
 
+## 6b. First run on the server — complete the staff profiles
+
+`deploy-central.sh` prints this, and it is easy to skip. **الجهاز and الرقم العسكري produce a
+user's الرقم المرجعي**, and an account without them cannot be bound to a speaker or carry a
+voice print — it appears in the speaker picker **disabled**.
+
+Every account created from now on is required to supply both. The exception is the **bootstrap
+administrator**, which the seeder creates directly and which therefore has neither: inventing a
+serial for it would risk colliding with a real person's.
+
+```
+1. Sign in as the administrator and change the password when prompted.
+2. إدارة المستخدمين → edit the administrator → set الجهاز and الرقم العسكري.
+3. Create the investigator accounts (both fields are mandatory; آخر is refused).
+```
+
+The deploy script names the accounts that still need it:
+
+```
+[WARN] these accounts have no الرقم المرجعي and cannot be identified as speakers:
+           مدير النظام
+```
+
+To check at any time:
+
+```bash
+docker compose exec -T postgres psql -U stt -d military_stt -tAc \
+  "SELECT full_name FROM investigator_profiles
+    WHERE btrim(COALESCE(military_id,'')) = '' OR security_branch IS NULL"
+```
+
 ## 7. Air-gapped desktops
 
 Building the agent image downloads several GB of Python wheels. Where that is impossible,
@@ -242,6 +273,31 @@ sync, storage and audit.
 
 ---
 
+## 8b. Upgrading a deployment that already holds data
+
+Migrations run automatically when the backend starts. Two of them do more than change the
+schema, and both can stop a deployment on purpose:
+
+**The canonical-identity backfill** attaches existing subjects, speakers and voice prints to a
+person registry, deriving each from its recorded reference. If one reference is recorded under
+**two different names**, it refuses and lists them rather than guessing which is right — a
+guess would file a biometric print under the wrong person. Resolve the listed rows and start
+the backend again. It also asserts that no print that could match before has become invisible.
+
+**Nothing is lost on refusal**: the migration is transactional, so the database is untouched
+and the previous version keeps running.
+
+`deploy-central.sh` recognises this specific failure and prints the offending references
+instead of a generic "the backend never became healthy".
+
+## 8c. Clearing a demo or test system
+
+`scripts/reset_demo_data.sh --yes` empties sessions, recordings, transcripts, speakers,
+subjects, voice prints, canonical identities and the audit log, from the database **and** from
+disk, while keeping users, roles and permissions. It refuses unless `CENTRAL_ENVIRONMENT` is
+`development`, `demo` or `test`, validates the database name and resolves the storage root
+before deleting anything. It will not run against production.
+
 ## 9. Operating it
 
 **Back up** — these three, together:
@@ -250,7 +306,7 @@ sync, storage and audit.
 |---|---|
 | `secrets/` | The ES256 keypair. Losing it invalidates every processing token. |
 | `storage/` | The original audio and ID scans — the evidence itself. |
-| `pg_dump` of the database | Sessions, transcripts, users, audit log. |
+| `pg_dump` of the database | Sessions, transcripts, users, audit log, **and the canonical person registry** — the identities voice prints are grouped by. |
 
 ```bash
 docker compose exec -T postgres pg_dump -U stt military_stt | gzip > backup-$(date +%F).sql.gz

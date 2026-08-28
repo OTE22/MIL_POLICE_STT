@@ -45,3 +45,29 @@ class AuditListOut(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class ConfigFieldOut(BaseModel):
+    """One runtime-tunable setting, with everything the interface needs to render it.
+
+    Labels and help text ship from the backend so the WHITELIST and its wording live in one
+    place - the frontend renders whatever arrives and can never invent an editable field.
+    """
+
+    key: str
+    group: str
+    label: str
+    description: str
+    type: str  # "int" | "float" | "select" | "text"
+    value: str | int | float
+    min: float | None = None
+    max: float | None = None
+    options: list[str] | None = None
+
+
+class ConfigOut(BaseModel):
+    fields: list[ConfigFieldOut]
+
+
+class ConfigUpdateIn(BaseModel):
+    values: dict[str, str | int | float]

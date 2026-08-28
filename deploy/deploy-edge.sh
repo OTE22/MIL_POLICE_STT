@@ -23,6 +23,7 @@ MANIFEST_DIR="$SCRIPT_DIR/model-manifests"
 CENTRAL_URL=""
 PUBLIC_KEY_SRC=""
 COMPUTE="cpu"
+QUIET="false"
 INSTALL_ROOT="${INSTALL_ROOT:-/opt/investigation-ai}"
 MODEL_DIR=""
 DATA_DIR=""
@@ -43,6 +44,19 @@ warn() { printf '  %s[warn]%s %s\n' "$YEL" "$RST" "$*"; }
 die()  { printf '\n%s[FAIL]%s %s\n\n' "$RED" "$RST" "$*" >&2; exit 1; }
 note() { printf '  %s%s%s\n' "$DIM" "$*" "$RST"; }
 
+# explain WHAT / WHY / SUCCESS / IF-IT-FAILS
+#
+# This script is run on every investigator desktop, usually by someone who did not build the
+# system and will not run it again for months. A bare "[ ok ] image built" tells that person
+# nothing about whether they may move to the next machine. Pass --quiet to skip these.
+explain() {
+  [ "$QUIET" = "true" ] && return 0
+  printf '\n  %s┌ WHAT %s %s\n' "$DIM" "$RST" "$1"
+  printf '  %s│ WHY  %s %s\n'   "$DIM" "$RST" "$2"
+  printf '  %s│ GOOD %s %s\n'   "$DIM" "$RST" "$3"
+  printf '  %s└ FAIL %s %s\n\n' "$DIM" "$RST" "$4"
+}
+
 usage() {
   sed -n '2,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   cat <<'EOF'
@@ -51,6 +65,7 @@ Options
   --central-url URL      Central server base URL (required, e.g. https://central.unit.local:8443)
   --public-key FILE      Central ES256 public key. If omitted it is fetched from --central-url.
   --compute cpu|gpu      Build/run the CPU or CUDA image                      (default: cpu)
+  --quiet                Skip the plain-language explanation printed before each step
   --models DIR           Where the downloaded models are    (default: next to this script)
   --install-root DIR     Install location                       (default: /opt/investigation-ai)
   --port PORT            Loopback port for the agent                       (default: 17117)
@@ -69,6 +84,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --central-url)   CENTRAL_URL="${2:?}"; shift 2 ;;
     --public-key)    PUBLIC_KEY_SRC="${2:?}"; shift 2 ;;
+    --quiet)       QUIET="true"; shift ;;
     --compute)       COMPUTE="${2:?}"; shift 2 ;;
     --models)        SEARCH_DIR="${2:?}"; shift 2 ;;
     --install-root)  INSTALL_ROOT="${2:?}"; shift 2 ;;
@@ -94,6 +110,12 @@ case "$COMPUTE" in cpu|gpu) ;; *) die "--compute must be cpu or gpu" ;; esac
 case "$VERIFY_MODE" in size|full) ;; *) die "--verify must be size or full" ;; esac
 
 # =============================================================================
+explain \
+  "Check this desktop can run the agent: Docker, disk space, and - if you asked for GPU - a working graphics card." \
+  "The models are large and the agent runs on this machine, not the server. A GPU that is present but not usable by Docker is the most common surprise, and it is better found now than after a 4 GB build." \
+  "Every line says [ ok ]. With --compute gpu you also see the card named." \
+  "For a GPU failure, either install the NVIDIA Container Toolkit or re-run with --compute cpu. CPU works everywhere; it is only slower."
+
 step "1/8  Preflight"
 # =============================================================================
 [ "$(id -u)" -eq 0 ] || die "run as root (sudo $0 ...)"
@@ -130,6 +152,12 @@ if [ "$ASSUME_YES" != "true" ] && [ -t 0 ]; then
 fi
 
 # =============================================================================
+explain \
+  "Find the three AI model folders you downloaded, wherever you put them next to this script." \
+  "The models are not in this package - they are several gigabytes and are downloaded once, separately. This step finds them by CONTENT, so the folder names do not have to match." \
+  "Each model is listed with the folder it was found in." \
+  "If a model is 'not found', check you unpacked it next to this script or pass --models with the right folder. Speaker identification is optional; the other two are required."
+
 step "2/8  Locating the downloaded models"
 # =============================================================================
 # The reference manifests are a fixed, machine-generated shape, so a small awk
@@ -194,6 +222,12 @@ for manifest in "${MODELS[@]}"; do
 done
 
 # =============================================================================
+explain \
+  "Check every model file byte-for-byte against the exact fingerprint this release expects." \
+  "A truncated download or a tampered file would otherwise be discovered as strange transcription results months later. This is the one step that cannot be skipped safely." \
+  "'integrity verified' for each model. This takes a minute on slower disks - it is reading gigabytes." \
+  "A mismatch means the file is NOT the one this release was tested with. Re-download it. Do not work around this check."
+
 step "3/8  Verifying model integrity against the pinned revisions"
 # =============================================================================
 [ "$VERIFY_MODE" = "full" ] && note "hashing ~4.6 GB - this takes a few minutes (use --verify size to skip)"
@@ -229,6 +263,12 @@ for manifest in "${MODELS[@]}"; do
 done
 
 # =============================================================================
+explain \
+  "Copy the verified models into the folder the agent will read them from." \
+  "Copying only after verification means a half-copied or wrong model can never end up in the live location." \
+  "'staged' for each model, and a MANIFEST.json recording exactly what was installed." \
+  "Almost always disk space. The models need several gigabytes free at the destination."
+
 step "4/8  Staging models into $MODEL_DIR"
 # =============================================================================
 install -d -m 0755 "$MODEL_DIR" "$DATA_DIR" "$INSTALL_ROOT"
@@ -287,6 +327,12 @@ done
 ok "$staged model(s) staged read-only under $MODEL_DIR"
 
 # =============================================================================
+explain \
+  "Install the key file that lets this desktop verify that a processing request really came from your server." \
+  "Without it the agent refuses every job. The key is PUBLIC - it only verifies signatures and cannot create them, so carrying it on a USB stick is safe. The private half never leaves the server." \
+  "'public key installed'." \
+  "Copy deploy/central_public_key.pem from the server, or let the script fetch it from --central-url if this desktop can reach the server."
+
 step "5/8  Installing the central public key"
 # =============================================================================
 # Only the PUBLIC key ever reaches a workstation. The private signing key stays
@@ -326,6 +372,12 @@ if command -v openssl >/dev/null; then
 fi
 
 # =============================================================================
+explain \
+  "Write the agent's settings file: your server address, which models to use, and how it listens." \
+  "The agent only ever listens on this machine (127.0.0.1). Nothing on the network can reach it - the browser on this desktop talks to it locally." \
+  "'configuration written'." \
+  "If the folder is not writable, run the script with the privileges the install location needs."
+
 step "6/8  Writing the agent configuration"
 # =============================================================================
 CENTRAL_ORIGIN="$(printf '%s' "$CENTRAL_URL" | sed -E 's#^(https?://[^/]+).*#\1#')"
@@ -359,6 +411,12 @@ ok "$ENV_FILE"
 note "allowed browser origin: $CENTRAL_ORIGIN"
 
 # =============================================================================
+explain \
+  "Build the agent application, or load a prebuilt one on machines with no internet." \
+  "This is the longest step - several minutes, and much longer for the GPU build. Long silences are normal and do not mean it has hung." \
+  "'agent image ready'." \
+  "On an air-gapped desktop use --image-tar with the file exported from a connected machine, rather than trying to build without a network."
+
 step "7/8  Building or loading the agent image"
 # =============================================================================
 IMAGE="military-stt/desktop-agent:1.0.0-$COMPUTE"
@@ -433,6 +491,12 @@ install -m 0444 "$KEY_PATH" "$DATA_DIR/central_public_key.pem"
 [ -n "$CA_BUNDLE" ] && install -m 0444 "$CA_BUNDLE" "$DATA_DIR/central-ca.pem"
 
 # =============================================================================
+explain \
+  "Start the agent and confirm it answers, knows your server, and reports which AI models it has." \
+  "A container that is running is not the same as an agent that works. This step checks what an investigator would actually notice, including whether voice prints can be produced at all." \
+  "'agent is healthy' plus a model list. 'voice identification available' means voice prints will work." \
+  "If speaker_id is missing or not staged, transcription still works fully - only voice prints are unavailable. The message says which case you are in."
+
 step "8/8  Starting the agent and verifying it"
 # =============================================================================
 DC=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
@@ -454,12 +518,37 @@ for want in cohere-transcribe-arabic sortformer; do
   printf '%s' "$caps" | grep -q "$want" || warn "'$want' not reported by /capabilities - check $MODEL_DIR"
 done
 
+# Speaker identification is OPTIONAL and never fails a deployment - but its absence has to be
+# STATED. On the speaker card a missing capability and a missing embedding look identical, so
+# an operator who is not told here discovers it only when voice prints never appear, and the
+# interface's advice ("reprocess the recording") is wrong in exactly that case.
+if ! printf '%s' "$caps" | grep -q '"speaker_id"'; then
+  warn "this agent does not report speaker_id at all - its build predates voice identification."
+  warn "  Voice prints will NEVER be produced and reprocessing will not help. Redeploy a current image."
+elif [ -n "${FOUND_DIR[speakerverification_speakernet]:-}" ]; then
+  ok "voice identification available (speakerverification_speakernet staged and reported)"
+else
+  note "voice identification unavailable - speakerverification_speakernet was not staged."
+  note "  Transcription and diarization are unaffected; بصمات الأصوات will stay empty."
+fi
+
 if [ "$LOAD_MODELS" = "true" ]; then
   note "loading models (first CPU load of the 4 GB STT model takes several minutes)"
   curl -fsS -X POST "$BASE/models/load" >/dev/null || warn "POST /models/load was rejected"
   for i in $(seq 1 180); do
     caps="$(curl -fsS "$BASE/capabilities" || true)"
-    printf '%s' "$caps" | grep -q '"ready": *true' && { ok "models loaded - agent READY"; break; }
+    if printf '%s' "$caps" | grep -q '"ready": *true'; then
+      ok "models loaded - agent READY"
+      # "ready" means STT + diarization only; speaker_id is optional and reported separately.
+      spk="$(printf '%s' "$caps" | tr ',' '\n' | grep -A 6 '"speaker_id"' | grep '"state"' | head -1)"
+      case "$spk" in
+        *READY*)           ok   "voice identification model loaded" ;;
+        *PROVISIONED*)     note "voice identification model staged; it loads on the first job" ;;
+        *NOT_PROVISIONED*) note "voice identification model not installed - prints will not be produced" ;;
+        *ERROR*)           warn "voice identification model failed to load - see: ${DC[*]} logs agent" ;;
+      esac
+      break
+    fi
     printf '%s' "$caps" | grep -q '"state": *"ERROR"' && { printf '%s\n' "$caps"; die "a model failed to load"; }
     [ "$i" -eq 180 ] && warn "models still loading after 6 min - check: ${DC[*]} logs -f agent"
     sleep 2
@@ -480,7 +569,14 @@ $(printf '%s' "$GRN")Local AI Agent deployed.$(printf '%s' "$RST")
   restart        ${DC[*]} restart agent
   stop           ${DC[*]} down
 
+  voice prints   curl -s $BASE/model-status | tr ',' '
+' | grep -A 6 '"speaker_id"'
+
 Next: sign in to $CENTRAL_URL from THIS desktop's browser, open a session's
 التسجيل tab and press معالجة التسجيل. The workstation registers itself on its
 first job - there is no separate enrolment step.
+
+The التسجيل tab also shows حالة نموذج بصمة الصوت. If it reads غير معروف, this agent
+cannot produce voice prints at all and must be redeployed - reprocessing will not
+help. See docs/troubleshooting.md, "Voice prints: capability vs embedding".
 EOF

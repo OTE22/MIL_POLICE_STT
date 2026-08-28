@@ -17,6 +17,9 @@ if not TEST_DB_URL:
 os.environ["CENTRAL_DATABASE_URL"] = TEST_DB_URL
 os.environ["ALEMBIC_DATABASE_URL"] = TEST_DB_URL
 os.environ.setdefault("CENTRAL_JWT_SECRET", "test-secret-0123456789-0123456789-0123456789")
+# The suite must not write into /storage (docker compose run has no such volume); the
+# logging tests that need the file sink point CENTRAL_LOG_DIR at a tmp dir themselves.
+os.environ.setdefault("CENTRAL_LOG_DIR", "")
 os.environ["CENTRAL_BOOTSTRAP_ADMIN_PASSWORD"] = "AdminBootstrap!1"
 os.environ["CENTRAL_BOOTSTRAP_ADMIN_USERNAME"] = "admin"
 _tmp_root = Path(os.environ.get("CENTRAL_TEST_TMP", "/tmp/mstt-tests"))
@@ -50,7 +53,7 @@ def _clean_db():
         conn.execute(
             text(
                 "TRUNCATE TABLE audit_logs, transcript_segments, transcripts, session_speakers, "
-                "voice_enrollments, subject_documents, "
+                "voice_enrollments, subject_documents, person_identifiers, person_identities, "
                 "local_processing_jobs, audio_recordings, subjects, session_investigators, "
                 "investigation_sessions, workstations, investigator_profiles, user_roles, users RESTART IDENTITY CASCADE"
             )
@@ -82,6 +85,19 @@ def admin_token(client):
 
 
 def create_user(client, admin_token, username, roles, password="Password!1234", **profile):
+    """Create a user through the API.
+
+    Every user is a person in the canonical registry now, so the two fields that produce their
+    الرقم المرجعي are mandatory. `military_id` is UNIQUE, so it is derived from the username -
+    a stable digest rather than hash(), which is salted per process and would collide across
+    runs in a way that looks like a flaky test.
+    """
+    import hashlib
+
+    profile.setdefault(
+        "military_id", "T" + hashlib.sha1(username.encode()).hexdigest()[:8].upper()
+    )
+    profile.setdefault("security_branch", "ARMY")
     body = {
         "username": username,
         "password": password,
@@ -119,7 +135,17 @@ def create_session(client, token, **overrides):
         "session_date": "2026-08-23",
         "start_time": "10:00",
         "expected_speaker_count": 2,
-        "subjects": [{"subject_name": "أحمد محمد", "reference_number": "REF-1"}],
+        # Structured identifiers, so الرقم المرجعي DERIVES (LBN-BEIRUT-725). A hand-typed
+        # reference is no longer ordinary data entry - it needs subjects.reference.override -
+        # and the form cannot produce one, so the fixture must not either.
+        "subjects": [
+            {
+                "subject_name": "أحمد محمد",
+                "person_type": "CIVILIAN",
+                "register_number": "725",
+                "caza_code": "BEIRUT",
+            }
+        ],
     }
     body.update(overrides)
     res = client.post("/api/investigations", json=body, headers=auth(token))

@@ -66,3 +66,39 @@ export function initials(name: string | null | undefined): string {
   if (!name) return "?";
   return name.trim().split(/\s+/).slice(0, 2).map((p) => p[0]).join("");
 }
+
+/** How a person is SHOWN: rank first, then the name.
+ *
+ *  A label, never a key. `person_identities.person_name` holds the name ALONE and
+ *  `reference_number` is the only identity key - joining them here and re-splitting them
+ *  anywhere else is exactly what filed "الرائد علي عباس" as a canonical person. Nothing
+ *  produced by this module may be sent back as `person_name`.
+ */
+export function personLabel(name: string | null | undefined, rank?: string | null): string {
+  return [rank?.trim(), name?.trim()].filter(Boolean).join(" ");
+}
+
+/** The same label with الرقم المرجعي appended, for PLAIN-TEXT slots that cannot hold an
+ *  element: title=, aria-label=, <option> children.
+ *
+ *  The reference is wrapped in U+2068 FIRST STRONG ISOLATE ... U+2069 POP DIRECTIONAL
+ *  ISOLATE - the text-level equivalent of `<span className="ltr">`. Without it Arabic bidi
+ *  reorders "MIL-ARMY-4471" against the separator. In JSX prefer the existing markup, which
+ *  styles as well as isolates.
+ */
+export function personLabelWithReference(
+  name: string | null | undefined,
+  rank?: string | null,
+  reference?: string | null,
+): string {
+  const label = personLabel(name, rank);
+  const ref = reference?.trim();
+  if (!ref) return label;
+  // Explicit codepoints: FSI/PDI are invisible in source and trivially deleted by
+  // accident, and a bare middot lets bidi reorder the reference against it.
+  const FSI = String.fromCharCode(0x2068);
+  const PDI = String.fromCharCode(0x2069);
+  const MIDDOT = String.fromCharCode(0x00b7);
+  const isolated = `${FSI}${ref}${PDI}`;
+  return label ? `${label} ${MIDDOT} ${isolated}` : isolated;
+}

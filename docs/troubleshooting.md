@@ -16,6 +16,75 @@
 | `sha256_mismatch` on audio upload | the original file changed between processing and upload | never edit files in the agent's job directory; process again |
 | nginx 502 | backend not healthy yet / migration failing | `docker compose logs backend` |
 | `CUDA requested but not available` | driver/toolkit mismatch | check `nvidia-smi`; the agent falls back to CPU and reports it |
+| **تسجيل بصمة الصوت** disabled: *لا توجد بصمة صوت لهذا المتحدث* | the speaker has no voice embedding — **either** the agent cannot compute one **or** this recording predates the model | read **حالة نموذج بصمة الصوت** in the recording tab first; see *Voice prints* below — the two causes need opposite fixes |
+| **حالة نموذج بصمة الصوت: غير معروف** | the agent does not report `speaker_id` at all — its build predates voice identification | redeploy the agent (`deploy/deploy-edge.sh`). **Reprocessing will not help** |
+| **حالة نموذج بصمة الصوت: النموذج غير مثبّت** | `speakerverification_speakernet.nemo` is not under `AGENT_MODEL_DIR` | `python scripts/provision_models.py --model-dir ./models --only speaker_id`, then restart the agent |
+| **تسجيل بصمة الصوت** disabled: *حدِّد هوية المتحدث أولاً* | the speaker has a label but no canonical person | press **اختيار الشخص** and pick the person. A free-text name is not an identity |
+| `military_id_needs_security_branch` (422) saving a subject | a الرقم العسكري was entered with no الجهاز, or with `آخر` | pick a real force. A serial is unique only within its force, so the serial alone is not identity evidence |
+| **الرقم المرجعي** is missing from the new-session form | it is computed, not entered — deliberately no longer a field | fill in الجهاز + الرقم العسكري (military) and it derives; a civilian is issued `CIV-*` on save. To assign one by hand you need `subjects.reference.override`, then **تعيين الرقم المرجعي يدوياً** |
+| A soldier was saved with **no** الرقم المرجعي | their الرقم العسكري was not known, which is allowed | nothing is broken: they simply cannot be voice-enrolled until identified. Add the serial later and re-save |
+| Two fields looked like **محل القيد** | they were two different things sharing one label | now **القضاء** (part of the identity key) and **البلدة / تفاصيل محل القيد** (descriptive only) |
+| The same person appears twice in **اختيار الشخص**, under two names | an old build: sections were fed by three different shapes and de-duplication knew only one | update the frontend. Every row now comes from `GET /investigations/{id}/people` |
+| A setting changed in **إعدادات النظام** reverted after a restart | by design: the page changes the RUNNING server; boot re-reads `.env` | make it permanent in `.env` — see [system-settings.md](system-settings.md) |
+| An investigator is listed in **مُحقّقو الجلسة** but greyed out | their profile has no `الجهاز` or `الرقم العسكري`, so no الرقم المرجعي could be derived and they are not a registry person | complete the profile in **إدارة المستخدمين**, then re-save the session's investigators. The row names the missing fields |
+| A user cannot be created: 422 on `security_branch` | either it was omitted, or `آخر`/`OTHER` was chosen | pick a real force. `OTHER` is a catch-all, not a namespace — two "other" forces sharing a serial would collapse into one identity |
+| `identity_change_not_permitted` (403) | the caller holds `speakers.assign` but not `voice.identify` | labelling and identifying are separate authorities — have someone with `voice.identify` bind the person |
+| A person gets no suggestions although they are well enrolled | their prints are split across two canonical identities, so two of their own prints look like rival people and the matcher abstains | consolidate the identities (see [voice-enrollment-guide.md](voice-enrollment-guide.md) §7d). **Do not** edit `voice_enrollments.person_reference` — matching groups by `identity_id` |
 
 Logs: central `docker compose logs -f backend nginx`; agent `docker compose logs -f agent`
 or `C:\ProgramData\InvestigationAI\agent\agent.err.log` (NSSM) / `journalctl -u military-stt-agent`.
+
+---
+
+## Following one request through the backend
+
+Every response carries an `X-Request-ID` header, and every 500 body includes
+`"request_id"`. That id is stamped on **every log record** the request produced:
+
+```bash
+grep '"request_id": "<the id>"' storage/logs/backend.jsonl | jq
+```
+
+gives the access line (route, status, duration, user), any service decisions (e.g. the
+voice-matching verdict with its scores), slow-query warnings, and the full traceback if it
+crashed. The file lives on the host and **survives `--force-recreate`** - unlike
+`docker logs`. To watch a subsystem in detail without drowning, raise just its logger:
+`CENTRAL_LOG_LEVELS=app.services.voice_matching=DEBUG` and restart the backend.
+
+## Voice prints: capability vs embedding
+
+On the speaker card these two look identical, and they need opposite fixes. Always establish
+which one you have **before** reprocessing anything.
+
+```
+curl -s http://127.0.0.1:17117/model-status | python -m json.tool | grep -A 8 speaker_id
+```
+
+| What you see | Meaning | Fix |
+|---|---|---|
+| `"state": "READY"` | the model is loaded and working | the recording predates it — reprocess the recording |
+| `"state": "PROVISIONED"` | found, not yet loaded | normal before the first job; it loads on demand |
+| `"state": "NOT_PROVISIONED"` | the `.nemo` is not where the agent expects it | provision it, then restart the agent |
+| `"state": "ERROR"` | it tried to load and failed | `docker compose logs agent` — the reason is logged |
+| **no `speaker_id` key at all** | the agent build predates the feature | redeploy the agent |
+
+**Reprocessing only helps in the first row.** In every other case the agent has nothing to
+compute an embedding with, so it produces the same nothing again.
+
+A quick way to tell what produced an existing result: the agent keeps every job's payload at
+`/data/jobs/<job_id>/result.json`, and the job history survives container recreation in
+`/data/agent.sqlite3`.
+
+```bash
+docker exec mstt-agent python -c "import json;d=json.load(open('/data/jobs/<job_id>/result.json'));print('voice_identification' in d, d.get('voice_identification'))"
+```
+
+`False` — the key is absent entirely — means a build from before voice identification existed.
+`True` with `None` means a current agent that computed no embedding for that job (too little
+speech, or the model was unavailable at the time).
+
+The agent's own logs record every skip explicitly, one line per speaker:
+`no embedding for SPEAKER_00 (speaker_id_audio_too_short)` or
+`speaker identification unavailable: …`. Note that recreating the container discards those
+logs — read them before `docker compose up --force-recreate`, or use the result payloads
+above, which persist.

@@ -30,6 +30,7 @@ def _capabilities(request: Request) -> dict:
         "stt": status["stt"],
         "diarization": status["diarization"],
         "vad": status["vad"],
+        "speaker_id": status["speaker_id"],
         "max_speakers": status["max_speakers"],
         "supported_formats": sorted(ALLOWED_EXTENSIONS),
         "max_upload_bytes": settings.max_upload_bytes,

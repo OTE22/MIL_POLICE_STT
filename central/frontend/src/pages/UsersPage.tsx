@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 import { ApiError, http, qs } from "@/api/client";
-import type { UserRow } from "@/api/types";
+import type { SecurityBranch, UserRow } from "@/api/types";
 import { useAuth } from "@/lib/auth";
 import { formatDateTime } from "@/lib/format";
 import { T, errorMessage, t } from "@/lib/i18n";
@@ -15,10 +15,13 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
   USER: ["عرض الجلسات المسندة", "عرض النص المفرغ (قراءة فقط)"],
 };
 
+const USER_BRANCHES: SecurityBranch[] = ["ARMY", "ISF", "GENERAL_SECURITY", "STATE_SECURITY", "CUSTOMS"];
+
 interface ProfileForm {
   full_name: string;
   rank: string;
   military_id: string;
+  security_branch: string;
   unit: string;
   department: string;
   job_title: string;
@@ -26,7 +29,7 @@ interface ProfileForm {
   email: string;
   location: string;
 }
-const emptyProfile = (): ProfileForm => ({ full_name: "", rank: "", military_id: "", unit: "", department: "", job_title: "", phone: "", email: "", location: "" });
+const emptyProfile = (): ProfileForm => ({ full_name: "", rank: "", military_id: "", security_branch: "", unit: "", department: "", job_title: "", phone: "", email: "", location: "" });
 const clean = (v: string) => (v.trim() ? v.trim() : null);
 const roleLabel = (r: string) => t(`role${r[0]}${r.slice(1).toLowerCase()}`, r);
 
@@ -42,6 +45,7 @@ function UserModal({ user, onClose, onSaved }: { user: UserRow | null; onClose: 
           full_name: user.profile.full_name,
           rank: user.profile.rank ?? "",
           military_id: user.profile.military_id ?? "",
+          security_branch: user.profile.security_branch ?? "",
           unit: user.profile.unit ?? "",
           department: user.profile.department ?? "",
           job_title: user.profile.job_title ?? "",
@@ -62,6 +66,7 @@ function UserModal({ user, onClose, onSaved }: { user: UserRow | null; onClose: 
       full_name: profile.full_name.trim(),
       rank: clean(profile.rank),
       military_id: clean(profile.military_id),
+      security_branch: profile.security_branch || null,
       unit: clean(profile.unit),
       department: clean(profile.department),
       job_title: clean(profile.job_title),
@@ -125,7 +130,26 @@ function UserModal({ user, onClose, onSaved }: { user: UserRow | null; onClose: 
           <div className="section-title">{T.fullName}</div>
           <Field label={T.fullName} required><input className="input" value={profile.full_name} onChange={set("full_name")} required /></Field>
           <Field label={T.rank}><input className="input" value={profile.rank} onChange={set("rank")} /></Field>
-          <Field label={T.militaryId}><input className="input" value={profile.military_id} onChange={set("military_id")} dir="ltr" /></Field>
+          <Field label={T.militaryId} required>
+            <input className="input" value={profile.military_id} onChange={set("military_id")} dir="ltr" required data-testid="user-military-id" />
+          </Field>
+          {/* Part of the person's الرقم المرجعي: a serial is unique only within its force. */}
+          <Field label={T.securityBranch} required>
+            <select
+              className="select"
+              value={profile.security_branch}
+              onChange={(e) => setProfile((p) => ({ ...p, security_branch: e.target.value }))}
+              required
+              data-testid="user-security-branch"
+            >
+              <option value="">{T.none}</option>
+              {USER_BRANCHES.map((b) => (
+                <option key={b} value={b}>
+                  {t(`branch_${b}`)}
+                </option>
+              ))}
+            </select>
+          </Field>
           <Field label={T.unit}><input className="input" value={profile.unit} onChange={set("unit")} /></Field>
           <Field label={T.department}><input className="input" value={profile.department} onChange={set("department")} /></Field>
           <Field label={T.jobTitle}><input className="input" value={profile.job_title} onChange={set("job_title")} /></Field>

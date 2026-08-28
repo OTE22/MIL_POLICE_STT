@@ -66,8 +66,19 @@ button, input, select, textarea { font: inherit; color: inherit; }
 code, .mono { font-family: Consolas, "Courier New", monospace; direction: ltr; unicode-bidi: embed; }
 .ltr { direction: ltr; unicode-bidi: isolate; }
 span.ltr { display: inline-block; }
-td.ltr, th.ltr { text-align: start; }
 .num { font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: isolate; }
+
+/* `direction: ltr` exists on these to keep an LTR run reading correctly - INV-2026-00001 and
+   2026/08/27 are mangled by bidi reordering without it. On a BLOCK element it also silently
+   changes alignment: `text-align: start` resolves to LEFT under ltr, so a value sat at the far
+   left of its cell while its RTL label sat at the right - measured up to 248px apart on the
+   session details.
+   Re-anchor them to the RTL start edge. The glyph order is preserved; only the block alignment
+   is corrected. INPUTS are deliberately excluded: typing a username or an email left-to-right
+   SHOULD begin at the left, and forcing those to the right would be the same bug mirrored. */
+dd.ltr, dd.num, dd.mono,
+td.ltr, td.num, td.mono,
+th.ltr, th.num, th.mono { text-align: right; }
 
 /* ----------------------------------------------------------------- layout */
 .app-shell { display: flex; min-height: 100vh; }
@@ -427,3 +438,37 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   .audit-details { grid-template-columns: 1fr; gap: 1px 0; }
   .audit-details dt { margin-top: 5px; }
 }
+
+/* ---- voice identity: people, not print rows ------------------------------ */
+
+.person-card { padding: 12px 0; border-bottom: 1px solid var(--line-soft); }
+.person-card:last-child { border-bottom: 0; }
+.person-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.person-head strong { font-weight: 600; }
+
+.person-list { display: flex; flex-direction: column; gap: 4px; max-height: 320px; overflow-y: auto; }
+.person-row {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  text-align: start; width: 100%; cursor: pointer; font: inherit;
+  padding: 8px 10px; border: 1px solid var(--line-soft); border-radius: 6px; background: var(--surface);
+}
+.person-row:hover { border-color: var(--accent); }
+.person-row.selected { background: var(--accent-soft); border-color: var(--accent); }
+
+.flex.gap { gap: 8px; }
+.flex.wrap { flex-wrap: wrap; }
+.mt-8 { margin-top: 8px; }
+
+/* اختيار الشخص --------------------------------------------------------------- */
+.picker-trigger {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  text-align: start; cursor: pointer;
+}
+.picker-trigger:disabled { cursor: not-allowed; opacity: 0.6; }
+.picker-section { margin-bottom: 20px; }
+.picker-section:last-child { margin-bottom: 0; }
+.picker-section h4 {
+  margin: 0 0 8px; font-size: 0.86rem; font-weight: 600; color: var(--muted);
+}
+/* A row that is mid-link must not accept a second click. */
+.person-row:disabled { opacity: 0.5; cursor: not-allowed; }

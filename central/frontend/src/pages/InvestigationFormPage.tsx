@@ -4,7 +4,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { ApiError, http } from "@/api/client";
 import type { AssignmentRole, Investigation, Profile, Subject } from "@/api/types";
 import { useAuth } from "@/lib/auth";
-import { todayIso, nowTime } from "@/lib/format";
+import { todayIso, nowTime, personLabel } from "@/lib/format";
 import { T, errorMessage } from "@/lib/i18n";
 import { Alert, Field, Loading, useToast } from "@/components/ui";
 import { IconPlus, IconX } from "@/components/Icons";
@@ -40,6 +40,11 @@ export function InvestigationFormPage() {
   const [expectedSpeakers, setExpectedSpeakers] = useState(2);
   const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([emptySubject()]);
+  /* Participants the operator deliberately removed. Under replacement semantics the server
+     cannot tell "deleted" from "the client lost this row", so deletion is stated, not
+     inferred - otherwise removing one person and adding another in the same save is
+     indistinguishable from losing the first one's identity. */
+  const [removedKeys, setRemovedKeys] = useState<string[]>([]);
 
   useEffect(() => {
     void http.get<Profile[]>("/investigators").then((list) => {
@@ -80,7 +85,12 @@ export function InvestigationFormPage() {
       notes: clean(notes),
       expected_speaker_count: expectedSpeakers,
       investigators: assignments.filter((a) => a.investigator_id),
+      removed_participant_keys: removedKeys,
       subjects: subjects.map((s) => ({
+        // The only handle the server accepts. `Subject.id` is destroyed and re-minted by
+        // the rebuild, so it is not sent at all - carrying it would work once and then start
+        // issuing a second reference for the same person.
+        participant_key: s.participant_key ?? null,
         subject_name: clean(s.subject_name),
         reference_number: clean(s.reference_number),
         person_type: s.person_type,
@@ -93,6 +103,7 @@ export function InvestigationFormPage() {
         nationality_name: clean(s.nationality_name),
         register_number: clean(s.register_number),
         place_of_registration: clean(s.place_of_registration),
+        caza_code: s.caza_code ?? null,
         is_unregistered: s.is_unregistered,
         is_undocumented: s.is_undocumented,
         undocumented_reason: s.is_undocumented ? s.undocumented_reason : null,
@@ -174,8 +185,7 @@ export function InvestigationFormPage() {
                     <option value="">{T.selectInvestigator}</option>
                     {investigators.map((p) => (
                       <option key={p.id} value={p.id}>
-                        {p.rank ? `${p.rank} ` : ""}
-                        {p.full_name}
+                        {personLabel(p.full_name, p.rank)}
                         {p.military_id ? ` (${p.military_id})` : ""}
                       </option>
                     ))}
@@ -209,7 +219,11 @@ export function InvestigationFormPage() {
                   canRemove={subjects.length > 1}
                   canUploadDocuments={canUploadDocuments}
                   onChange={(next) => setSubjects((prev) => prev.map((x, idx) => (idx === i ? next : x)))}
-                  onRemove={() => setSubjects((prev) => prev.filter((_, idx) => idx !== i))}
+                  onRemove={() => {
+                    const key = subjects[i]?.participant_key;
+                    if (key) setRemovedKeys((prev) => (prev.includes(key) ? prev : [...prev, key]));
+                    setSubjects((prev) => prev.filter((_, idx) => idx !== i));
+                  }}
                 />
               </div>
             ))}

@@ -40,11 +40,22 @@ So the order is always:
 
 ```
 1. process a recording          → speakers appear as SPEAKER_00, SPEAKER_01 …
-2. establish who SPEAKER_00 is  → type the name, or pick from the session's people
+2. establish who SPEAKER_00 is  → اختيار الشخص → pick the person
 3. press "تسجيل بصمة الصوت"      → the print is created from that speaker's audio
 ```
 
-Step 2 before step 3, always. The enrol button stays disabled until the speaker has a name.
+Step 2 before step 3, always.
+
+**A name is not an identity.** The enrol button needs *both* of these, and says which one is
+missing:
+
+| Missing | The button says |
+|---|---|
+| The speaker has no canonical person | *حدِّد هوية المتحدث أولاً — البصمة تُربط بشخص، لا باسم فقط.* |
+| The recording carries no voice data | *لا توجد بصمة صوت لهذا المتحدث — تحقق من حالة نموذج بصمة الصوت في الوكيل، ثم أعد معالجة التسجيل.* |
+
+A free-text label such as *المتحدث الأول* is legal and useful, but it establishes nobody, so
+it never enables enrolment. Only picking a person does.
 
 ---
 
@@ -54,22 +65,65 @@ Open a session → **المتحدثون** tab.
 
 | Step | What you do |
 |---|---|
-| 1 | Set **الاسم المعروض** for the speaker and press **تعيين الاسم** |
-| 2 | Press **تسجيل بصمة الصوت** on that speaker's card |
-| 3 | Check the name, and fill in **الرقم المرجعي** |
-| 4 | Tick the consent box |
-| 5 | Press the confirm button in the dialog |
+| 1 | Press **اختيار الشخص** on the speaker's card |
+| 2 | Pick the person — from **مشاركو الجلسة**, or **البحث عن شخص مسجل**, or **إضافة شخص جديد** |
+| 3 | Press **تسجيل بصمة الصوت** on that speaker's card |
+| 4 | Check the name and الرقم المرجعي, both already filled in |
+| 5 | Tick the consent box |
+| 6 | Press the confirm button in the dialog |
+
+**اختيار الشخص is the only way to identify a speaker.** It replaced a free-text box, three
+look-alike chips and two separate buttons that each established identity through a different
+door. It offers five choices, and each states what it will do:
+
+| Section | What picking it does |
+|---|---|
+| **مشاركو الجلسة** | A subject recorded on this session — linked immediately |
+| **مُحقّقو الجلسة** | An investigator running it — linked immediately |
+| **البحث عن شخص مسجل** | The canonical registry — recorded on the session, then linked |
+| **إضافة شخص جديد** | Opens the person form — created, then linked |
+| **تسمية مؤقتة** | A label only. Offered **only while nobody has been identified** |
+
+**The name you see is the same everywhere.** بصمات الأصوات, the speaker card and the picker
+all show the canonical `person_name` from the registry, so a person renamed or consolidated
+reads correctly in every screen at once. A **rank is shown beside the name, never inside it** —
+ranks change with promotion, the registry has no column for one, and a name with a rank baked
+in could never match what the voice registry returns.
+
+**Investigators are enrollable like anyone else.** They speak in the interviews they run, so
+they are registry people: assigning one to a session registers them under
+`MIL-<BRANCH>-<serial>`, and from there they are identified and voice-enrolled by the same
+steps as a subject. Enrol the investigator once and every session they run can suggest them.
+
+An investigator whose profile lacks `الجهاز` or `الرقم العسكري` has no reference yet and is shown
+**disabled** with what is missing — complete it in **إدارة المستخدمين**.
+
+تسمية مؤقتة disappears once the speaker *is* someone: a working label on an identified
+speaker would be a way to quietly disagree with the registry.
+
+Picking a person resolves through **الرقم المرجعي**, never the displayed name — two people in
+one session may share a rank and a name, so each row carries its person, not its string.
 
 ### الرقم المرجعي is the important field
 
-This is the person's **stable identifier** — military number, civil registry number, case
-reference. It is what ties a person's prints together, and it is **not** the display name.
+**You never type it, and you never see an empty box for it.** Picking a person fills it in.
+A soldier gets `MIL-<الجهاز>-<الرقم العسكري>`, derived from what you already entered;
+everyone else is **issued** `CIV-*` when the person is saved. That is what
+stops one soldier arriving as `MIL-4471`, `MIL 4471` and `4471`.
 
-> **Use the same رقم مرجعي every time you enrol the same person.** This is the single most
-> important rule on this page. Two prints of one person filed under two different reference
-> numbers look like two different people to the system, and two "different people" who sound
-> alike make the matcher refuse to choose — so the person stops getting suggestions
-> altogether. See §7.
+A UNHCR or UNRWA card no longer becomes the reference. The card can be reissued, corrected or
+replaced, and the person must survive that — so it is recorded as an **external identifier**
+that helps find them instead. محل القيد and رقم السجل identify a **family record**, not a
+person, so they identify nobody. See [subject-identity.md](subject-identity.md) for why.
+
+It is the person's **stable identifier**, not their display name — it is what ties their prints
+together across sessions.
+
+> **One person, one رقم مرجعي.** Two prints filed under two different reference numbers look
+> like two different people, and two "different people" who sound alike make the matcher refuse
+> to choose — so the person stops getting suggestions altogether. Derivation is what normally
+> prevents this; if you override the value, the derived one is still reserved against the same
+> person, so nobody else can claim it. See §7.
 
 ### Consent is mandatory
 
@@ -88,8 +142,14 @@ prints mean better coverage.
 To add another print: identify that person in another session and enrol them again, using
 **the same رقم مرجعي**.
 
-The matcher groups prints by reference and represents each person by their *best* print, so
-extra prints can only help — they never compete with each other.
+The matcher groups prints by **canonical identity** (`identity_id` in the person registry)
+and represents each person by their *best* print, so extra prints can only help — they never
+compete with each other.
+
+Grouping by identity rather than by the reference stored on the print matters: `person_name`
+and `person_reference` on a print are a **snapshot of what was recorded the day it was taken**.
+Rename or merge a person and the prints follow automatically, because the identity they point
+at is the authority — not the text they carry.
 
 If you enter a reference that is already registered under a **different name**, the request
 is refused (`person_reference_name_mismatch`). That is almost always a typo in the reference
@@ -150,15 +210,53 @@ The embedding itself is never shown in the interface and never leaves the server
 
 Work down this list.
 
-**a. Does the speaker have a print at all?**
+**a. Does the speaker have a voice embedding at all?**
+
 If **تسجيل بصمة الصوت** is disabled and says *لا توجد بصمة صوت لهذا المتحدث*, that recording
-was processed without the speaker-identification model. Reprocess the recording; older
-sessions cannot be enrolled retroactively.
+was processed without a working speaker-identification model. There are two different causes
+and **they need opposite fixes**, so check which one you have before doing anything:
+
+Open the session's **التسجيل** tab and read **حالة نموذج بصمة الصوت** in the agent panel:
+
+| Badge | Meaning | What to do |
+|---|---|---|
+| **جاهز** | The model is loaded | The recording predates it — reprocess the recording |
+| **النموذج غير محمّل** | Provisioned, not yet loaded | Normal before the first job; it loads on demand |
+| **النموذج غير مثبّت** | The `.nemo` file is not where the agent expects it | Provision it — see below |
+| **غير معروف** | **The agent does not report this model at all** | Its build predates the feature — redeploy the agent |
+| **تعذر تشغيل النموذج** | It tried and failed | `docker compose logs agent` |
+
+> **Reprocessing does not help when the badge is غير معروف or النموذج غير مثبّت.** The agent has
+> nothing to compute an embedding with, so it will produce exactly the same nothing. This is
+> the single most misleading failure in this area: a missing *capability* and a missing
+> *embedding* look identical on the speaker card.
+
+From a terminal, the same answer:
+
+```bash
+curl -s http://127.0.0.1:17117/model-status | python -m json.tool | grep -A 8 speaker_id
+```
+
+`"state": "READY"` after a job means it is working. If the `speaker_id` key is **absent from
+the response entirely**, the agent is running a build from before voice identification
+existed — redeploy it with `deploy/deploy-edge.sh`.
+
+Older sessions processed without the model cannot be enrolled retroactively unless you
+reprocess the audio.
 
 **b. Was the session processed before the person was enrolled?**
 Most likely cause. Press **إعادة فحص البصمات** on the session.
 
-**c. Is the same person enrolled under several reference numbers?**
+**c. Was the person ever identified?**
+A speaker with a name but no identity is not enrollable and shows
+*لن يظهر في بصمات الأصوات حتى تُحدَّد هويته* on its card. Press **اختيار الشخص** and pick the
+person (or add them).
+
+Note that this needs the `voice.identify` permission. Someone who holds only `speakers.assign`
+can label a voice but cannot say which human it is, and the picker offers them **مشاركو
+الجلسة** and **تسمية مؤقتة** only.
+
+**d. Is the same person enrolled under several reference numbers?**
 This silently suppresses suggestions for that person — two of their own prints look like two
 rival people, and the matcher abstains rather than choose. Check:
 
@@ -168,22 +266,32 @@ SELECT person_name, count(DISTINCT person_reference) AS refs,
 FROM voice_enrollments WHERE is_active GROUP BY 1 HAVING count(DISTINCT person_reference) > 1;
 ```
 
-Consolidate onto the real identifier, then re-scan:
+Consolidate the **identities**, then re-scan. Do **not** edit `voice_enrollments` by hand:
+since matching groups by `identity_id`, rewriting the `person_reference` column changes only a
+historical snapshot and consolidates nothing — the two identities still compete, and the
+matcher still abstains. It would look like it worked.
 
-```sql
-UPDATE voice_enrollments SET person_reference = '<the real ID number>'
-WHERE person_name = '<the person>' AND person_reference IN ('<old-1>', '<old-2>');
+Use the endpoint, which merges the identities and repoints every print, subject and speaker:
+
+```
+POST /api/voice-enrollments/people/{identity_id}/consolidate
+     { "into_identity_id": "<the surviving person>" }
 ```
 
-**d. Do two genuinely different people sound alike?**
+It requires `voice.enroll` **and** `investigations.read_all`, so in practice ADMIN only:
+consolidation rewrites ownership across sessions the caller may not be allowed to open, so
+being able to enrol a voice must not confer it. The merged reference survives as an **alias** —
+it can never be recreated, and a stale client submitting it resolves forward to the survivor.
+
+**e. Do two genuinely different people sound alike?**
 Then abstaining is correct. Name the speaker by hand.
 
-**e. Is the score simply too low?**
+**f. Is the score simply too low?**
 The threshold is **0.65** (`CENTRAL_VOICE_MATCH_THRESHOLD`), calibrated on synthesised
 voices. Recalibrate on your own recordings before relying on it — see the calibration
 section of [speaker-identification.md](speaker-identification.md).
 
-**f. Is the print deactivated?** Check the **بصمات الأصوات** page with *غير المفعّلة* shown.
+**g. Is the print deactivated?** Check the **بصمات الأصوات** page with *غير المفعّلة* shown.
 
 ---
 
@@ -205,7 +313,17 @@ section of [speaker-identification.md](speaker-identification.md).
 |---|---|---|
 | `voice.identify` | See suggestions, confirm/reject, view the registry, run a re-scan | ADMIN, INVESTIGATOR |
 | `voice.enroll` | Create, deactivate and delete prints | ADMIN, INVESTIGATOR |
-| `speakers.assign` | Required *in addition* to accept a suggestion — the same permission as typing a name by hand | ADMIN, INVESTIGATOR |
+| `speakers.assign` | Label a speaker: الاسم المعروض, الصفة, ملاحظات. Required *in addition* to accept a suggestion | ADMIN, INVESTIGATOR |
+
+**Labelling and identifying are different authorities.** `speakers.assign` says *you may name
+the voices in this session*. `voice.identify` says *you may declare which human this is* — a
+claim that reaches the canonical registry and, through it, the biometric prints.
+
+The split is enforced on the server, not just in the interface: a speaker PATCH that asserts a
+person (`person_name`, or a changed `reference_number`) is refused with
+`identity_change_not_permitted` unless the caller holds `voice.identify`. The check runs
+**before** the speaker row is touched, so a refusal leaves it exactly as it was — hiding the
+option in the picker would otherwise leave the endpoint open to anyone who can call it.
 
 The read-only **USER** role has none of these and never sees voice data.
 

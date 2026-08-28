@@ -7,9 +7,10 @@ from collections.abc import Callable
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.core.logging_setup import bind_user
 from app.core.security import TokenError, decode_access_token
 from app.db.session import get_db
 from app.models import InvestigationSession, InvestigatorProfile, SessionInvestigator, User
@@ -43,6 +44,9 @@ def get_current_user(
     if not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail=ERR_ACCOUNT_DISABLED)
     request.state.user = user
+    # Every later log record of this request - services, SQL, matching - now carries the
+    # username. One hook here covers every authenticated route.
+    bind_user(user.username)
     return user
 
 
@@ -107,3 +111,24 @@ def client_ip(request: Request) -> str | None:
     if forwarded:
         return forwarded.split(",")[0].strip()[:64]
     return request.client.host if request.client else None
+
+
+def accessible_sessions_stmt(db: Session, user: User):
+    """Sessions this user may see, as a SELECT to compose into other queries.
+
+    Shared by the investigation list and by the voice endpoints: an investigator must never
+    discover a person, a speaker or a session through the voice area that they could not see
+    through the investigations area.
+    """
+    stmt = select(InvestigationSession)
+    if "investigations.read_all" in user.permission_codes:
+        return stmt
+    profile_id = db.scalar(select(InvestigatorProfile.id).where(InvestigatorProfile.user_id == user.id))
+    conditions = [InvestigationSession.created_by == user.id]
+    if profile_id is not None:
+        conditions.append(
+            InvestigationSession.id.in_(
+                select(SessionInvestigator.session_id).where(SessionInvestigator.investigator_id == profile_id)
+            )
+        )
+    return stmt.where(or_(*conditions))

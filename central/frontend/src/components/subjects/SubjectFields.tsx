@@ -5,9 +5,10 @@
    Documents are a list: a person may present several, or none at all.
    Nothing here is mandatory — a session can be saved for an unidentified person. */
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { ApiError, api, getToken } from "@/api/client";
+import { useAuth } from "@/lib/auth";
 import type {
   IdentityConfidence,
   PersonType,
@@ -18,6 +19,8 @@ import type {
   UndocumentedReason,
 } from "@/api/types";
 import { OTHER_COUNTRIES, PRIORITY_COUNTRIES, countryName, isLebanese } from "@/lib/countries";
+import { CAZAS } from "@/lib/cazas";
+import { deriveReference, normalizeReference } from "@/lib/person-reference";
 import { formatBytes, formatDate } from "@/lib/format";
 import { T, errorMessage, t } from "@/lib/i18n";
 import { Alert, Badge, Field, useToast } from "@/components/ui";
@@ -53,6 +56,7 @@ export function emptySubject(): Subject {
     nationality_code: "LB",
     nationality_name: "",
     register_number: "",
+    caza_code: null,
     place_of_registration: "",
     is_unregistered: false,
     is_undocumented: false,
@@ -267,6 +271,33 @@ export function SubjectFields({
   const types = documentTypesFor(subject);
   const lebanese = isLebanese(subject.nationality_code);
 
+  const derived = deriveReference(subject);
+  // Hand-assigning a canonical business key is exceptional, so it is a permission, not a
+  // button everyone gets. The backend enforces the same rule - this only hides an action
+  // the server would refuse anyway.
+  const { can } = useAuth();
+  const mayOverride = can("subjects.reference.override");
+  // The operator has typed a reference that the identifiers do not imply, so they are
+  // deliberately overriding - keep the plain field rather than snapping it back.
+  //
+  // `derived` must be non-null for that to mean anything. Without this an ISSUED reference
+  // looked like an override - a civilian derives nothing, so their CIV-* differed from null
+  // and the field unlocked itself on every saved civilian.
+  const [overriding, setOverriding] = useState(
+    Boolean(subject.reference_number) && Boolean(derived) &&
+      normalizeReference(subject.reference_number) !== normalizeReference(derived),
+  );
+
+  useEffect(() => {
+    // Keep الرقم المرجعي in step with the identifiers while the operator is still typing
+    // them. Never touch it once they have taken it over.
+    if (overriding || !derived) return;
+    if (normalizeReference(subject.reference_number) !== normalizeReference(derived)) {
+      set("reference_number", derived);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [derived, overriding]);
+
   const setPersonType = (value: PersonType) =>
     onChange({
       ...subject,
@@ -304,18 +335,74 @@ export function SubjectFields({
           </div>
         </Field>
 
-        <Field label={T.subjectName}>
-          <input className="input" value={subject.subject_name ?? ""} onChange={(e) => set("subject_name", e.target.value)} maxLength={200} />
+        {/* A person is recorded by NAME. Optional once, and the consequence was a registry
+            entry called "CIV-00000019" - a placeholder that reads as real data. Latin script
+            is accepted deliberately: a passport may carry the only spelling there is. */}
+        <Field label={T.subjectName} required>
+          <input
+            className="input"
+            value={subject.subject_name ?? ""}
+            onChange={(e) => set("subject_name", e.target.value)}
+            maxLength={200}
+            required
+            // Whitespace is not a name; the browser must not accept "   " as filled in.
+            pattern=".*\S.*"
+            title={T.subjectNameRequired}
+            data-testid="subject-name"
+          />
         </Field>
-        <Field label={T.referenceNumber}>
-          <input className="input" value={subject.reference_number ?? ""} onChange={(e) => set("reference_number", e.target.value)} maxLength={100} />
+        {/* الرقم المرجعي is COMPUTED from the identifiers above, so it is not shown as a field
+            to fill in: an empty box invites someone to type one, and hand-typing is exactly
+            what produced MIL-4471 / MIL 4471 / 4471 for a single person. Manual assignment
+            survives for the paperwork that does not fit the rule, but it is now a deliberate
+            action behind a control rather than a box sitting open on every form. */}
+        {overriding ? (
+        <Field
+          label={T.referenceNumber}
+          hint={derived && !overriding ? T.referenceDerived : undefined}
+        >
+          {/* Typing this by hand is what produced MIL-4471 / MIL 4471 / 4471 for one person,
+              so it is system-managed: the operator fills in the structured identifiers and
+              the backend derives the key. Manual assignment survives for the exceptional
+              cases real paperwork produces, but only as a privileged action. */}
+          <input
+            className="input"
+            value={subject.reference_number ?? ""}
+            onChange={(e) => set("reference_number", e.target.value)}
+            maxLength={100}
+            data-testid="reference-number"
+          />
+          {derived && <div className="muted small mt-8">{T.referenceOverrideNote}</div>}
         </Field>
+        ) : (
+          /* Not offered for civilians: their reference comes from a sequence, so there is
+             nothing to correct and nothing to supply. Overriding exists for people whose
+             reference is DERIVED and whose paperwork does not fit the rule - and the server
+             refuses a hand-typed CIV-* or TMP-* from anyone regardless. */
+          mayOverride && subject.person_type !== "CIVILIAN" && (
+            <div className="field">
+              <button
+                className="btn btn-sm"
+                type="button"
+                data-testid="reference-manual"
+                onClick={() => setOverriding(true)}
+              >
+                {derived ? T.referenceOverride : T.referenceManual}
+              </button>
+              <div className="muted small mt-8">{T.referenceComputedNote}</div>
+            </div>
+          )
+        )}
 
         {/* ---- military -------------------------------------------------- */}
         {subject.person_type === "MILITARY" && (
           <>
-            <Field label={T.securityBranch}>
-              <select className="select" value={subject.security_branch ?? ""} onChange={(e) => set("security_branch", (e.target.value || null) as SecurityBranch | null)}>
+            {/* الجهاز and الرقم العسكري together ARE the reference: MIL-<BRANCH>-<serial>. A
+                serial is unique only within its force, so either one missing means no key can
+                be derived at all - and two people from different forces sharing a serial would
+                collapse into one identity. Required, therefore, not merely encouraged. */}
+            <Field label={T.securityBranch} required>
+              <select className="select" required value={subject.security_branch ?? ""} onChange={(e) => set("security_branch", (e.target.value || null) as SecurityBranch | null)}>
                 <option value="">{T.none}</option>
                 {BRANCHES.map((b) => (
                   <option key={b} value={b}>
@@ -327,8 +414,8 @@ export function SubjectFields({
             <Field label={T.rank}>
               <input className="input" value={subject.rank ?? ""} onChange={(e) => set("rank", e.target.value)} maxLength={100} />
             </Field>
-            <Field label={T.militaryId}>
-              <input className="input" dir="ltr" value={subject.military_id ?? ""} onChange={(e) => set("military_id", e.target.value)} maxLength={64} />
+            <Field label={T.militaryId} required>
+              <input className="input" dir="ltr" required value={subject.military_id ?? ""} onChange={(e) => set("military_id", e.target.value)} maxLength={64} data-testid="military-id" />
             </Field>
             <Field label={T.unit}>
               <input className="input" value={subject.unit ?? ""} onChange={(e) => set("unit", e.target.value)} maxLength={200} />
@@ -373,7 +460,26 @@ export function SubjectFields({
                 <Field label={T.registerNumber}>
                   <input className="input" dir="ltr" value={subject.register_number ?? ""} onChange={(e) => set("register_number", e.target.value)} maxLength={64} data-testid="register-number" />
                 </Field>
-                <Field label={T.placeOfRegistration}>
+                <Field label={T.placeOfRegistration} hint={T.cazaHint}>
+                  {/* رقم السجل repeats between أقضية, so the قضاء is part of the identity key -
+                      and only a recognised code counts. */}
+                  <select
+                    className="select"
+                    value={subject.caza_code ?? ""}
+                    onChange={(e) => set("caza_code", e.target.value || null)}
+                    data-testid="caza-code"
+                  >
+                    <option value="">{T.none}</option>
+                    {CAZAS.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.name} — {c.governorate}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                {/* Descriptive only. The قضاء above is the half that enters the identity key;
+                    this one is a note. They shared a label and looked interchangeable. */}
+                <Field label={T.placeOfRegistrationDetail} hint={T.placeOfRegistrationDetailHint}>
                   <input className="input" value={subject.place_of_registration ?? ""} onChange={(e) => set("place_of_registration", e.target.value)} maxLength={200} />
                 </Field>
                 <label className="checkbox field">

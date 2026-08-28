@@ -45,7 +45,7 @@ SpeakerNet does not replace diarization and does not produce text.
    * the best score beats the runner-up by ≥ `CENTRAL_VOICE_MATCH_MARGIN` (default 0.05) —
      otherwise the result is ambiguous and the system **abstains**.
 
-   Candidates are grouped by `person_reference` **before** the margin is applied, and each
+   Candidates are grouped by **canonical identity** before the margin is applied, and each
    person is represented by their best print. Several prints of one person therefore
    reinforce each other; the margin only ever separates two *different people*. Identity is
    the reference, never the display name — two people share a common name often enough that
@@ -85,6 +85,24 @@ shift these numbers. Raise the threshold to reduce false suggestions; lower it t
 * Deactivate (`is_active=false`) to stop future suggestions without destroying the record;
   delete to remove it entirely. Names already **confirmed** by a human are unaffected.
 
+## Who a print belongs to
+
+Every print points at a row in the canonical person registry, keyed by الرقم المرجعي — which
+is now [derived from the identifiers already recorded](subject-identity.md#الرقم-المرجعي--derived-not-typed)
+rather than typed. That row is the authority for a person's **current** name and reference.
+
+The `person_name` and `person_reference` stored on a print are a **snapshot of what was
+recorded when it was taken**. They are kept as history and are never consulted for current
+identity, so renaming a person updates one registry row and every print follows.
+
+Merging two references keeps the merged row as an **alias**: it can never be recreated, and a
+stale client submitting it resolves forward to the survivor.
+
+A print whose `identity_id` is NULL is **dropped before scoring**, not merely ignored at the
+end. It is biometric evidence attributed to nobody: it cannot name a speaker, so it must not
+compete in the ranking either — a rival with no person behind it can only push a real match
+below the margin and turn a correct answer into an abstention.
+
 ## Re-scanning after a later enrolment
 
 Matching runs when the agent submits its result. A session processed **before** a person was
@@ -111,21 +129,34 @@ worked around it by inventing a new reference number for the same human. Those r
 look like **different people**, and two of them scoring alike makes the matcher abstain —
 suppressing suggestions for exactly the person who is best enrolled.
 
-Check for it:
+Check for it — note that this groups by the **identity** the prints point at, which is what
+the matcher actually uses:
 
 ```sql
-SELECT person_name, count(DISTINCT person_reference) AS refs,
-       string_agg(DISTINCT person_reference, ', ') AS which
-FROM voice_enrollments WHERE is_active GROUP BY 1 HAVING count(DISTINCT person_reference) > 1;
+SELECT e.identity_id, i.person_name, count(*) AS prints
+FROM voice_enrollments e JOIN person_identities i ON i.id = e.identity_id
+WHERE e.is_active GROUP BY 1, 2 ORDER BY i.person_name;
 ```
 
-Consolidate onto the person's real identifier, then re-scan. This is deliberately a manual
-step: the system cannot safely decide that three reference numbers are one human.
+Two rows with the same person under different `identity_id`s is the problem case.
 
-```sql
-UPDATE voice_enrollments SET person_reference = '<the real ID number>'
-WHERE person_name = '<the person>' AND person_reference IN ('<old-1>', '<old-2>');
+Consolidate the identities, then re-scan. This is deliberately a manual step: the system
+cannot safely decide that three reference numbers are one human.
+
 ```
+POST /api/voice-enrollments/people/{identity_id}/consolidate
+     { "into_identity_id": "<the surviving person>" }
+```
+
+It merges the two registry rows and repoints every print, subject and speaker in one
+transaction, keeping the merged reference as an alias. It requires `voice.enroll` **and**
+`investigations.read_all` (ADMIN in practice), because consolidation rewrites ownership
+across sessions the caller may not be able to open.
+
+> **Do not do this with `UPDATE voice_enrollments SET person_reference = …`.** That column is
+> a historical snapshot of what was recorded the day the print was taken; matching groups by
+> `identity_id`. Rewriting it consolidates nothing — the two identities go on competing and
+> the matcher goes on abstaining — while looking like it worked.
 
 ## Permissions and privacy
 
@@ -153,9 +184,13 @@ re-match earlier sessions without reprocessing audio.
   **تأكيد الاقتراح** / **تجاهل الاقتراح**.
   الاسم المعروض stays **empty** until the investigator confirms.
 * After a decision the banner becomes a badge: `مؤكَّد من المحقق` or `مرفوض من المحقق`.
-* **تسجيل بصمة الصوت** next to تعيين الاسم opens the enrolment dialog. It is disabled
-  until the speaker has a name, and the submit button stays disabled until
-  **تم الحصول على الموافقة وتوثيقها** is ticked.
+* **تسجيل بصمة الصوت** sits next to **اختيار الشخص**, the single control that binds a
+  speaker to a person. It is disabled until the speaker has **both** a canonical identity
+  and a voice embedding, and the tooltip names whichever is missing. The submit button in
+  the dialog stays disabled until **تم الحصول على الموافقة وتوثيقها** is ticked.
+* A free-text label (**تسمية مؤقتة**) never enables enrolment: a print is filed against a
+  person, not a string. The card says so plainly —
+  *لن يظهر في بصمات الأصوات حتى تُحدَّد هويته*.
 
 **بصمات الأصوات page** (sidebar → الإدارة, requires `voice.identify`)
 
@@ -174,9 +209,107 @@ Downloads from NGC, verifies the pinned SHA-256 and writes `MANIFEST.json`. Afte
 workstation runs fully offline like the other models. To disable the feature entirely:
 `AGENT_SPEAKER_ID_ENABLED=false`.
 
+## A speaker observation belongs to ONE recording
+
+A diarizer's `SPEAKER_00` is a cluster index local to one audio file. When a session holds
+several recordings, each recording's clusters become **separate speaker rows** under the next
+free session-wide label:
+
+```
+recording 1: local SPEAKER_00 -> SPEAKER_00   (identified as علي عباس, enrolled)
+recording 2: local SPEAKER_00 -> SPEAKER_01   (a different human - starts غير معروف)
+recording 3: local SPEAKER_00 -> SPEAKER_02   (Ali again - SUGGESTED at 0.9+, confirmed by a human)
+```
+
+This replaced a defect where all recordings shared one row per label: a person confirmed in
+recording 1 was silently inherited by whoever spoke next - measured live, a voice scoring
+**0.5372** against the confirmed person (a different-speaker score; same-speaker is
+0.755-0.898) still displayed as them, and the row's stored voiceprint had been overwritten
+with the stranger's voice. Reprocessing the *same* recording still reuses its rows
+(observations are keyed on recording + source label), so re-runs never duplicate speakers.
+
+Whether two observations are the same human is decided the same two ways as ever: biometric
+suggestion above the threshold, or the investigator picking the person. Nothing is ever
+inherited from "the last identified speaker".
+
+## Matching runs inside PostgreSQL (pgvector)
+
+All of a recording's probes are matched in **one SQL statement** against the whole eligible
+gallery: `1 - (embedding <=> probe)` is the same cosine similarity as before (embeddings are
+L2-normalised; pgvector stores float4, so scores agree to ~1e-4). Prints still collapse to
+each person's best, identities are ranked, and the decision uses the same 0.65 threshold and
+0.05 margin - the policy lives in one shared function, so the SQL path and the in-memory
+reference (`best_match`, kept for the unit tests) cannot disagree.
+
+The gallery filter is exactly: active, canonical identity present, same model, same
+dimension. It is **never** filtered by session, subjects or recording - a person enrolled on
+another case is still recognised here.
+
+Every stage of the similarity workflow logs its part - and never the vectors themselves:
+
+| Stage | Where | Logger / line |
+|---|---|---|
+| Speech collected per speaker | desktop agent | `speaker SPEAKER_00 embedded: 3 span(s), 14.2s speech, 14.2s used (cap 30s) -> dim=256 norm=1.0000 in 840ms` (skips say why: `no embedding for ... (speaker_id_audio_too_short) - 1 span(s), 1.4s of speech`) |
+| Probe stored centrally | `app.services.voice_matching` DEBUG | `probe stored session=... recording=... speaker=SPEAKER_01 (source=SPEAKER_00) dim=256 model=...` - and skips: `human decision CONFIRMED is final` |
+| The pgvector batch | `app.services.voice_matching` INFO | `voice batch: 2 probe(s) x 3 candidate identities (7 print comparison(s)) model=... threshold=0.65 margin=0.05 in 43ms` |
+| The complete field | `app.services.voice_matching` DEBUG | `voice ranking probe=...: 1) <identity> 0.8412, 2) <identity> 0.5372, 3) ...` - every eligible identity, ranked |
+| The verdict | `app.services.voice_matching` INFO | `voice decision ... decision=UNKNOWN best=0.5372 runner_up=- threshold=0.65 margin=0.05 prints=1 candidates=2` |
+| The SQL itself | `app.sql` DEBUG | the batch statement with its duration |
+
+All lines carry the request id, so one grep of `storage/logs/backend.jsonl` reconstructs a
+recording's entire identification story. To see the DEBUG detail on a running server, set
+`app.services.voice_matching=DEBUG` in **إعدادات النظام** (and turn it back off after).
+
+## One name, everywhere
+
+Anything showing *who a person is* reads the canonical `person_name` from `person_identities`,
+resolved through merges — the speaker picker, the speaker card, بصمات الأصوات and the registry
+search alike. The enrolment-time snapshot on a print (`enrolled_person_name`) is history and is
+never presented as the current answer.
+
+The rank is deliberately outside that name. It is shown next to it where a source row carries
+one, and never concatenated into stored text, because `person_identities` has no rank column
+and a "MAJOR ALI" written into one screen can never match the "ALI" the registry returns.
+
 ## Failure behaviour
 
 Identification is strictly optional. If the model is missing, fails to load, or a speaker
 has less than `AGENT_SPEAKER_ID_MIN_SECONDS` of speech, that speaker simply gets no
 embedding and no suggestion — the transcript is produced and synchronized exactly as
 before. Nothing about diarization or transcription depends on it.
+
+`AGENT_SPEAKER_ID_MIN_SECONDS` (default **2.0**) is measured against a speaker's **total**
+speech in the session, not their longest turn: `collect_speaker_audio` concatenates all of
+that speaker's spans before the check. A person who says three separate sentences of 1.5 s
+each has 4.5 s and is embedded normally.
+
+### Checking that the capability is actually present
+
+Optional-and-silent is convenient until it hides a deployment fault, because on the speaker
+card a missing *capability* and a missing *embedding* look identical. Read the model state
+directly:
+
+```bash
+curl -s http://127.0.0.1:17117/model-status | python -m json.tool | grep -A 8 speaker_id
+```
+
+```json
+"speaker_id": {
+  "provider": "nemo_speakernet",
+  "model": "nvidia/speakerverification_speakernet",
+  "state": "PROVISIONED",
+  "extra": { "device": "cpu", "embedding_dim": 256, "enabled": true, "min_seconds": 2.0 }
+}
+```
+
+`PROVISIONED` means the file is found but not yet loaded — normal before the first job.
+`READY` means loaded. `NOT_PROVISIONED` means the `.nemo` is not where the agent expects it.
+
+**If the `speaker_id` key is absent from the response altogether**, the agent predates the
+feature and must be redeployed; no amount of reprocessing will produce an embedding. The
+same states are shown in the recording tab as **حالة نموذج بصمة الصوت**, beside STT and
+diarization, where an agent that does not report the model at all reads **غير معروف**.
+
+A result payload from a working agent carries a `voice_identification` block. One where the
+key is **missing entirely** — as opposed to `null` — was produced by a build from before this
+feature existed.

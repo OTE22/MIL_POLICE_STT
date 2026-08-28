@@ -10,12 +10,14 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -101,7 +103,24 @@ class TranscriptSegment(UUIDPrimaryKeyMixin, Base):
 
 class SessionSpeaker(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "session_speakers"
-    __table_args__ = (UniqueConstraint("session_id", "speaker_label", name="uq_session_speaker_label"),)
+    __table_args__ = (
+        UniqueConstraint("session_id", "speaker_label", name="uq_session_speaker_label"),
+        # One observation per (recording, local diarization label). A diarizer's SPEAKER_00 is
+        # a cluster index local to ONE audio file - recording B's SPEAKER_00 is a different
+        # human until biometrics or an investigator says otherwise. Keying observations on the
+        # session-wide label let four recordings share one row, so a person confirmed in
+        # recording 1 was silently inherited by whoever spoke in recordings 2-4, and the row's
+        # probe embedding was overwritten with each new voice. Partial: rows from before this
+        # column have no provenance to key on.
+        Index(
+            "uq_session_speaker_observation",
+            "session_id",
+            "recording_id",
+            "source_label",
+            unique=True,
+            postgresql_where=text("recording_id IS NOT NULL"),
+        ),
+    )
 
     session_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -109,7 +128,27 @@ class SessionSpeaker(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=False,
         index=True,
     )
+    # Session-wide VISIBLE label, allocated by the server (next free SPEAKER_NN). What the
+    # transcript and the speaker cards show, and what segments are stored under.
     speaker_label: Mapped[str] = mapped_column(String(32), nullable=False)
+    # ---- provenance: which audio file this observation came from -----------
+    # NULL only on rows created before provenance existed; never invented for them.
+    recording_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("audio_recordings.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    # The label the agent's diarizer emitted for this recording (e.g. SPEAKER_00), before
+    # the server allocated the visible one. Reprocessing the same recording resolves back
+    # to this row through it.
+    source_label: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Canonical person this row refers to. Backend-owned: resolved from the reference
+    # number, never accepted from a client.
+    identity_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("person_identities.id", ondelete="SET NULL"),
+        nullable=True, index=True
+    )
     display_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     speaker_role: Mapped[SpeakerRole] = mapped_column(
         Enum(SpeakerRole, name="speaker_role"), nullable=False, default=SpeakerRole.UNKNOWN

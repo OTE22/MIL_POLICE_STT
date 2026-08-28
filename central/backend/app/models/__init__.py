@@ -21,6 +21,8 @@ from app.models.enums import (
 )
 from app.models.investigation import InvestigationSession, SessionInvestigator, Subject, SubjectDocument
 from app.models.investigator import InvestigatorProfile
+from app.models.person_identifier import PersonIdentifier
+from app.models.person_identity import PersonIdentity
 from app.models.processing import AudioRecording, LocalProcessingJob, Workstation
 from app.models.transcript import SessionSpeaker, Transcript, TranscriptSegment
 from app.models.voice import VoiceEnrollment
@@ -34,6 +36,8 @@ __all__ = [
     "UserRole",
     "AssignmentRole",
     "IdentificationStatus",
+    "PersonIdentifier",
+    "PersonIdentity",
     "VoiceEnrollment",
     "AuditAction",
     "JobStatus",

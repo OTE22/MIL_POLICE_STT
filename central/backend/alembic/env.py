@@ -15,7 +15,11 @@ import app.models  # noqa: F401  (register tables)
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False: the test-suite runs migrations IN-PROCESS, and the
+    # default (True) silently .disabled every logger created before this line - which is
+    # all of the app's module-level loggers, including the access log. Production runs
+    # alembic in its own process and never noticed.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 

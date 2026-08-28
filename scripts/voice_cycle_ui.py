@@ -38,11 +38,32 @@ def wav(sec=52.0):
 
 
 stamp = int(time.time()) % 1000000
-admin = call("POST", "/auth/login", {"username": "admin", "password": ADMIN_PW})[1]["access_token"]
-u = f"cyc{stamp}"
-call("POST", "/users", {"username": u, "password": "Investigator!2026", "roles": ["INVESTIGATOR"],
-                        "must_change_password": False, "profile": {"full_name": "الرائد علي حسن"}}, admin)
-inv = call("POST", "/auth/login", {"username": u, "password": "Investigator!2026"})[1]["access_token"]
+def investigator_token(prefix, full_name):
+    """Log in as the investigator these checks run as.
+
+    The first argument is either an ADMIN password - a throwaway investigator is then created
+    for this run - or `username:password` for an investigator that already exists. Nothing here
+    needs administrator rights except creating that user, so an existing account is enough and
+    avoids handing the E2E an admin credential it does not use.
+    """
+    if ":" in ADMIN_PW:
+        username, _, password = ADMIN_PW.partition(":")
+        status, body = call("POST", "/auth/login", {"username": username, "password": password})
+        assert status == 200, f"investigator login failed ({status}): {body}"
+        return body["access_token"], username, password
+
+    status, body = call("POST", "/auth/login", {"username": "admin", "password": ADMIN_PW})
+    assert status == 200, f"admin login failed ({status}). Pass user:password to run as an existing investigator."
+    admin_token = body["access_token"]
+    username = f"{prefix}{stamp}"
+    call("POST", "/users", {"username": username, "password": "Investigator!2026",
+                            "roles": ["INVESTIGATOR"], "must_change_password": False,
+                            "profile": {"full_name": full_name}}, admin_token)
+    token = call("POST", "/auth/login", {"username": username, "password": "Investigator!2026"})[1]["access_token"]
+    return token, username, "Investigator!2026"
+
+
+inv, UI_USER, UI_PASSWORD = investigator_token("cyc", "الرائد علي حسن")
 
 DIM = 256
 # Every run picks its OWN pair of orthogonal basis vectors. Enrolments left in the shared
@@ -57,8 +78,16 @@ ENROLLED = ".toast:has-text('تم تسجيل بصمة الصوت')"
 SCANNED = ".toast:has-text('تم الفحص')"
 
 
-def submit(title, voice=True):
-    s = call("POST", "/investigations", {"title": title}, inv)[1]
+# The person the prints belong to. الرقم المرجعي is DERIVED from these identifiers - it is
+# not typed anywhere, in the form or here.
+SOLDIER = {"subject_name": "سليم داغر", "rank": "رائد", "person_type": "MILITARY",
+           "security_branch": "ARMY", "military_id": str(stamp)}
+SOLDIER_REF = f"MIL-ARMY-{stamp}"
+SOLDIER_NAME = SOLDIER["subject_name"]
+
+
+def submit(title, voice=True, subjects=None):
+    s = call("POST", "/investigations", {"title": title, "subjects": subjects or []}, inv)[1]
     a = wav()
     tk = call("POST", f"/investigations/{s['id']}/local-processing-token",
               {"original_filename": "i.wav", "mime_type": "audio/wav",
@@ -89,8 +118,9 @@ def submit(title, voice=True):
 # s_noemb: no embeddings at all. s_early: processed BEFORE anyone is enrolled.
 s_noemb = submit(f"بدون بصمة {stamp}", voice=False)
 s_early = submit(f"قبل التسجيل {stamp}")
-s_src = submit(f"مصدر البصمة {stamp}")
-s_src2 = submit(f"عينة ثانية {stamp}")
+# Both carry the SAME soldier, so both prints resolve to one canonical identity.
+s_src = submit(f"مصدر البصمة {stamp}", subjects=[SOLDIER])
+s_src2 = submit(f"عينة ثانية {stamp}", subjects=[SOLDIER])
 
 with sync_playwright() as p:
     b = p.chromium.launch(headless=True)
@@ -98,8 +128,8 @@ with sync_playwright() as p:
     errs = []
     pg.on("pageerror", lambda e: errs.append(str(e)))
     pg.goto(f"{UI}/login")
-    pg.fill("#username", u)
-    pg.fill("#password", "Investigator!2026")
+    pg.fill("#username", UI_USER)
+    pg.fill("#password", UI_PASSWORD)
     pg.click("button[type=submit]")
     pg.wait_for_url(lambda x: "/login" not in x)
 
@@ -107,8 +137,9 @@ with sync_playwright() as p:
     pg.goto(f"{UI}/investigations/{s_noemb['id']}?tab=speakers")
     pg.wait_for_selector("[data-testid=speaker-card]", timeout=20000)
     c0 = pg.locator("[data-testid=speaker-card][data-label=SPEAKER_00]")
-    c0.locator("[data-testid=speaker-name]").fill("شخص بلا بصمة")
-    c0.locator("button", has_text="تعيين الاسم").click()
+    c0.locator("[data-testid=speaker-person-picker]").click()
+    pg.locator("[data-testid=pick-temporary-input]").fill("شخص بلا بصمة")
+    pg.locator("[data-testid=pick-temporary-save]").click()
     pg.wait_for_selector(SAVED, timeout=10000)
     btn = c0.locator("[data-testid=voice-enroll]")
     check("named speaker with NO embedding: enrol stays disabled", btn.is_disabled())
@@ -121,14 +152,24 @@ with sync_playwright() as p:
     pg.goto(f"{UI}/investigations/{s_src['id']}?tab=speakers")
     pg.wait_for_selector("[data-testid=speaker-card]", timeout=20000)
     c0 = pg.locator("[data-testid=speaker-card][data-label=SPEAKER_00]")
-    c0.locator("[data-testid=speaker-name]").fill("الرائد علي حسن")
-    c0.locator("button", has_text="تعيين الاسم").click()
+    # A print belongs to a PERSON, so the speaker must be linked to one first. That is done by
+    # picking the participant - the reference rides along with the click. It cannot be typed:
+    # the field is read-only, and a name alone is only a session-local label.
+    c0.locator("[data-testid=speaker-person-picker]").click()
+    # By reference, never by the displayed name: selecting identifies immediately.
+    pg.locator(f'[data-testid=pick-participant][data-reference="{SOLDIER_REF}"]').click()
     pg.wait_for_selector(SAVED, timeout=10000)
-    check("with an embedding, enrol becomes enabled",
+    check("selecting a participant links الرقم المرجعي",
+          c0.locator("[data-testid=speaker-reference]").input_value() == SOLDIER_REF,
+          c0.locator("[data-testid=speaker-reference]").input_value())
+    check("الرقم المرجعي is read-only on the speaker card",
+          c0.locator("[data-testid=speaker-reference]").get_attribute("readonly") is not None)
+    check("with an embedding and an identity, enrol becomes enabled",
           not c0.locator("[data-testid=voice-enroll]").is_disabled())
     c0.locator("[data-testid=voice-enroll]").click()
     m = pg.locator(".modal")
-    m.locator("input.input").nth(1).fill(f"MIL-{stamp}")
+    # Nothing to type: the print is filed against the speaker canonical identity, which the
+    # server resolves itself.
     m.locator("[data-testid=voice-consent]").check()
     m.locator("[data-testid=voice-enroll-submit]").click()
     pg.wait_for_selector(ENROLLED, timeout=15000)
@@ -140,12 +181,13 @@ with sync_playwright() as p:
     pg.goto(f"{UI}/investigations/{s_src2['id']}?tab=speakers")
     pg.wait_for_selector("[data-testid=speaker-card]", timeout=20000)
     c1 = pg.locator("[data-testid=speaker-card][data-label=SPEAKER_00]")
-    c1.locator("[data-testid=speaker-name]").fill("الرائد علي حسن")
-    c1.locator("button", has_text="تعيين الاسم").click()
+    c1.locator("[data-testid=speaker-person-picker]").click()
+    pg.locator(f'[data-testid=pick-participant][data-reference="{SOLDIER_REF}"]').click()
     pg.wait_for_selector(SAVED, timeout=10000)
     c1.locator("[data-testid=voice-enroll]").click()
     m = pg.locator(".modal")
-    m.locator("input.input").nth(1).fill(f"MIL-{stamp}")
+    # Nothing to type: the print is filed against the speaker canonical identity, which the
+    # server resolves itself.
     m.locator("[data-testid=voice-consent]").check()
     m.locator("[data-testid=voice-enroll-submit]").click()
     pg.wait_for_selector(ENROLLED, timeout=15000)
@@ -165,8 +207,12 @@ with sync_playwright() as p:
     a0 = next(x for x in sp if x["speaker_label"] == "SPEAKER_00")
     b0 = next(x for x in sp if x["speaker_label"] == "SPEAKER_01")
     check("re-scan produced a suggestion for the matching voice",
-          a0["identification_status"] == "SUGGESTED" and a0["suggested_name"] == "الرائد علي حسن",
+          a0["identification_status"] == "SUGGESTED" and a0["suggested_name"] == SOLDIER_NAME,
           f"{a0['identification_status']} / {a0['suggested_name']}")
+    # The suggestion names the CANONICAL person. The rank belongs to the label, and a
+    # suggestion that carried it would put a decorated name back in front of the operator.
+    check("the suggested name carries no rank",
+          SOLDIER["rank"] not in (a0["suggested_name"] or ""), a0["suggested_name"] or "")
     check("two prints of the same person did NOT cancel out",
           a0["suggested_score"] is not None and float(a0["suggested_score"]) >= 0.65,
           str(a0["suggested_score"]))
@@ -187,14 +233,14 @@ with sync_playwright() as p:
     b.close()
 
 # Leave the shared registry as we found it: this test creates real biometric templates.
-_, rows = call("GET", f"/voice-enrollments?q=MIL-{stamp}", token=inv)
+_, rows = call("GET", f"/voice-enrollments?q={SOLDIER_REF}", token=inv)
 removed = 0
 for row in rows or []:
-    if row.get("person_reference") == f"MIL-{stamp}":
+    if row.get("person_reference") == SOLDIER_REF:
         st, _ = call("DELETE", f"/voice-enrollments/{row['id']}", token=inv)
         removed += 1 if st == 204 else 0
 check("test enrolments cleaned up", removed == len(
-    [r for r in (rows or []) if r.get("person_reference") == f"MIL-{stamp}"]), f"removed {removed}")
+    [r for r in (rows or []) if r.get("person_reference") == SOLDIER_REF]), f"removed {removed}")
 
 bad = [n for n, ok in R if not ok]
 print(f"\nVOICE CYCLE UI: {len(R) - len(bad)}/{len(R)} checks passed")
