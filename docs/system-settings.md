@@ -1,5 +1,8 @@
 # إعدادات النظام — runtime settings from the interface
 
+**Who this is for:** administrators. Everything here changes a running server immediately,
+so read the cautions before changing a threshold.
+
 The **إعدادات النظام** page changes a running server without touching files or restarting
 anything. It exists for the moments an administrator needs a knob *now*: raising log detail
 while chasing a problem, widening a token window for a slow workstation, or adjusting the
@@ -23,6 +26,12 @@ If any single value is invalid (out of bounds, wrong type), the **whole save is 
 and nothing is applied — the page never half-applies a change. Every field states its
 allowed range under it.
 
+One rule crosses fields: **عتبة البصمة شبه المكررة must stay above عتبة اقتراح الهوية**.
+Otherwise فحص البصمات الصوتية could call the same pair of prints both "near-duplicate" and
+"incoherent" at once. A save that would end in that state is refused whole
+(`near_duplicate_must_exceed_match_threshold`) — checked against the values as they *would
+be* after the save, whichever of the two you edited.
+
 ## When each change takes effect
 
 Every setting on the page applies to the running server **immediately** — that is the
@@ -34,10 +43,14 @@ per setting, and the difference matters:
 | مستوى السجلّ العام | The next log record. Set DEBUG and even health-check lines start appearing within a second |
 | مستويات لسجلّات محددة | The next record of that logger. Removing an override returns the logger to inheriting the root level — it does not stay stuck |
 | عتبة الاستعلام البطيء | The next database query |
-| عتبة اقتراح الهوية / هامش الغموض | The next matching run — the next recording an agent submits, or the next **إعادة فحص البصمات**. Already-made suggestions are not re-decided |
+| عتبة اقتراح الهوية / هامش الغموض | The next matching run — the next recording an agent submits, or the next **إعادة فحص البصمات**. Already-made suggestions are not re-decided. عتبة اقتراح الهوية is also the coherence bar of the next **فحص البصمات الصوتية** |
+| عتبة البصمة شبه المكررة | The next **فحص البصمات الصوتية** run. Advisory only — it labels near-duplicate prints in the check result; nothing is refused or removed |
 | مدة صلاحية جلسة الدخول | **New logins only.** Sessions already signed in keep the lifetime they were issued with |
 | مهلة قبول تصريح المعالجة (ثوانٍ) / مهلة إرسال النتائج (**دقائق**) | **Newly issued tokens only.** A token already handed to a workstation keeps its original windows |
 | الحد الأقصى لحجم الملف الصوتي (**ميغابايت**) | The next upload validation |
+| محضر التحقيق: تفعيل اقتراح الصياغة، الحرارة، المهلة، أقصى طول نص | The next فصحى suggestion. Disabling hides the controls entirely; the محضر is still written by hand |
+| محضر التحقيق: مصدر خدمة الصياغة (`auto`/`local`/`off`) | The next suggestion. **Production is local-only whatever this says** — a cloud provider is refused in code |
+| محضر التحقيق: النماذج المعتمدة وحدود ذاكرة البطاقة | The next resolution of the local profile. The model must already be provisioned; nothing is ever downloaded |
 
 ## Changes do not survive a restart — deliberately
 
@@ -96,8 +109,16 @@ offered as if it worked live.
   it manufactures wrong suggestions; if a known voice is not being suggested, the better fix
   is usually **another enrolled print** of that person under the current recording
   conditions, not a lower bar for everyone.
+* **The approved model names are a decision, not a guess.** The resolver picks the
+  strongest profile this hardware supports *and* whose model is already installed. Free VRAM
+  is not permission to load an untested model into an official workflow — benchmark first,
+  then set the name here.
 * **DEBUG is loud.** It includes every health poll and, with `app.sql=DEBUG`, every query.
   Use it for the minutes you need it, then put INFO back — or rely on the restart to do it.
+* **The thresholds are a probe as well as a policy.** Because فحص البصمات الصوتية reads
+  عتبة اقتراح الهوية live, raising it temporarily and re-running a person's check shows how
+  robustly their prints hold together (e.g. 3 components at 0.65 became 5 at 0.70 on the
+  reference data). Put the calibrated value back when done — or let the restart do it.
 
 ## If something looks wrong
 

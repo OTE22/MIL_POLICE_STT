@@ -94,11 +94,25 @@ cat <<EOF
 
 ${BLD}If this machine is THE SERVER:${RST}
 
-    sudo ./deploy-central.sh --hostname central.unit.local --self-signed --force-tls
+  Decide FIRST which kind of install this is. It changes what gets installed,
+  whether any AI may be contacted off this machine, and what you must do before
+  an official محضر can be issued.
+
+  ${BLD}Real cases (production):${RST}
+
+    sudo ./deploy-central.sh --environment production \\
+         --hostname central.unit.local \\
+         --cert /etc/ssl/certs/unit.crt --key /etc/ssl/private/unit.key --force-tls
+
+  ${BLD}Demo, training or integration work (development):${RST}
+
+    sudo ./deploy-central.sh --environment development --hostname localhost
 
   Replace central.unit.local with the name investigators will type in their
-  browser. Use --cert/--key instead of --self-signed if your unit issued a
-  real certificate.
+  browser. Development defaults to a self-signed certificate and a test
+  database; production requires a real certificate and has neither.
+
+  ${DIM}Omit --environment and the script asks you before it changes anything.${RST}
 
   ${DIM}Needs: Docker.  Takes: 10-20 minutes, mostly building.${RST}
   ${DIM}Afterwards it prints the administrator password ONCE - write it down.${RST}

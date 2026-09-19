@@ -93,7 +93,19 @@ export function SystemConfigPage() {
             <div className="form-grid">
               {groupFields.map((f) => (
                 <Field key={f.key} label={f.label} hint={f.description}>
-                  {f.type === "select" ? (
+                  {f.type === "bool" ? (
+                    <label className="checkbox">
+                      {/* The draft holds every value as a string (see load()); the backend
+                          coerces "true"/"false" back to a boolean. */}
+                      <input
+                        type="checkbox"
+                        checked={draft[f.key] === "true"}
+                        onChange={(e) => setDraft((d) => ({ ...d, [f.key]: String(e.target.checked) }))}
+                        data-testid={`config-${f.key}`}
+                      />
+                      {draft[f.key] === "true" ? T.enabled : T.disabled}
+                    </label>
+                  ) : f.type === "select" ? (
                     <select
                       className="select"
                       value={draft[f.key] ?? ""}

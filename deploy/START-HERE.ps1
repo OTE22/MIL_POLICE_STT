@@ -36,6 +36,14 @@ each, and THE SERVER MUST BE DONE FIRST.
      Holds the cases, the transcripts and the person registry. Investigators
      reach it with a browser. Nobody records audio on it.
      The server runs on LINUX. It is not installed from Windows.
+     Whoever installs it chooses PRODUCTION or DEVELOPMENT first:
+
+         sudo ./deploy-central.sh --environment production  --hostname ... --cert ... --key ...
+         sudo ./deploy-central.sh --environment development --hostname localhost
+
+     Production keeps all AI on the local network and refuses to issue an
+     official report until the approved Word template is uploaded.
+     See deploy/README.md for the full comparison.
 
   2. THE INVESTIGATOR DESKTOP - one install per interviewing computer
      Runs the AI that turns speech into text. THE AUDIO NEVER LEAVES THIS

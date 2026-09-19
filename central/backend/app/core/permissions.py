@@ -17,18 +17,18 @@ PERMISSIONS: dict[str, str] = {
     "investigations.archive": "Archive investigation sessions",
     "recordings.create": "Record or upload audio",
     "subjects.documents.view": "View identity documents (ID/passport scans) of interviewed persons",
-    # الرقم المرجعي is normally DERIVED from the structured identifiers, never typed. This is
-    # the exceptional path: overriding a derived reference, or assigning one when derivation
-    # is not possible. It is its own permission because no existing one expresses it -
-    # investigations.update means "may edit this session" and investigations.read_all means
-    # "may see every session"; neither means "may hand-assign a canonical business key".
-    "subjects.reference.override": "Manually assign or override الرقم المرجعي of a person",
     "processing.request": "Request local AI processing",
     "transcripts.read": "View transcripts",
     "transcripts.edit": "Correct transcript text",
     "speakers.assign": "Map anonymous speakers to names",
     "voice.identify": "See voice-based identity suggestions and confirm or reject them",
     "voice.enroll": "Create and remove voice enrolments (biometric templates)",
+    # The محضر تحقيق. Reading a report and ISSUING one are separate authorities: a draft is
+    # working material, a finalized report is a document that leaves the building.
+    "reports.read": "View investigation report drafts and the archive of issued reports",
+    "reports.generate": "Create and edit the investigation report draft (محضر تحقيق)",
+    "reports.finalize": "Issue the final official report document",
+    "reports.templates.manage": "Upload, validate and activate the official report template",
     "system.configure": "Change runtime system settings (logging, matching, limits) from the interface",
     "workstations.read": "View workstation status",
     "workstations.register": "Register / refresh the local workstation",
@@ -51,12 +51,16 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "speakers.assign",
         "voice.identify",
         "voice.enroll",
+        "reports.read",
+        "reports.generate",
+        "reports.finalize",
         "workstations.read",
         "workstations.register",
     },
     ROLE_USER: {
         "investigations.read_assigned",
         "transcripts.read",
+        "reports.read",
     },
 }
 

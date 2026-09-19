@@ -39,7 +39,6 @@ class InvestigatorProfile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     # An investigator speaks in the sessions they run, so they are a person like any other:
     # identifiable, and eligible for a voice print. Filled when they are assigned to a session.
-    reference_number: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     identity_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("person_identities.id", ondelete="SET NULL"),
         nullable=True, index=True,

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.schemas.person import PersonInput
+
 import uuid
 from datetime import date, datetime, time
 
@@ -62,19 +64,19 @@ class SubjectDocumentOut(BaseModel):
     is_expired: bool = False
 
 
-class SubjectIn(BaseModel):
+class SubjectIn(PersonInput):
     # The ONLY handle that identifies which existing participant this is. `Subject.id` is
     # deliberately absent: the save rebuilds every row, so an id is dead the moment it is
     # issued, and accepting one would invite a fallback that works once and then starts
     # issuing second references. The backend mints this and rejects a value it did not issue.
     # NOT a person identifier.
     participant_key: uuid.UUID | None = None
+    identity_id: uuid.UUID | None = None
     # A person is recorded by NAME. It was optional, and the consequence was an identity
     # named after its own reference - one missing field silently becoming fake data.
     # Latin script is deliberately accepted: a passport or UNHCR paper may carry the only
     # spelling there is, and transliterating it would be inventing evidence.
     subject_name: str = Field(min_length=1, max_length=200)
-    reference_number: str | None = Field(default=None, max_length=100)
     person_type: PersonType = PersonType.CIVILIAN
     # military
     military_id: str | None = Field(default=None, max_length=64)
@@ -98,22 +100,11 @@ class SubjectIn(BaseModel):
 
     @model_validator(mode="after")
     def _military_must_be_identifiable(self):
-        """A military subject must carry the two halves of their الرقم المرجعي.
-
-        `MIL-<BRANCH>-<serial>` needs both: a serial is unique only WITHIN its force, so a
-        missing branch derives no key at all, and Army 4471 and ISF 4471 would otherwise be
-        one person sharing one set of voice prints. `OTHER` is a catch-all rather than a
-        namespace, so it cannot serve as the force half either.
-
-        An operator with `subjects.reference.override` may still supply a reference by hand
-        for paperwork the rule does not fit - that path sends `reference_number` and is
-        checked separately, so it is exempted here rather than blocked.
-        """
-        if self.person_type != PersonType.MILITARY or self.reference_number:
+        """A supplied service number needs its force to be useful identity evidence."""
+        if self.person_type != PersonType.MILITARY:
             return self
         # A soldier whose serial is simply NOT KNOWN must stay recordable - an interview
-        # happens whether or not the person can be identified, and they honestly get no
-        # reference. Refusing that would make the system unusable exactly when it matters.
+        # happens even when their service details have not been established.
         if not (self.military_id or "").strip():
             return self
         # A serial WITHOUT a usable force is the incoherent case: it looks like identity
@@ -143,8 +134,8 @@ class SubjectOut(BaseModel):
 
     id: uuid.UUID
     participant_key: uuid.UUID
+    identity_id: uuid.UUID | None = None
     subject_name: str | None
-    reference_number: str | None
     person_type: PersonType
     military_id: str | None
     rank: str | None
@@ -216,20 +207,19 @@ class SessionPersonOut(BaseModel):
     identity_id: uuid.UUID | None = None
     person_name: str
     rank: str | None = None
-    reference_number: str | None = None
     # SUBJECT or INVESTIGATOR - which section of the picker this belongs under.
     source: str
     # Present for subjects: the session-local handle that survives reordering.
     participant_key: uuid.UUID | None = None
+    identity_id: uuid.UUID | None = None
     # False when the row cannot be picked yet, with `blocked_reason` saying why.
     selectable: bool = True
     blocked_reason: str | None = None
 
 
 class InvestigatorBrief(BaseModel):
-    # The reference is what lets a speaker be bound to this person, and through that a voice
-    # print. It is null until they are assigned to a session, which is when they are registered.
-    reference_number: str | None = None
+    identity_id: uuid.UUID | None = None
+    # Assignment registers the investigator as a person with a stable UUID.
     security_branch: SecurityBranch | None = None
     id: uuid.UUID
     full_name: str

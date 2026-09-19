@@ -10,7 +10,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { ApiError, http, qs } from "@/api/client";
-import type { EnrollmentCandidate, VoiceEnrollment } from "@/api/types";
+import type {
+  BiometricCheck,
+  BiometricPrintCheck,
+  BiometricPrintStatus,
+  EnrollmentCandidate,
+  VoiceEnrollment,
+} from "@/api/types";
 import { useAuth } from "@/lib/auth";
 import { formatDateTime, formatDuration } from "@/lib/format";
 import { T, errorMessage } from "@/lib/i18n";
@@ -24,7 +30,6 @@ type Tab = "people" | "pending";
 interface Person {
   identityId: string | null;
   name: string;
-  reference: string;
   prints: VoiceEnrollment[];
   active: boolean;
   totalSeconds: number;
@@ -46,7 +51,6 @@ function groupByPerson(rows: VoiceEnrollment[]): Person[] {
     const person = map.get(key) ?? {
       identityId: row.identity_id,
       name: row.person_name,
-      reference: row.person_reference,
       prints: [],
       active: false,
       totalSeconds: 0,
@@ -70,7 +74,6 @@ function EditPersonModal({
 }) {
   const toast = useToast();
   const [name, setName] = useState(person.name);
-  const [reference, setReference] = useState(person.reference);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -82,7 +85,6 @@ function EditPersonModal({
       // one transaction. Sending them per print could leave one person's prints disagreeing.
       await http.patch(`/voice-enrollments/${person.prints[0].id}`, {
         person_name: name.trim(),
-        person_reference: reference.trim(),
         apply_to_person: true,
       });
       toast.success(T.voicePersonUpdated);
@@ -104,7 +106,7 @@ function EditPersonModal({
           <button
             className="btn btn-primary"
             type="button"
-            disabled={busy || !name.trim() || !reference.trim()}
+            disabled={busy || !name.trim()}
             onClick={() => void submit()}
             data-testid="person-edit-submit"
           >
@@ -124,24 +126,126 @@ function EditPersonModal({
       <Field label={T.voicePersonName} required>
         <input className="input" value={name} onChange={(e) => setName(e.target.value)} maxLength={200} required />
       </Field>
-      <Field label={T.voicePersonReference} hint={T.voiceConsolidateHint}>
-        <input
-          className="input"
-          dir="ltr"
-          value={reference}
-          onChange={(e) => setReference(e.target.value)}
-          maxLength={100}
-          data-testid="person-edit-reference"
-        />
-      </Field>
     </Modal>
   );
 }
 
-function PersonRow({ person, manage, onChanged }: { person: Person; manage: boolean; onChanged: () => void }) {
+const BIO_STATUS: Record<BiometricPrintStatus, { label: () => string; kind: "green" | "blue" | "amber" | "gray" }> = {
+  COHERENT: { label: () => T.voiceBioStatusCoherent, kind: "green" },
+  NEAR_DUPLICATE: { label: () => T.voiceBioStatusNearDup, kind: "blue" },
+  ISOLATED: { label: () => T.voiceBioStatusIsolated, kind: "amber" },
+  SINGLE_PRINT: { label: () => T.voiceBioStatusSingle, kind: "gray" },
+};
+
+const BIO_OVERALL: Record<BiometricCheck["overall_status"], { label: () => string; kind: "green" | "amber" | "gray" }> = {
+  COHERENT: { label: () => T.voiceBioOverallCoherent, kind: "green" },
+  REVIEW_REQUIRED: { label: () => T.voiceBioOverallReview, kind: "amber" },
+  SINGLE_PRINT: { label: () => T.voiceBioOverallSingle, kind: "gray" },
+  NO_PRINTS: { label: () => T.voiceBioOverallNone, kind: "gray" },
+};
+
+function BioPrintLine({ row, showComponent }: { row: BiometricPrintCheck; showComponent: boolean }) {
+  const status = BIO_STATUS[row.status];
+  return (
+    <div className="audit-stage" data-testid="bio-print-row">
+      <span className="num when">{formatDateTime(row.created_at)}</span>
+      <span className="flex gap wrap">
+        {row.source_session_id ? (
+          <Link to={`/investigations/${row.source_session_id}?tab=speakers`} className="ltr">
+            {row.source_speaker_label ?? T.view}
+          </Link>
+        ) : (
+          <span className="muted">{T.none}</span>
+        )}
+        {row.peer_similarity_max != null && (
+          <span className="muted num" dir="ltr">
+            {T.voiceBioMaxSim} {row.peer_similarity_max.toFixed(2)}
+          </span>
+        )}
+        {showComponent && (
+          <Badge kind="navy">{T.voiceBioComponent.replace("{n}", String(row.component_id))}</Badge>
+        )}
+        <Badge kind={status.kind}>{status.label()}</Badge>
+      </span>
+    </div>
+  );
+}
+
+/** Result of the manual, advisory فحص البصمات الصوتية. Pure display: nothing was changed. */
+function BiometricCheckModal({ result, onClose }: { result: BiometricCheck; onClose: () => void }) {
+  const overall = BIO_OVERALL[result.overall_status];
+  return (
+    <Modal title={`${T.voiceBioCheckTitle} — ${result.person_name}`} onClose={onClose}>
+      <div className="flex gap wrap" data-testid="bio-check-summary">
+        <span>
+          {T.voiceBioOverall}: <Badge kind={overall.kind}>{overall.label()}</Badge>
+        </span>
+        <span className="muted">
+          {T.voiceBioActivePrints}: <span className="num">{result.total_active_prints}</span>
+        </span>
+        <span className="muted">
+          {T.voiceBioComponents}: <span className="num" data-testid="bio-components">{result.number_of_components}</span>
+        </span>
+      </div>
+      <div className="muted small mt-8" dir="rtl">
+        {T.voiceBioThresholds}:{" "}
+        <span className="num" dir="ltr">
+          {result.coherence_threshold.toFixed(2)} / {result.near_duplicate_threshold.toFixed(2)}
+        </span>
+      </div>
+      {result.overall_status === "REVIEW_REQUIRED" && (
+        <div className="mt-8">
+          <Alert kind="warning">{T.voiceBioReviewHint}</Alert>
+        </div>
+      )}
+      {result.groups.map((group) => (
+        <div className="mt-8" key={`${group.model}:${group.embedding_dim}`}>
+          {result.groups.length > 1 && (
+            <div className="muted small ltr">
+              {group.model} · {group.embedding_dim}
+            </div>
+          )}
+          <div className="audit-stages">
+            {group.prints.map((row) => (
+              <BioPrintLine key={row.enrollment_id} row={row} showComponent={group.component_count > 1} />
+            ))}
+          </div>
+        </div>
+      ))}
+      <div className="muted small mt-8">{T.voiceBioAdvisory}</div>
+    </Modal>
+  );
+}
+
+function PersonRow({
+  person,
+  manage,
+  canCheck,
+  onChanged,
+}: {
+  person: Person;
+  manage: boolean;
+  canCheck: boolean;
+  onChanged: () => void;
+}) {
   const toast = useToast();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [checkResult, setCheckResult] = useState<BiometricCheck | null>(null);
+
+  // On demand only - the spec forbids computing coherence just to render the page.
+  const runCheck = async () => {
+    if (!person.identityId) return;
+    setChecking(true);
+    try {
+      setCheckResult(await http.post<BiometricCheck>(`/voice-enrollments/people/${person.identityId}/biometric-check`, {}));
+    } catch (err) {
+      toast.error(err instanceof ApiError ? errorMessage(err.code) : T.err_generic);
+    } finally {
+      setChecking(false);
+    }
+  };
 
   const fail = (err: unknown) =>
     toast.error(err instanceof ApiError ? errorMessage(err.code) : T.err_generic);
@@ -182,12 +286,12 @@ function PersonRow({ person, manage, onChanged }: { person: Person; manage: bool
   };
 
   return (
-    <div className="person-card" data-testid="person-row" data-reference={person.reference}>
+    <div className="person-card" data-testid="person-row" data-identity-id={person.identityId}>
       {editing && <EditPersonModal person={person} onClose={() => setEditing(false)} onSaved={onChanged} />}
+      {checkResult && <BiometricCheckModal result={checkResult} onClose={() => setCheckResult(null)} />}
       <div className="person-head">
         <div>
           <strong>{person.name}</strong>
-          <span className="ltr muted" style={{ marginInlineStart: 8 }}>{person.reference}</span>
         </div>
         <div className="flex gap">
           <span className="muted small" data-testid="person-print-count">
@@ -240,19 +344,35 @@ function PersonRow({ person, manage, onChanged }: { person: Person; manage: bool
         </div>
       )}
 
-      {manage && (
+      {(manage || canCheck) && (
         <div className="flex gap mt-8">
-          <button className="btn btn-sm" type="button" onClick={() => setEditing(true)} data-testid="person-edit">
-            {T.voiceEditPerson}
-          </button>
-          <button
-            className="btn btn-sm btn-danger"
-            type="button"
-            onClick={() => void removeAll()}
-            data-testid="person-delete-prints"
-          >
-            {T.voiceDeletePrints}
-          </button>
+          {canCheck && (
+            <button
+              className="btn btn-sm"
+              type="button"
+              // Manual by design; needs a canonical identity and at least one active print.
+              disabled={checking || !person.identityId || !person.active}
+              onClick={() => void runCheck()}
+              data-testid="person-bio-check"
+            >
+              {checking ? T.voiceBioCheckRunning : T.voiceBioCheck}
+            </button>
+          )}
+          {manage && (
+            <>
+              <button className="btn btn-sm" type="button" onClick={() => setEditing(true)} data-testid="person-edit">
+                {T.voiceEditPerson}
+              </button>
+              <button
+                className="btn btn-sm btn-danger"
+                type="button"
+                onClick={() => void removeAll()}
+                data-testid="person-delete-prints"
+              >
+                {T.voiceDeletePrints}
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -403,7 +523,7 @@ export function VoiceEnrollmentsPage() {
                   <div key={name} className="mt-8">
                     <strong>{name}</strong>{" "}
                     <span className="ltr muted">
-                      {group.map((g) => `${g.reference} (${g.prints.length})`).join(" · ")}
+                      {group.map((g) => `${g.name} (${g.prints.length})`).join(" · ")}
                     </span>
                   </div>
                 ))}
@@ -419,7 +539,13 @@ export function VoiceEnrollmentsPage() {
           ) : (
             <div className="card-body">
               {people.map((p) => (
-                <PersonRow key={p.identityId ?? p.prints[0].id} person={p} manage={manage} onChanged={load} />
+                <PersonRow
+                  key={p.identityId ?? p.prints[0].id}
+                  person={p}
+                  manage={manage}
+                  canCheck={can("voice.identify")}
+                  onChanged={load}
+                />
               ))}
             </div>
           )}
@@ -437,7 +563,7 @@ export function VoiceEnrollmentsPage() {
                   className="person-card"
                   key={c.speaker_id}
                   data-testid="candidate-row"
-                  data-reference={c.person_reference}
+                  data-identity-id={c.identity_id}
                 >
                   <div className="person-head">
                     <div>
@@ -445,7 +571,6 @@ export function VoiceEnrollmentsPage() {
                           shown beside it only when it differs - that is the case worth seeing,
                           and it is no longer possible to mistake one for the other. */}
                       <strong>{c.person_name}</strong>
-                      <span className="ltr muted" style={{ marginInlineStart: 8 }}>{c.person_reference}</span>
                       {c.display_name && c.display_name !== c.person_name && (
                         <span className="muted small" style={{ marginInlineStart: 8 }}>
                           {c.display_name}
@@ -487,7 +612,7 @@ export function VoiceEnrollmentsPage() {
                             // The registry name, never the session label: the label may
                             // carry a rank, and enrolment asserts the person's real name.
                             personName: c.person_name,
-                            reference: c.person_reference,
+                            identityId: c.identity_id,
                             sampleSeconds: c.sample_seconds,
                           })
                         }

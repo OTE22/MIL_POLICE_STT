@@ -11,3 +11,10 @@ argon2-cffi==23.1.0
 cryptography==44.0.2
 python-multipart==0.0.20
 httpx==0.28.1
+# محضر تحقيق rendering. The official layout lives in a real Word file that the organisation
+# edits; docxtpl only substitutes Jinja placeholders inside it (python-docx and lxml are its
+# dependencies, pinned here so the image is reproducible; jinja2 is also used sandboxed).
+docxtpl==0.20.2
+python-docx==1.2.0
+Jinja2==3.1.6
+lxml==6.1.2

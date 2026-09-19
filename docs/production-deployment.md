@@ -1,5 +1,44 @@
 # Production deployment
 
+**Who this is for:** whoever installs the system. You do not need to understand the AI —
+the script explains every step as it runs and refuses to continue if something is wrong.
+Set aside an afternoon for the first server.
+
+**Using it day to day instead?** Read [daily-use.md](daily-use.md).
+
+## Before you touch anything — what you are about to install
+
+Two different programs, on two different kinds of machine, and **the server must be done
+first**:
+
+```
+  ONE SERVER for the unit                     ONE INSTALL PER INTERVIEWING COMPUTER
+  ---------------------------                 -------------------------------------
+  Holds cases, transcripts, people,           Runs the AI that turns speech into text.
+  reports and the audit trail.                THE AUDIO NEVER LEAVES THIS MACHINE -
+  Investigators reach it in a browser.        only the finished text goes to the server.
+  Runs NO AI at all.                          This is why the AI is installed on every
+                                              desktop instead of once on the server.
+```
+
+**What you need before you start**
+
+- [ ] A machine for the server with Docker installed, and administrator (root) access.
+- [ ] To know whether this is a **production** install (real cases) or a **development**
+      one (demos, training). The script asks, and the answer changes what it installs.
+- [ ] The name and/or IP address investigators will type in their browser.
+- [ ] A TLS certificate from your organisation — or accept a self-signed one for a pilot.
+- [ ] The AI model files downloaded once (§4), for the desktops.
+- [ ] A decision about how long recordings are kept.
+
+**How long it takes:** about 10–25 minutes for the server, mostly building. Then 20–45
+minutes per desktop, mostly downloading. The very first one takes longest.
+
+**If you get stuck:** every step of the script prints what it is doing, why, how long it
+should take, what success looks like, and what to do if it fails. Nothing is written to
+disk before step 2, and **every step is safe to run again** — secrets are never
+regenerated and an existing deployment keeps working.
+
 How to put the system into service: **one central server** and **one Local AI Agent per
 investigator desktop**. Two scripts do the work:
 
@@ -65,16 +104,93 @@ central server. Nothing needs Internet access once the models are installed.
 
 ---
 
-## 3. Before you start — four decisions
+## 3. Before you start — five decisions
 
-1. **The server's hostname.** Investigators type it in the browser, and it goes into the
-   certificate. `central.unit.local` in the examples.
+0. **Production or development.** This is the first thing the script asks, and it changes
+   what gets installed:
+
+   | | production | development |
+   |---|---|---|
+   | TLS | organisation-issued certificate required | self-signed by default |
+   | Test database, dev dependencies | no | yes |
+   | الصياغة بالفصحى (Arabic formalization) | **local runtime only** — a cloud provider is refused in code | may use a hosted model, **synthetic or anonymised text only** |
+   | Report template | an **approved** Word file must be uploaded and activated before a final محضر can be issued | ships a `نموذج غير معتمد` template that works at once |
+   | Cloud API key on the machine | must not be present | optional, `--nvidia-key FILE` |
+
+   ```bash
+   sudo ./deploy-central.sh --environment production  --hostname central.unit.local ...
+   sudo ./deploy-central.sh --environment development --hostname localhost
+   ```
+
+   Omit `--environment` and the script stops and asks before it changes anything. In a
+   non-interactive run it refuses rather than guessing.
+
+1. **How the server will be reached — name, IP, or both.** Whatever investigators type
+   has to be inside the TLS certificate, and a certificate cannot be amended afterwards,
+   so this is settled before it is issued.
+
+   ```bash
+   # A name plus the machine's static IP (recommended)
+   --hostname central.unit.local --ip 192.168.10.50
+
+   # Several addresses and a short alias
+   --hostname central.unit.local --extra-name central --ip 192.168.10.50 --ip 10.0.0.7
+
+   # No DNS at all: use the IP as the name. Works immediately.
+   --hostname 192.168.10.50
+   ```
+
+   Omit `--ip` and the script detects this machine's own addresses and puts those in the
+   certificate — so a server with a static IP works by IP out of the box.
+
+   The server publishes on **every** interface by default. `--bind 192.168.10.50` narrows
+   it to one address on a multi-homed machine (it writes `CENTRAL_BIND_ADDRESS`).
 2. **The TLS certificate.** Use an organisation-issued one. `--self-signed` exists for LAN
    pilots and makes every browser show a warning until the certificate is distributed as a
    trusted root.
 3. **Whether the desktops have Internet.** If not, use the air-gapped path in §7.
 4. **Where the recordings live and how long they are kept.** Audio and ID scans are the
    most sensitive data the system holds. Decide the retention policy before go-live.
+
+### Making the name work — DNS
+
+A certificate for `central.unit.local` is useless if no desktop can resolve that name.
+Step 3 of the deployment checks whether it resolves **and whether it points at this
+machine**, and prints the options if not. There are three, in order of preference:
+
+**A. Your organisation's DNS server** — the right answer. One A record, and every
+machine benefits with nothing to configure locally:
+
+```
+central.unit.local.   IN  A   192.168.10.50
+```
+
+**B. The hosts file on each desktop** — no DNS server needed, but it must be repeated on
+every machine, and changing the server's IP later means visiting them all:
+
+```bash
+# Linux / macOS
+sudo sh -c 'echo "192.168.10.50  central.unit.local" >> /etc/hosts'
+```
+
+```
+:: Windows — Notepad as administrator, open
+::   C:\Windows\System32\drivers\etc\hosts
+192.168.10.50  central.unit.local
+```
+
+**C. Skip DNS and use the IP.** Deploy with `--hostname 192.168.10.50`; the certificate
+covers it, so there is no extra browser warning. Perfectly reasonable on a small LAN —
+the cost is that the address is baked into every desktop's configuration, so a future IP
+change means redeploying them.
+
+Whichever you choose, the desktops are pointed at it with
+`deploy-edge.sh --central-url https://<name-or-ip>:8443`. Use whatever that particular
+desktop can actually reach; the certificate covers the name and the IPs alike.
+
+> Changing the server's IP or name later means re-issuing the certificate (re-run
+> `deploy-central.sh` with the new values — secrets are kept) and updating
+> `AGENT_CENTRAL_URL` on each desktop. Nothing else is affected.
 
 ---
 
@@ -124,13 +240,17 @@ downloads of the 4 GB weights file.
 ```bash
 cd MILITARY_STT_AI/deploy
 sudo ./deploy-central.sh \
+     --environment production \
      --hostname central.unit.local \
      --cert /etc/ssl/certs/unit.crt \
      --key  /etc/ssl/private/unit.key \
      --force-tls
 ```
 
-What it does, in order:
+What it does, in order. Before each step runs it prints what is about to happen, why the
+step exists, **roughly how long it should take**, what success looks like, and what to do if
+it fails — so a long silence during the build is recognisable as normal rather than a hang.
+A roadmap of all eight steps is printed once at the start:
 
 1. **Preflight** — root, Docker, Compose, openssl, and that ports 8080/8443 are free.
 2. **Secrets** — generates the PostgreSQL password, the JWT secret and the bootstrap admin
@@ -230,6 +350,50 @@ docker compose exec -T postgres psql -U stt -d military_stt -tAc \
   "SELECT full_name FROM investigator_profiles
     WHERE btrim(COALESCE(military_id,'')) = '' OR security_branch IS NULL"
 ```
+
+## 6c. Build here, address there (the air-gapped workflow)
+
+You rarely get to build a server on the network it will finally live on. The supported
+sequence is: **install and test everywhere convenient, then set the real address as the
+last step**, on site.
+
+```bash
+# 1. Anywhere convenient - build, deploy, run a recording end to end, issue a محضر.
+sudo ./deploy-central.sh --environment production --hostname localhost --self-signed
+
+# 2. Carry the machine (or its images) into the air-gapped room. Then, once:
+sudo ./deploy-central.sh --reconfigure-address \
+     --hostname central.unit.local --ip 192.168.10.50
+```
+
+`--reconfigure-address` does three things and nothing else — it takes under a minute:
+
+1. **Re-issues the TLS certificate** for the new name and IPs. This is the step that
+   actually matters: a server tested at `localhost` carries a certificate that says
+   `localhost`, and every browser refuses it the moment it is given a static IP. The
+   previous certificate **and its key** are kept beside the new ones as
+   `cert.pem.replaced.<timestamp>` and `key.pem.replaced.<timestamp>`. If generation fails
+   for any reason the existing pair is left completely untouched — a half-replaced pair
+   would leave the server unable to serve HTTPS at all.
+2. **Republishes the ports** on the new interface, by *recreating* nginx. A restart is
+   not enough — Docker fixes a published address when the container is created, which is
+   why a changed bind address otherwise appears to do nothing.
+3. **Verifies** that every address answers, and re-checks DNS.
+
+It builds nothing, runs no migrations and touches no data: secrets, cases, transcripts,
+voice prints and issued reports are all left exactly as they are. Running it twice with
+the same address is a no-op — the certificate is only replaced when it does not already
+cover what was asked for.
+
+Afterwards, each desktop still points at the old address. On every desktop either re-run
+`deploy-edge.sh --central-url https://<new>:8443`, or edit `AGENT_CENTRAL_URL` in the
+agent's `agent.env` and restart the agent service. **The signing key does not change**, so
+nothing has to be redistributed.
+
+> The same command changes the address again later — when the server moves rack, gets a
+> new subnet, or finally receives its DNS name.
+
+---
 
 ## 7. Air-gapped desktops
 
@@ -339,7 +503,19 @@ changes this by an order of magnitude. Plan for a GPU on any desktop with real v
       default).
 - [ ] Real users have the narrowest role that lets them work; `USER` is read-only and
       never sees ID scans or voice templates.
-- [ ] A retention policy for `storage/` is agreed and scheduled.
+- [ ] The install ran with `--environment production` (check `CENTRAL_ENVIRONMENT` in
+      `.env`). A development install allows a hosted model and ships a non-approved template.
+- [ ] **No cloud API key on the server.** `secrets/nvidia_api_key` must not exist. It would
+      be ignored — production refuses a cloud provider in code — but it does not belong here.
+- [ ] The **approved** report template is uploaded and activated
+      (القالب الرسمي للمحضر). Until then, production refuses to issue a final محضر.
+- [ ] One محضر has been issued end to end and **opened in the Word version the unit uses**:
+      RTL, هامش, pagination across many questions, signature block.
+- [ ] If Arabic formalization is wanted, an approved model is provisioned on this machine and
+      `GET /api/llm/capabilities` reports it. If not, the composer says so and the wording is
+      written by hand — a supported state.
+- [ ] A retention policy for `storage/` is agreed and scheduled, covering
+      `storage/reports` (issued محاضر) and `storage/report-templates` (the layouts they cite).
 - [ ] Backups have been **restored once** into a scratch environment to prove they work.
 
 ---

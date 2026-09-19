@@ -98,7 +98,7 @@ step "Clearing the database"
 # DELETE respects the declared ON DELETE SET NULL instead, so a profile survives and simply
 # loses its identity link. person_identifiers is covered by its own ON DELETE CASCADE.
 docker compose -f "$ROOT/docker-compose.yml" exec -T postgres   psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME" -c "
-UPDATE investigator_profiles SET identity_id = NULL, reference_number = NULL;
+UPDATE investigator_profiles SET identity_id = NULL;
 DELETE FROM person_identities;" >/dev/null
 ok "canonical identities cleared (staff profiles kept, identity links dropped)"
 

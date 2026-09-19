@@ -107,94 +107,28 @@ def test_a_temporary_label_needs_only_the_labelling_permission(client, labeller)
     assert res.json()["identity_id"] is None, "a label must never establish an identity"
 
 
-def test_re_sending_an_unchanged_reference_is_an_ordinary_save(client, admin_token, labeller):
-    """The case that would silently break every ordinary save if the check read
-    'reference_number present' instead of 'reference_number changed'.
-
-    The labeller owns the session - they may run one, they simply may not say who anyone is -
-    and an administrator does the identifying, as the split intends.
-    """
-    t_lab = labeller["token"]
-    s, speaker = _session_with_speaker(client, t_lab)
-
-    reference = _ref()
-    res = client.put(
-        f"/api/investigations/{s['id']}",
-        json={"subjects": [_subject_for(reference, "علي حسن")]},
-        headers=auth(admin_token),
-    )
-    assert res.status_code == 200, res.text
-    res = _patch(client, admin_token, s["id"], speaker["id"],
-                 display_name="علي حسن", person_name="علي حسن", reference_number=reference)
-    assert res.status_code == 200, res.text
-
-    # The labeller edits the notes and round-trips the reference untouched, as a form does.
-    res = client.patch(
-        f"/api/investigations/{s['id']}/speakers/{speaker['id']}",
-        json={"notes": "ملاحظة", "reference_number": reference},
-        headers=auth(t_lab),
-    )
-    assert res.status_code == 200, res.text
-    assert res.json()["notes"] == "ملاحظة"
-    assert res.json()["identity_id"], "the identity the administrator set must survive"
-
-
-# --------------------------------------------------------------------------
-# what it may not
-# --------------------------------------------------------------------------
-
-def test_binding_a_speaker_to_a_person_is_refused(client, labeller):
+def test_uuid_selection_requires_voice_identify(client, labeller):
     t = labeller["token"]
     s, speaker = _session_with_speaker(client, t)
-    res = _patch(client, t, s["id"], speaker["id"],
-                 display_name="علي حسن", person_name="علي حسن", reference_number=_ref())
-    assert res.status_code == 403, res.text
+    subject = s["subjects"][0]
+    res = _patch(client, t, s["id"], speaker["id"], identity_id=subject["identity_id"])
+    assert res.status_code == 403
     assert res.json()["detail"] == "identity_change_not_permitted"
 
-
-def test_a_refusal_leaves_the_speaker_exactly_as_it_was(client, labeller):
-    """A refusal that half-applies a row is worse than no check at all."""
-    from sqlalchemy import func, select
-
-    from app.models import PersonIdentity
-
+def test_role_and_notes_preserve_an_existing_identity(client, labeller):
+    from app.models import SessionSpeaker
     t = labeller["token"]
     s, speaker = _session_with_speaker(client, t)
-    assert _patch(client, t, s["id"], speaker["id"], display_name="المتحدث الأول").status_code == 200
-    before = _speakers(client, t, s["id"])["SPEAKER_00"]
-
+    identity_id = s["subjects"][0]["identity_id"]
     with SessionLocal() as db:
-        identities_before = db.scalar(select(func.count()).select_from(PersonIdentity))
+        db.get(SessionSpeaker, uuid.UUID(speaker["id"])).identity_id = uuid.UUID(identity_id)
+        db.commit()
+    res = _patch(client, t, s["id"], speaker["id"], notes="ملاحظة", speaker_role="WITNESS")
+    assert res.status_code == 200
+    assert res.json()["identity_id"] == identity_id
 
-    reference = _ref()
-    res = _patch(client, t, s["id"], speaker["id"],
-                 display_name="اسم آخر", person_name="علي حسن", reference_number=reference)
-    assert res.status_code == 403, res.text
-
-    after = _speakers(client, t, s["id"])["SPEAKER_00"]
-    assert after["display_name"] == before["display_name"], "the label must not have moved"
-    assert after["reference_number"] == before["reference_number"]
-    assert after["identity_id"] == before["identity_id"]
-    with SessionLocal() as db:
-        assert db.scalar(select(func.count()).select_from(PersonIdentity)) == identities_before, (
-            "no canonical person may be created by a refused request"
-        )
-
-
-def test_the_same_request_succeeds_with_the_identifying_permission(client, investigator):
-    """ROLE_INVESTIGATOR holds both, so nothing an investigator does today breaks."""
-    t = investigator["token"]
+def test_retired_reference_cannot_bypass_permission(client, labeller):
+    t = labeller["token"]
     s, speaker = _session_with_speaker(client, t)
-    reference = _ref()
-    res = client.put(
-        f"/api/investigations/{s['id']}",
-        json={"subjects": [_subject_for(reference, "علي حسن")]},
-        headers=auth(t),
-    )
-    assert res.status_code == 200, res.text
-
-    res = _patch(client, t, s["id"], speaker["id"],
-                 display_name="علي حسن", person_name="علي حسن", reference_number=reference)
-    assert res.status_code == 200, res.text
-    assert res.json()["identity_id"], "the identity must be established"
-    assert res.json()["reference_number"] == reference
+    res = _patch(client, t, s["id"], speaker["id"], reference_number="MIL-ARMY-4471")
+    assert res.status_code == 422

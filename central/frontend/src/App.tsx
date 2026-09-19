@@ -14,6 +14,8 @@ import { UsersPage } from "@/pages/UsersPage";
 import { WorkstationsPage } from "@/pages/WorkstationsPage";
 import { AuditPage } from "@/pages/AuditPage";
 import { VoiceEnrollmentsPage } from "@/pages/VoiceEnrollmentsPage";
+import { ReportComposerPage } from "@/pages/ReportComposerPage";
+import { ReportTemplatePage } from "@/pages/ReportTemplatePage";
 import { ChangePasswordPage } from "@/pages/ChangePasswordPage";
 
 function RequireAuth({ children }: { children: ReactNode }) {
@@ -54,6 +56,22 @@ export function App() {
         />
         <Route path="/investigations/:id" element={<InvestigationDetailPage />} />
         <Route path="/investigations/:id/edit" element={<InvestigationFormPage />} />
+        <Route
+          path="/report-template"
+          element={
+            <RequirePermission codes={["reports.templates.manage"]}>
+              <ReportTemplatePage />
+            </RequirePermission>
+          }
+        />
+        <Route
+          path="/investigations/:id/report"
+          element={
+            <RequirePermission codes={["reports.read", "reports.generate"]}>
+              <ReportComposerPage />
+            </RequirePermission>
+          }
+        />
         <Route
           path="/users"
           element={

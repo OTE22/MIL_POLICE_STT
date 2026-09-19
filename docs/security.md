@@ -1,5 +1,8 @@
 # Security
 
+**Who this is for:** administrators and anyone reviewing the system before approving it.
+It states what is protected, how, and what is deliberately NOT included.
+
 ## Authentication and sessions
 
 * Passwords: Argon2id (`argon2-cffi`, t=3, m=64 MiB, p=2); rehashed transparently when
@@ -93,6 +96,40 @@ publishes it; optional TOFU fetch for pilots via `AGENT_CENTRAL_PUBLIC_KEY_AUTO_
 Append-only `audit_logs` with user, action, entity, sanitized metadata and client IP for
 every event listed in spec §69. Keys containing `password`, `token`, `secret`, `key`,
 `authorization` are stripped by `services/audit.py` before persisting.
+
+## Arabic formalization (optional AI) and the production boundary
+
+The محضر may offer a Modern-Standard-Arabic rewording of a question or answer. Three rules
+make that safe, and all three are code, not configuration:
+
+* **Production never contacts a cloud provider.** The hosted-provider class refuses to
+  construct when `CENTRAL_ENVIRONMENT=production` — the guard is in its constructor, so no
+  code path can reach it, and every fallback rung on the production ladder is local.
+* **The API key is a secret file.** It is read from an operator-provisioned path
+  (`secrets/nvidia_api_key`, mode 0600, gitignored) and never enters the settings table, an
+  API response, an audit entry or a log line. A development machine without one simply
+  reports formalization unavailable.
+* **A model never writes the report.** Suggestions are stored beside the text; only a human
+  decision (اعتماد / تعديل / رفض) changes what is printed. There is no code path from model
+  output to an official document without a person.
+
+Development installs may use a hosted model, and only with **synthetic or anonymised** text.
+That is an operational rule the code cannot enforce, so the deployment script states it and
+the composer's provenance records which provider produced each suggestion.
+
+## Issued reports
+
+An issued محضر is stored under `storage/reports/`, hashed three ways (document, rendering
+context, template version) and never overwritten — a correction becomes a new version.
+Verification recomputes the hashes and answers سليم / غير مطابق. This is **integrity
+verification, not a digital signature**: it proves the archived bytes are unchanged, and it
+says nothing about a copy edited after download. For submission, re-download from the archive
+and verify before filing.
+
+Report templates are admin-supplied content and are treated as untrusted: macros, external
+relationships, zip bombs, path traversal inside the archive and template-injection attempts
+are all refused, Jinja runs sandboxed over a plain-dict context, and a template that fails
+validation can never become the active official form.
 
 ## Not included (by design, spec §83)
 

@@ -1,5 +1,8 @@
 # Troubleshooting
 
+**Who this is for:** everyone. Find your symptom in the left column. The Arabic entries are
+what you see on screen; the technical ones further down are for whoever maintains the system.
+
 | Symptom (Arabic UI) | Cause | Fix |
 |---|---|---|
 | الخدمة المحلية غير متوفرة | agent not running / wrong port / browser blocked the local-network request | `curl http://127.0.0.1:17117/health`; on Windows check service `MilitarySTTAgent` (`nssm status` / Task Scheduler); accept the browser's local-network permission prompt; make sure the central origin is in `AGENT_ALLOWED_ORIGINS` |
@@ -21,7 +24,7 @@
 | **حالة نموذج بصمة الصوت: النموذج غير مثبّت** | `speakerverification_speakernet.nemo` is not under `AGENT_MODEL_DIR` | `python scripts/provision_models.py --model-dir ./models --only speaker_id`, then restart the agent |
 | **تسجيل بصمة الصوت** disabled: *حدِّد هوية المتحدث أولاً* | the speaker has a label but no canonical person | press **اختيار الشخص** and pick the person. A free-text name is not an identity |
 | `military_id_needs_security_branch` (422) saving a subject | a الرقم العسكري was entered with no الجهاز, or with `آخر` | pick a real force. A serial is unique only within its force, so the serial alone is not identity evidence |
-| **الرقم المرجعي** is missing from the new-session form | it is computed, not entered — deliberately no longer a field | fill in الجهاز + الرقم العسكري (military) and it derives; a civilian is issued `CIV-*` on save. To assign one by hand you need `subjects.reference.override`, then **تعيين الرقم المرجعي يدوياً** |
+| **الرقم المرجعي** is absent | the reference system has been retired | select the person by name; internal UUIDs preserve links. Reload older clients after deployment. |
 | A soldier was saved with **no** الرقم المرجعي | their الرقم العسكري was not known, which is allowed | nothing is broken: they simply cannot be voice-enrolled until identified. Add the serial later and re-save |
 | Two fields looked like **محل القيد** | they were two different things sharing one label | now **القضاء** (part of the identity key) and **البلدة / تفاصيل محل القيد** (descriptive only) |
 | The same person appears twice in **اختيار الشخص**, under two names | an old build: sections were fed by three different shapes and de-duplication knew only one | update the frontend. Every row now comes from `GET /investigations/{id}/people` |
@@ -30,6 +33,19 @@
 | A user cannot be created: 422 on `security_branch` | either it was omitted, or `آخر`/`OTHER` was chosen | pick a real force. `OTHER` is a catch-all, not a namespace — two "other" forces sharing a serial would collapse into one identity |
 | `identity_change_not_permitted` (403) | the caller holds `speakers.assign` but not `voice.identify` | labelling and identifying are separate authorities — have someone with `voice.identify` bind the person |
 | A person gets no suggestions although they are well enrolled | their prints are split across two canonical identities, so two of their own prints look like rival people and the matcher abstains | consolidate the identities (see [voice-enrollment-guide.md](voice-enrollment-guide.md) §7d). **Do not** edit `voice_enrollments.person_reference` — matching groups by `identity_id` |
+| **فحص البصمات الصوتية** says **تحتاج مراجعة** (2+ مجموعات صوتية) | the person's active prints fall into sets that match internally but not each other — usually a print enrolled from the **wrong speaker**, sometimes extremely different recording conditions | nothing is broken or auto-removed: each print in the dialog links to its source session. Listen, decide which group is really this person, and **تعطيل/حذف** the rest. The system never picks the "real" group itself |
+| The **فحص البصمات الصوتية** button is greyed out | the person has no *active* prints, or the row is a legacy print without a canonical identity | reactivate a print (or enrol one); for a legacy row, bind the person to an identity first |
+| Saving إعدادات النظام refused: `near_duplicate_must_exceed_match_threshold` | the save would leave عتبة البصمة شبه المكررة at or below عتبة اقتراح الهوية, which would make the check's labels contradictory | keep the near-duplicate bar above the suggestion threshold; the values are checked as they *would be* after the save, so adjust whichever you edited |
+| Every س in the محضر is empty | No speaker on the session is marked **المحقق**, so the builder refuses to invent a questioner and keeps each turn as an answer-only block | Set the roles in **المتحدثون**, then press **تحديث من النص المنقح** in the composer |
+| **تم تعديل التفريغ بعد بناء هذه المسودة** | Someone corrected the transcript after the draft was built. The draft is deliberately unchanged | Press **تحديث من النص المنقح** to rebuild from the current text — your report wording is replaced, knowingly |
+| **إنشاء المحضر النهائي** is disabled | One of the finalization gates is unmet | The archive panel lists exactly which: a missing header field, an unidentified speaker, no included content, or no valid template |
+| **لا يوجد قالب رسمي معتمد وفعال لإنشاء المحضر النهائي** | Production is running on the bundled development template (`نموذج غير معتمد`) | القالب الرسمي للمحضر → رفع قالب بديل → تفعيل. Drafting works meanwhile; only issuing is blocked |
+| Uploading a template says `unknown_placeholders` / `missing_placeholders` | The Word file uses a name that is not in the catalogue, or lacks the `qa_blocks` loop | The catalogue is printed on the template page. The dialogue loop is required — one template must print 5 or 300 questions |
+| Word reports "unknown tag 'endfor'" when validating | The `{%tr for %}` and `{%tr endfor %}` markers share a table row | Each marker needs its **own** row; docxtpl repeats the rows between them |
+| **خدمة اقتراح الصياغة غير متوفرة على هذا الجهاز** | No formalization runtime resolved. A normal, supported state | `GET /api/llm/capabilities` gives the reason: no key (development), no local runtime, or no approved model provisioned (production). The محضر is still written by hand |
+| A فصحى suggestion reads like a conversation ("لم يتم تزويدي بنص…") | The model answered instead of formalizing — usually because the source text was placeholder or meaningless | **رفض** it. Approving would put model chatter into an official document |
+| **غير مطابق** when verifying an issued report | The archived .docx no longer hashes to what was recorded | Do not submit that copy. Investigate the storage; the report can be re-issued as a new version from a reopened draft |
+| A report cannot be edited: `report_is_final` | It has been issued, and an issued محضر is immutable | **إعادة فتح للتصحيح** returns the draft to editable; the next issue becomes version N+1 and the earlier versions stay downloadable |
 
 Logs: central `docker compose logs -f backend nginx`; agent `docker compose logs -f agent`
 or `C:\ProgramData\InvestigationAI\agent\agent.err.log` (NSSM) / `journalctl -u military-stt-agent`.

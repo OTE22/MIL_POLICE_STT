@@ -1,5 +1,10 @@
 # Windows workstation installation
 
+**Who this is for:** whoever sets up an interviewing computer running Windows. Follow it
+in order; you do not need to understand the AI. Allow 20-45 minutes, mostly downloading.
+
+**Setting up the SERVER instead?** That is [production-deployment.md](production-deployment.md).
+
 The Local AI Agent is installed as a normal background application — Docker Desktop is
 **not** required on investigator desktops. (A Docker variant exists for development, see
 `desktop-agent/docker-compose.yml`.)

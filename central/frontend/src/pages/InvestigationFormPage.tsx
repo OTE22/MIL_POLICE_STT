@@ -92,7 +92,7 @@ export function InvestigationFormPage() {
         // issuing a second reference for the same person.
         participant_key: s.participant_key ?? null,
         subject_name: clean(s.subject_name),
-        reference_number: clean(s.reference_number),
+        identity_id: s.identity_id ?? null,
         person_type: s.person_type,
         military_id: clean(s.military_id),
         rank: clean(s.rank),

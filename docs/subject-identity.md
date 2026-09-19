@@ -1,5 +1,12 @@
 # Interviewed person (بيانات الشخص)
 
+> **Updated identity model:** Person reference numbers have been removed. People now use internal UUIDs. See [the current identity contract and migration](person-identity-migration.md). Reference-number descriptions below document the earlier implementation.
+
+**Who this is for:** investigators recording who was interviewed, and administrators who
+need to know how الرقم المرجعي is decided. Sections on the rules are readable by anyone.
+
+**Just filling in the form?** [daily-use.md](daily-use.md) §2 covers the everyday case.
+
 How the system records **who was interviewed**, their identity documents, and the scans of
 those documents.
 

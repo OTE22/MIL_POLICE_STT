@@ -36,6 +36,8 @@ export function LoginPage() {
   return (
     <div className="login-page">
       <section className="login-brand">
+        <div className="login-brand-mark"><IconMic width={28} height={28} /><span>{T.orgLine}</span></div>
+        <div className="login-eyebrow">من الصوت إلى التوثيق</div>
         <h1>{T.appName}</h1>
         <p>{T.orgLine}. تسجيل الجلسات، فصل المتحدثين، وتفريغ النصوص العربية محلياً على جهاز المحقق مع حفظ مركزي وسجل تدقيق كامل.</p>
         <div className="features">
@@ -52,9 +54,15 @@ export function LoginPage() {
             <IconShield /> صلاحيات دقيقة وسجل تدقيق لكل إجراء
           </div>
         </div>
+        <div className="login-wave" aria-hidden="true">
+          {[18, 32, 24, 48, 64, 36, 80, 52, 96, 60, 40, 76, 100, 56, 84, 44, 64, 32, 48, 72, 38, 58, 26, 42, 20].map((height, index) => <span key={index} style={{ height }} />)}
+        </div>
+        <div className="login-brand-caption">تسجيل. تفريغ. مراجعة. توثيق.</div>
       </section>
       <section className="login-form-wrap">
-        <form className="login-form card" onSubmit={submit} style={{ padding: 32 }} noValidate>
+        <form className="login-form card" onSubmit={submit} noValidate>
+          <div className="login-form-icon"><IconShield width={26} height={26} /></div>
+          <div className="login-form-brand">{T.appShort}</div>
           <h2>{T.login}</h2>
           <p className="sub">{T.loginHint}</p>
           {error && (
@@ -93,6 +101,7 @@ export function LoginPage() {
           <button className="btn btn-primary btn-lg btn-block" type="submit" disabled={busy || !username || !password}>
             {busy ? <span className="spinner" /> : null} {T.login}
           </button>
+          <p className="login-footnote"><IconShield /> الدخول مخصص للمستخدمين المخوّلين</p>
         </form>
       </section>
     </div>

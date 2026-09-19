@@ -216,6 +216,12 @@ _CONFIG_REGISTRY: dict[str, dict] = {
         "description": "أقل تشابه يُنتج اقتراحاً. مُعايَرة على 0.65 (نفس المتحدث 0.76–0.90، مختلفان 0.34–0.52) — خفضها يزيد الاقتراحات الخاطئة.",
         "type": "float", "min": 0.50, "max": 0.95,
     },
+    "voice_near_duplicate_threshold": {
+        "group": "المطابقة الصوتية",
+        "label": "عتبة البصمة شبه المكررة",
+        "description": "يستخدمه فحص البصمات الصوتية: بصمتان لنفس الشخص بهذا التشابه أو أكثر تُعلَّمان كشبه مكررتين — استشاري فقط، لا يُحذف شيء تلقائياً.",
+        "type": "float", "min": 0.90, "max": 0.999,
+    },
     "voice_match_margin": {
         "group": "المطابقة الصوتية",
         "label": "هامش الغموض بين شخصين",
@@ -248,6 +254,85 @@ _CONFIG_REGISTRY: dict[str, dict] = {
         "description": "يُطبَّق عند التحقق من كل رفع. 2048 ميغابايت = 2 غيغابايت.",
         # Edited in MB; stored canonically in bytes. Bounds are in the DISPLAYED unit.
         "type": "int", "min": 1, "max": 8192, "scale": 1_048_576,
+    },
+    # ---- محضر التحقيق ------------------------------------------------------
+    "report_max_qa_blocks": {
+        "group": "محضر التحقيق",
+        "label": "الحد الأقصى لعدد الأسئلة في المحضر",
+        "description": "حد تشغيلي لحماية الخادم عند إنشاء محاضر ضخمة. القالب نفسه لا يفرض أي حد.",
+        "type": "int", "min": 20, "max": 2000,
+    },
+    "report_fusha_enabled": {
+        "group": "محضر التحقيق",
+        "label": "تفعيل اقتراح الصياغة بالفصحى",
+        "description": "عند الإيقاف تختفي أزرار الاقتراح ويُكتب المحضر يدوياً بالكامل. لا يؤثر على أي وظيفة أخرى.",
+        "type": "bool",
+    },
+    "report_fusha_temperature": {
+        "group": "محضر التحقيق",
+        "label": "درجة إبداع النموذج (الحرارة)",
+        "description": "منخفضة عمداً: المطلوب أمانة النقل لا جمال الأسلوب. رفعها يزيد خطر تغيير المعنى.",
+        "type": "float", "min": 0.0, "max": 1.0,
+    },
+    "report_fusha_timeout_seconds": {
+        "group": "محضر التحقيق",
+        "label": "مهلة انتظار النموذج (ثوانٍ)",
+        "description": "بعدها يُعتبر الاقتراح غير متاح ويتابع المحقق يدوياً. خفضها يجعل الفشل أسرع وأوضح.",
+        "type": "int", "min": 5, "max": 300,
+    },
+    "report_fusha_max_input_chars": {
+        "group": "محضر التحقيق",
+        "label": "أقصى طول نص يُرسل للنموذج (حرف)",
+        "description": "يُطبَّق على كل سؤال أو جواب على حدة — الاقتراح يجري لكل مقطع وحده.",
+        "type": "int", "min": 200, "max": 20000,
+    },
+    "llm_runtime_mode": {
+        "group": "محضر التحقيق",
+        "label": "مصدر خدمة الصياغة",
+        "description": "auto: يختار حسب البيئة. local: محلي فقط. off: تعطيل كامل. الإنتاج محلي دائماً مهما كانت القيمة.",
+        "type": "select", "options": ["auto", "local", "off"],
+    },
+    "llm_cpu_model": {
+        "group": "محضر التحقيق",
+        "label": "النموذج المعتمد للمعالج (CPU)",
+        "description": "يجب أن يكون مثبّتاً محلياً مسبقاً — النظام لا ينزّل أي نموذج تلقائياً.",
+        "type": "text",
+    },
+    "llm_gpu_small_model": {
+        "group": "محضر التحقيق",
+        "label": "النموذج المعتمد لبطاقة صغيرة",
+        "description": "يُستخدم عند توفر بطاقة رسومية تفي بالحد الأدنى للذاكرة أدناه.",
+        "type": "text",
+    },
+    "llm_gpu_medium_model": {
+        "group": "محضر التحقيق",
+        "label": "النموذج المعتمد لبطاقة متوسطة",
+        "description": "يُستخدم عند توفر ذاكرة رسومية أكبر، بشرط أن يكون مثبّتاً.",
+        "type": "text",
+    },
+    "llm_gpu_large_model": {
+        "group": "محضر التحقيق",
+        "label": "النموذج المعتمد لبطاقة كبيرة",
+        "description": "أقوى ملف تعريف. لا يُختار لمجرد توفر الذاكرة، بل يجب اعتماده وتثبيته.",
+        "type": "text",
+    },
+    "llm_gpu_small_min_vram_gb": {
+        "group": "محضر التحقيق",
+        "label": "أدنى ذاكرة رسومية لبطاقة صغيرة (غيغابايت)",
+        "description": "أقل من ذلك يهبط النظام إلى ملف تعريف المعالج.",
+        "type": "float", "min": 2.0, "max": 96.0,
+    },
+    "llm_gpu_medium_min_vram_gb": {
+        "group": "محضر التحقيق",
+        "label": "أدنى ذاكرة رسومية لبطاقة متوسطة (غيغابايت)",
+        "description": "يُقاس على أكبر بطاقة منفردة، لا على مجموع البطاقات.",
+        "type": "float", "min": 4.0, "max": 96.0,
+    },
+    "llm_gpu_large_min_vram_gb": {
+        "group": "محضر التحقيق",
+        "label": "أدنى ذاكرة رسومية لبطاقة كبيرة (غيغابايت)",
+        "description": "ارفعها بعد قياس الأداء الفعلي على أجهزة الإنتاج.",
+        "type": "float", "min": 8.0, "max": 192.0,
     },
 }
 
@@ -293,6 +378,16 @@ def _validate(key: str, raw):
             value = int(raw)
         elif spec["type"] == "float":
             value = float(raw)
+        elif spec["type"] == "bool":
+            # Accept what a checkbox, a JSON body or a form might each send.
+            if isinstance(raw, bool):
+                value = raw
+            elif str(raw).strip().lower() in ("true", "1", "yes", "on"):
+                value = True
+            elif str(raw).strip().lower() in ("false", "0", "no", "off"):
+                value = False
+            else:
+                raise ValueError(raw)
         else:
             value = str(raw).strip()
     except (TypeError, ValueError):
@@ -327,6 +422,22 @@ def update_runtime_config(
     # Validate EVERYTHING before applying ANYTHING: a request with one bad key must not
     # half-apply the rest.
     validated = {key: _validate(key, raw) for key, raw in body.values.items()}
+
+    # Cross-field rule: the near-duplicate bar must sit ABOVE the coherence bar, or the
+    # فحص البصمات classification becomes contradictory (a pair both "duplicate" and
+    # "incoherent"). Checked against the values as they WOULD be after this save.
+    from fastapi import HTTPException as _HTTPException
+    from fastapi import status as _st
+
+    would_dup = validated.get("voice_near_duplicate_threshold", _canonical_value("voice_near_duplicate_threshold"))
+    would_thr = validated.get("voice_match_threshold", _canonical_value("voice_match_threshold"))
+    if float(would_dup) <= float(would_thr):
+        raise _HTTPException(
+            _st.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "near_duplicate_must_exceed_match_threshold",
+                    "voice_match_threshold": would_thr,
+                    "voice_near_duplicate_threshold": would_dup},
+        )
 
     settings = _get_settings()
     for key, value in validated.items():

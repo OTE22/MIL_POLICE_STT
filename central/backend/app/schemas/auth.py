@@ -29,7 +29,6 @@ class InvestigatorProfileOut(BaseModel):
     military_id: str | None = None
     security_branch: SecurityBranch | None = None
     # Null until they are assigned to a session, which is when they are registered as a person.
-    reference_number: str | None = None
     unit: str | None = None
     department: str | None = None
     job_title: str | None = None

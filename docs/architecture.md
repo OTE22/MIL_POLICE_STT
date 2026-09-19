@@ -1,5 +1,8 @@
 # Architecture
 
+**Who this is for:** developers, and anyone evaluating the design. It explains the shape of
+the system rather than how to use it.
+
 ## 1. Two parts, one workflow
 
 | Part | Runs | Owns |

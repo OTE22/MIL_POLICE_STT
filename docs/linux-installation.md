@@ -1,5 +1,10 @@
 # Linux workstation installation
 
+**Who this is for:** whoever sets up an interviewing computer running Linux. Follow it in
+order; you do not need to understand the AI. Allow 20-45 minutes, mostly downloading.
+
+**Setting up the SERVER instead?** That is [production-deployment.md](production-deployment.md).
+
 Two supported options with the same agent API on `http://127.0.0.1:17117`.
 
 ## Option A — native (systemd)

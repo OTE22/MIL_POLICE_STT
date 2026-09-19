@@ -13,13 +13,72 @@ deploy/
 
 ## Server
 
+Choose the environment first — it is the one decision that changes everything else.
+Omit `--environment` and the script asks before it touches anything.
+
 ```bash
-sudo ./deploy-central.sh --hostname central.unit.local \
+# Real cases
+sudo ./deploy-central.sh --environment production \
+     --hostname central.unit.local \
      --cert /etc/ssl/certs/unit.crt --key /etc/ssl/private/unit.key --force-tls
+
+# Demo / training / integration
+sudo ./deploy-central.sh --environment development --hostname localhost
 ```
 
 Generates all secrets on first run into a mode-0600 `.env` and never regenerates them.
 Prints the bootstrap admin password **once**.
+
+> **Never installed this before?** Read
+> [../docs/production-deployment.md](../docs/production-deployment.md) first — it explains
+> what you are installing and what to decide. This file is the quick reference.
+
+### Setting the address on site (air-gapped)
+
+Build and test wherever is convenient, then give the machine its real address as the last
+step — it takes under a minute and touches no data:
+
+```bash
+sudo ./deploy-central.sh --reconfigure-address \
+     --hostname central.unit.local --ip 192.168.10.50
+```
+
+Re-issues the certificate for the new name/IPs (keeping a timestamped copy of the old
+one), recreates nginx so the new bind address actually takes effect, and re-checks DNS.
+Nothing is rebuilt, no migration runs, and the signing key is unchanged — so the desktops
+only need their `AGENT_CENTRAL_URL` pointed at the new address.
+
+### Reaching the server
+
+```bash
+--hostname central.unit.local --ip 192.168.10.50   # name + static IP, both in the cert
+--hostname 192.168.10.50                           # no DNS at all; the IP IS the name
+--extra-name central                               # an alias, repeatable
+--bind 192.168.10.50                               # publish on one interface only
+```
+
+`--ip` is repeatable and defaults to this machine's detected addresses, so a static-IP
+server works by IP without being told. The deployment checks whether the hostname
+resolves to this machine and, if not, prints the DNS A record, the hosts-file line for
+Linux and Windows, and the option of using the IP directly.
+
+|  | production | development |
+|---|---|---|
+| TLS | real certificate required | self-signed by default |
+| Test database, dev dependencies | no | yes |
+| الصياغة بالفصحى (Arabic formalization) | **local runtime only** — no cloud call is possible, it is refused in code | may use the hosted NVIDIA catalogue, **synthetic or anonymised text only** |
+| Report template | an **approved** Word file must be uploaded and activated before a final محضر can be issued | ships a `نموذج غير معتمد` template that works immediately |
+| Cloud API key on the machine | must not be present (warned about, and ignored) | optional, via `--nvidia-key FILE` → `secrets/nvidia_api_key` |
+
+Step 6 of the run reports which formalization runtime resolved and why, and step 7
+says whether an approved template is active. Both "available" and "unavailable" are
+acceptable outcomes: the محضر is always writable by hand.
+
+### Backing up a production server
+
+`secrets/` (signing keys), `storage/recordings`, **`storage/reports`** (issued محاضر) and
+**`storage/report-templates`** (the layout each one cites), plus a `pg_dump`. An issued
+report is evidence; the template version it names must stay retrievable to verify it.
 
 ## Investigator desktop
 
@@ -54,7 +113,7 @@ has neither — so it cannot be bound to a speaker or carry a voice print until 
 in **إدارة المستخدمين**. `deploy-central.sh` names any such account at the end of its run:
 
 ```
-[WARN] these accounts have no الرقم المرجعي and cannot be identified as speakers:
+[WARN] these accounts have incomplete service details:
            مدير النظام
 ```
 

@@ -58,8 +58,10 @@ class ConfigFieldOut(BaseModel):
     group: str
     label: str
     description: str
-    type: str  # "int" | "float" | "select" | "text"
-    value: str | int | float
+    type: str  # "int" | "float" | "bool" | "select" | "text"
+    # bool must come FIRST: bool is a subclass of int, so a `str | int | float` union would
+    # coerce True to 1 and the checkbox would render as a number field.
+    value: bool | str | int | float
     min: float | None = None
     max: float | None = None
     options: list[str] | None = None

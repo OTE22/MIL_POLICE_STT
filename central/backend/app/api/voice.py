@@ -11,11 +11,12 @@ when an investigator confirms, and the decision (who, when) is audited.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -34,7 +35,11 @@ from app.models import (
     User,
     VoiceEnrollment,
 )
+from app.config import get_settings
 from app.schemas.voice import (
+    BiometricCheckOut,
+    BiometricGroupOut,
+    BiometricPrintCheckOut,
     EnrollmentCandidateOut,
     IdentityConsolidateIn,
     PersonSearchOut,
@@ -46,13 +51,13 @@ from app.schemas.voice import (
 from app.services.audit import record_audit
 from app.services.person_identity import (
     IdentityMergeConflict,
-    get_or_create_identity,
     merge_identities,
     repoint_identity,
-    normalize_reference,
     resolve_identity,
 )
 from app.services.voice_matching import rematch_speakers
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["voice"])
 
@@ -70,9 +75,7 @@ def _out(db: Session, e: VoiceEnrollment) -> VoiceEnrollmentOut:
         # that snapshot may be years old, may carry a rank, and may name someone who has since
         # been merged away. The snapshot is still returned below, labelled as history.
         person_name=identity.person_name if identity else "",
-        person_reference=identity.reference_display if identity else "",
         enrolled_person_name=e.person_name,
-        enrolled_person_reference=e.person_reference,
         notes=e.notes,
         model=e.model,
         model_revision=e.model_revision,
@@ -107,11 +110,10 @@ def list_enrollments(
         # person is renamed, searching their new name has to find their prints. The snapshot
         # is still matched so an old name a user remembers keeps working.
         identity_match = select(PersonIdentity.id).where(
-            PersonIdentity.person_name.ilike(like) | PersonIdentity.reference_display.ilike(like)
+            PersonIdentity.person_name.ilike(like)
         )
         stmt = stmt.where(
             VoiceEnrollment.person_name.ilike(like)
-            | VoiceEnrollment.person_reference.ilike(like)
             | VoiceEnrollment.identity_id.in_(identity_match)
         )
     return [_out(db, e) for e in db.scalars(stmt.order_by(VoiceEnrollment.person_name)).all()]
@@ -140,11 +142,7 @@ def enroll_from_speaker(
         # Enrolling a biometric template without recorded consent is refused outright.
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="consent_required")
 
-    # Enrolment neither creates nor establishes a person - that is تحديد الهوية, which
-    # resolves identity from الرقم المرجعي. Every caller already requires an identified
-    # speaker (the candidate query below, and the button in VoiceSuggestion.tsx), so refuse
-    # rather than infer. There is deliberately no reference-based recovery here: deriving
-    # identity from a client-supplied reference IS establishing it.
+    # Enrollment requires a previously selected person; it never infers or creates one.
     if speaker.identity_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="speaker_identity_required")
 
@@ -155,18 +153,15 @@ def enroll_from_speaker(
     if identity is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="speaker_identity_required")
     speaker.identity_id = identity.id
-    speaker.reference_number = identity.reference_display
 
     # Several prints per person are intended - different recording conditions give better
     # coverage, and the matcher groups them by canonical identity so they reinforce each
     # other rather than competing.
     #
-    # The registry is the sole authority for both snapshot values. body.person_name and
-    # body.person_reference are no longer consulted, and display_name never was eligible:
+    # The registry owns the enrollment name snapshot; client names are not consulted:
     # it is a session label that may carry a rank, so trusting it filed "الرائد علي عباس"
     # as a person.
     person_name = identity.person_name
-    person_reference = identity.reference_display
 
     # Only one ACTIVE print per (session, speaker, model). Asked here so a second attempt
     # gets an answer it can act on, naming the print that already holds the slot, instead of
@@ -191,7 +186,6 @@ def enroll_from_speaker(
     enrollment = VoiceEnrollment(
         identity_id=identity.id,
         person_name=person_name,
-        person_reference=person_reference,
         notes=body.notes,
         embedding=list(speaker.voice_embedding),
         embedding_dim=len(speaker.voice_embedding),
@@ -225,7 +219,6 @@ def enroll_from_speaker(
             "session_id": session.id,
             "speaker_label": speaker.speaker_label,
             "person_name": person_name,
-            "person_reference": person_reference,
             "model": body.model,
             "consent_recorded": True,
         },
@@ -249,39 +242,26 @@ def update_enrollment(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="enrollment_not_found")
 
     data = body.model_dump(exclude_unset=True)
-    wants_identity_change = "person_name" in data or "person_reference" in data
+    wants_identity_change = "person_name" in data
     if wants_identity_change and not body.apply_to_person:
         # Refusing is the point: a per-print rename would let one person's prints disagree
         # about who they belong to.
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="apply_to_person_required")
 
     identity = resolve_identity(db, db.get(PersonIdentity, enrollment.identity_id)) if enrollment.identity_id else None
-    before = {"person_name": identity.person_name, "person_reference": identity.reference_display} if identity else {}
+    before = {"person_name": identity.person_name} if identity else {}
     affected: list[uuid.UUID] = []
 
     if wants_identity_change:
         if identity is None:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="enrollment_has_no_identity")
         new_name = (data.get("person_name") or identity.person_name).strip()
-        new_reference = (data.get("person_reference") or identity.reference_display).strip()
-
-        if normalize_reference(new_reference) != identity.reference_normalized:
-            # A reference correction is a merge, not an in-place edit: rewriting
-            # reference_normalized would free the old value for a stale client to recreate.
-            target = get_or_create_identity(db, new_reference, new_name)
-            if target is None:
-                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="person_reference_required")
-            try:
-                _, identity = merge_identities(db, identity.id, target.id)
-            except IdentityMergeConflict as exc:
-                raise HTTPException(status.HTTP_409_CONFLICT, detail="identity_merge_conflict") from exc
-            affected = repoint_identity(db, source_id=enrollment.identity_id, target=identity)["enrollment_ids"]
-        else:
-            # Same reference, new name: one row carries the whole person.
-            identity.person_name = new_name
-            affected = [e.id for e in db.scalars(
-                select(VoiceEnrollment).where(VoiceEnrollment.identity_id == identity.id)
-            ).all()]
+        if not new_name:
+            raise HTTPException(400, detail="person_name_required")
+        identity.person_name = new_name
+        affected = [e.id for e in db.scalars(
+            select(VoiceEnrollment).where(VoiceEnrollment.identity_id == identity.id)
+        ).all()]
 
     if "is_active" in data and data["is_active"] and not enrollment.is_active:
         _guard_reactivation(db, enrollment)
@@ -300,8 +280,7 @@ def update_enrollment(
             "updated": list(data.keys()),
             "is_active": enrollment.is_active,
             **({"identity_before": before,
-                "identity_after": {"person_name": identity.person_name,
-                                   "person_reference": identity.reference_display},
+                "identity_after": {"person_name": identity.person_name},
                 "affected_enrollment_ids": affected} if wants_identity_change and identity else {}),
         },
         ip_address=client_ip(request),
@@ -370,7 +349,6 @@ def delete_enrollment(
         entity_id=enrollment.id,
         metadata={
             "person_name": enrollment.person_name,
-            "person_reference": enrollment.person_reference,
             # Recorded because suggested_enrollment_id is ON DELETE SET NULL: without this
             # a confirmed identification could no longer name the print it rested on.
             "enrollment_id": enrollment.id,
@@ -420,7 +398,6 @@ def decide_suggestion(
         identity = resolve_identity(db, db.get(PersonIdentity, matched.identity_id)) if matched and matched.identity_id else None
         if identity is not None:
             speaker.identity_id = identity.id
-            speaker.reference_number = identity.reference_display
         action = AuditAction.VOICE_IDENTITY_CONFIRMED
     else:
         speaker.identification_status = IdentificationStatus.REJECTED
@@ -537,7 +514,7 @@ def search_people(
     if q:
         like = f"%{q}%"
         stmt = stmt.where(
-            PersonIdentity.person_name.ilike(like) | PersonIdentity.reference_display.ilike(like)
+            PersonIdentity.person_name.ilike(like)
         )
     identities = db.scalars(stmt.order_by(PersonIdentity.person_name).limit(limit)).all()
     if not identities:
@@ -562,7 +539,6 @@ def search_people(
             PersonSearchOut(
                 identity_id=identity.id,
                 person_name=identity.person_name,
-                person_reference=identity.reference_display,
                 accessible_session_count=len(sessions),
                 accessible_print_count=len(visible),
                 accessible_sample_seconds=round(sum(p.sample_seconds or 0.0 for p in visible), 2),
@@ -625,7 +601,6 @@ def list_candidates(
                 person_name=identity.person_name,
                 speaker_role=speaker.speaker_role.value,
                 identity_id=identity.id,
-                person_reference=identity.reference_display,
                 sample_seconds=_speaker_seconds(db, speaker),
                 enrollment_state="enrolled_inactive" if inactive else "never_enrolled",
                 inactive_enrollment_id=inactive.id if inactive else None,
@@ -662,7 +637,7 @@ def consolidate_identity(
     if source is None or target is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="identity_not_found")
 
-    before = {"person_name": source.person_name, "person_reference": source.reference_display}
+    before = {"person_name": source.person_name}
     try:
         merged, survivor = merge_identities(db, source.id, target.id)
     except IdentityMergeConflict as exc:
@@ -683,7 +658,6 @@ def consolidate_identity(
             "identity_before": before,
             "identity_after": {
                 "person_name": survivor.person_name,
-                "person_reference": survivor.reference_display,
             },
             # Zero prints is a normal outcome, not a failure.
             "affected_enrollment_ids": affected["enrollment_ids"],
@@ -697,7 +671,160 @@ def consolidate_identity(
     return {
         "identity_id": str(survivor.id),
         "person_name": survivor.person_name,
-        "person_reference": survivor.reference_display,
         **{k: v for k, v in affected.items() if k != "enrollment_ids"},
         "affected_enrollments": len(affected["enrollment_ids"]),
     }
+
+
+
+@router.post(
+    "/voice-enrollments/people/{identity_id}/biometric-check",
+    response_model=BiometricCheckOut,
+)
+def biometric_check(
+    identity_id: uuid.UUID,
+    _: User = Depends(require_permission("voice.identify")),
+    db: Session = Depends(get_db),
+) -> BiometricCheckOut:
+    """Manual, advisory coherence review of ONE person's active prints.
+
+    Runs only when the operator presses فحص البصمات الصوتية - never on page load, never at
+    enrolment, never across the registry. It compares the selected person's active prints
+    with EACH OTHER (one pgvector statement for all pairs), groups them into connected
+    components at the coherence threshold, and reports. It changes nothing: which prints
+    are really this person's voice is a human judgement, made with the deactivate/delete
+    controls that already exist.
+
+    Why components and not just max-similarity: two internally-coherent sets that do not
+    match each other (A~B at 0.84, C~D at 0.86, cross ~0.40) give every print a good peer,
+    yet the identity may contain two different speakers. Components make that visible;
+    the check never says which component is "right".
+    """
+    identity = resolve_identity(db, db.get(PersonIdentity, identity_id))
+    if identity is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="person_not_found")
+
+    settings = get_settings()
+    coherence = settings.voice_match_threshold
+    near_dup = settings.voice_near_duplicate_threshold
+
+    prints = list(
+        db.scalars(
+            select(VoiceEnrollment)
+            .where(VoiceEnrollment.identity_id == identity.id, VoiceEnrollment.is_active.is_(True))
+            .order_by(VoiceEnrollment.created_at)
+        ).all()
+    )
+
+    # ALL pairwise similarities in one statement. The join conditions make incompatible
+    # prints (different model or dimension) simply never meet.
+    pair_rows = db.execute(
+        text(
+            """SELECT a.id AS a_id, b.id AS b_id,
+                      1 - (a.embedding <=> b.embedding) AS sim
+               FROM voice_enrollments a
+               JOIN voice_enrollments b
+                 ON b.identity_id = a.identity_id
+                AND b.model = a.model AND b.embedding_dim = a.embedding_dim
+                AND a.is_active AND b.is_active AND a.id < b.id
+               WHERE a.identity_id = :identity_id"""
+        ),
+        {"identity_id": str(identity.id)},
+    ).all()
+    sims: dict[tuple[uuid.UUID, uuid.UUID], float] = {}
+    for row in pair_rows:
+        value = round(float(row.sim), 4)
+        sims[(row.a_id, row.b_id)] = value
+        sims[(row.b_id, row.a_id)] = value
+
+    groups: list[BiometricGroupOut] = []
+    total_components = 0
+    by_group: dict[tuple[str, int], list[VoiceEnrollment]] = {}
+    for e in prints:
+        by_group.setdefault((e.model, e.embedding_dim), []).append(e)
+
+    for (model, dim), members in by_group.items():
+        ids = [e.id for e in members]
+        # Connected components over "matches at the coherence threshold" edges: plain
+        # union-find; galleries are deliberate enrolments, never large.
+        parent = {i: i for i in ids}
+
+        def find(x):
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        for a in ids:
+            for b in ids:
+                if a < b and sims.get((a, b), 0.0) >= coherence:
+                    parent[find(a)] = find(b)
+
+        roots: dict[uuid.UUID, int] = {}
+        for e in members:  # created_at order -> stable 1-based component numbering
+            root = find(e.id)
+            if root not in roots:
+                roots[root] = len(roots) + 1
+        component_count = len(roots)
+        total_components += component_count
+
+        out_prints = []
+        for e in members:
+            peer_sims = [sims[(e.id, other)] for other in ids if other != e.id and (e.id, other) in sims]
+            coherent_peers = sum(1 for v in peer_sims if v >= coherence)
+            if len(members) == 1:
+                status_ = "SINGLE_PRINT"
+            elif any(v >= near_dup for v in peer_sims):
+                status_ = "NEAR_DUPLICATE"
+            elif coherent_peers > 0:
+                status_ = "COHERENT"
+            else:
+                status_ = "ISOLATED"
+            out_prints.append(
+                BiometricPrintCheckOut(
+                    enrollment_id=e.id,
+                    created_at=e.created_at,
+                    source_session_id=e.source_session_id,
+                    source_speaker_label=e.source_speaker_label,
+                    model=model,
+                    embedding_dim=dim,
+                    sample_seconds=e.sample_seconds,
+                    peer_similarity_max=max(peer_sims) if peer_sims else None,
+                    peer_similarity_min=min(peer_sims) if peer_sims else None,
+                    coherent_peer_count=coherent_peers,
+                    component_id=roots[find(e.id)],
+                    status=status_,
+                )
+            )
+        groups.append(
+            BiometricGroupOut(model=model, embedding_dim=dim, component_count=component_count, prints=out_prints)
+        )
+
+    if not prints:
+        overall = "NO_PRINTS"
+    elif len(prints) == 1:
+        overall = "SINGLE_PRINT"
+    elif total_components > 1:
+        # Several components (including any isolated print, which is its own component) or
+        # several incompatible model groups: only a human can say which set is the person.
+        overall = "REVIEW_REQUIRED"
+    else:
+        overall = "COHERENT"
+
+    # The check is advisory and read-only; its record is the log line (which the context
+    # filter stamps with the acting user and request id - no vectors, ever).
+    log.info(
+        "biometric check identity=%s person=%s prints=%d components=%d status=%s thresholds=%.2f/%.2f",
+        identity.id, identity.person_name, len(prints), total_components, overall, coherence, near_dup,
+    )
+
+    return BiometricCheckOut(
+        identity_id=identity.id,
+        person_name=identity.person_name,
+        total_active_prints=len(prints),
+        number_of_components=total_components,
+        overall_status=overall,
+        coherence_threshold=coherence,
+        near_duplicate_threshold=near_dup,
+        groups=groups,
+    )

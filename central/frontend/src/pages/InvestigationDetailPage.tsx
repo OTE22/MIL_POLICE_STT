@@ -127,7 +127,6 @@ function DetailsTab({ session, canViewDocuments }: { session: Investigation; can
               </div>
               <div className="muted small">{subjectIdentitySummary(s)}</div>
               <dl className="dl mt-8">
-                {s.reference_number && <div><dt>{T.referenceNumber}</dt><dd>{s.reference_number}</dd></div>}
                 {s.person_type === "MILITARY" && (
                   <>
                     {s.security_branch && <div><dt>{T.securityBranch}</dt><dd>{t(`branch_${s.security_branch}`)}</dd></div>}
@@ -327,6 +326,21 @@ export function InvestigationDetailPage() {
           )}
           {can("investigations.update") && session.status === "DRAFT" && (
             <button className="btn" onClick={() => void changeStatus("RECORDING")} type="button">{T.startRecording}</button>
+          )}
+          {/* The محضر needs something to quote: at least one recording has been transcribed. */}
+          {can("reports.generate") && (
+            <Link
+              className={`btn ${session.has_transcript ? "" : "disabled"}`}
+              to={session.has_transcript ? `/investigations/${session.id}/report` : "#"}
+              title={session.has_transcript ? undefined : T.reportNoTranscripts}
+              aria-disabled={!session.has_transcript}
+              onClick={(e) => {
+                if (!session.has_transcript) e.preventDefault();
+              }}
+              data-testid="open-report-composer"
+            >
+              {T.reportCreate}
+            </Link>
           )}
           {can("investigations.archive") && session.status !== "ARCHIVED" && (
             <button className="btn" onClick={() => void changeStatus("ARCHIVED")} type="button">{T.archive}</button>

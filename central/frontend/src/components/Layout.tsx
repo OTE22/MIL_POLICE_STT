@@ -12,6 +12,7 @@ import {
   IconMonitor,
   IconPlus,
   IconMic as IconVoice,
+  IconFile,
   IconGear,
   IconShield,
   IconUsers,
@@ -46,6 +47,7 @@ export function crumbsFor(pathname: string): Crumb[] {
   if (pathname.startsWith("/workstations")) return [{ label: T.workstations }];
   if (pathname.startsWith("/voice-enrollments")) return [{ label: T.voiceEnrollments }];
   if (pathname.startsWith("/audit")) return [{ label: T.audit }];
+  if (pathname.startsWith("/report-template")) return [{ label: T.templateTitle }];
   if (pathname.startsWith("/settings")) return [{ label: T.systemConfig }];
   if (pathname.startsWith("/change-password")) return [{ label: T.changePassword }];
   return [];
@@ -60,6 +62,7 @@ export function Layout() {
 
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#main-content">انتقل إلى المحتوى</a>
       <aside className="sidebar">
         <div className="sidebar-brand">
           <div className="logo">
@@ -70,7 +73,7 @@ export function Layout() {
             <small>{T.orgLine}</small>
           </div>
         </div>
-        <nav>
+        <nav aria-label="التنقل الرئيسي">
           <div className="nav-section">{T.operations}</div>
           <NavLink to="/" end className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
             <IconDashboard /> {T.dashboard}
@@ -104,6 +107,11 @@ export function Layout() {
               <IconShield /> {T.audit}
             </NavLink>
           )}
+          {can("reports.templates.manage") && (
+            <NavLink to="/report-template" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+              <IconFile /> {T.templateTitle}
+            </NavLink>
+          )}
           {can("system.configure") && (
             <NavLink to="/settings" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
               <IconGear /> {T.systemConfig}
@@ -111,6 +119,7 @@ export function Layout() {
           )}
         </nav>
         <div className="sidebar-footer">
+          <div className="sidebar-footer-heading"><IconShield /> مساحة إدارة الجلسات</div>
           {T.appName} — <span className="num">v{APP_VERSION}</span>
         </div>
       </aside>
@@ -126,12 +135,13 @@ export function Layout() {
               <div className="name">{displayName}</div>
               <div className="role">{roleLabel}</div>
             </div>
-            <button className="icon-btn" title={T.changePassword} onClick={() => navigate("/change-password")} type="button">
+            <button className="icon-btn" aria-label={T.changePassword} title={T.changePassword} onClick={() => navigate("/change-password")} type="button">
               <IconKey />
             </button>
             <button
               className="icon-btn"
               title={T.logout}
+              aria-label={T.logout}
               onClick={() => {
                 void logout().then(() => navigate("/login"));
               }}
@@ -141,7 +151,7 @@ export function Layout() {
             </button>
           </div>
         </header>
-        <main className="content">
+        <main className="content" id="main-content" tabIndex={-1}>
           <Outlet />
         </main>
       </div>

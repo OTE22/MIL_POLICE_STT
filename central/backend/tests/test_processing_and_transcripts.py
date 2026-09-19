@@ -266,9 +266,9 @@ def test_speaker_rename(client, investigator, viewer, admin_token):
     res = client.patch(f"/api/investigations/{s['id']}/speakers/{speakers['SPEAKER_00']['id']}", json={"display_name": "المحقق", "speaker_role": "INVESTIGATOR"}, headers=auth(investigator["token"]))
     assert res.status_code == 200 and res.json()["display_name"] == "المحقق" and res.json()["speaker_role"] == "INVESTIGATOR"
     # The civilian reference is ISSUED by the backend, so read it rather than assuming it.
-    civilian_ref = client.get(f"/api/investigations/{s['id']}", headers=auth(investigator["token"])).json()["subjects"][0]["reference_number"]
-    assert civilian_ref.startswith("CIV-"), civilian_ref
-    res = client.patch(f"/api/investigations/{s['id']}/speakers/{speakers['SPEAKER_01']['id']}", json={"display_name": "أحمد محمد", "person_name": "أحمد محمد", "speaker_role": "SUBJECT", "reference_number": civilian_ref}, headers=auth(investigator["token"]))
+    civilian_ref = client.get(f"/api/investigations/{s['id']}", headers=auth(investigator["token"])).json()["subjects"][0]["identity_id"]
+    assert bool(civilian_ref), civilian_ref
+    res = client.patch(f"/api/investigations/{s['id']}/speakers/{speakers['SPEAKER_01']['id']}", json={"display_name": "أحمد محمد", "person_name": "أحمد محمد", "speaker_role": "SUBJECT", "identity_id": civilian_ref}, headers=auth(investigator["token"]))
     assert res.status_code == 200 and res.json()["display_name"] == "أحمد محمد"
     listing = client.get(f"/api/investigations/{s['id']}/speakers", headers=auth(investigator["token"])).json()
     assert {sp["speaker_label"]: sp["display_name"] for sp in listing} == {"SPEAKER_00": "المحقق", "SPEAKER_01": "أحمد محمد"}

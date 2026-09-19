@@ -1,24 +1,4 @@
-/* اختيار الشخص — the one place a speaker is bound to a person.
- *
- * It replaces a free-text box, three look-alike chips and two buttons that both established
- * identity through different doors. Selecting someone here IS identifying them; there is no
- * second step and no other way.
- *
- * Five choices, and each says what it will do:
- *
- *   مشاركو الجلسة        subjects on this session -> linked immediately
- *   مُحقّقو الجلسة        investigators running it -> linked immediately
- *   البحث عن شخص مسجل    the canonical registry -> recorded here, then linked
- *   إضافة شخص جديد       the person form -> created, then linked
- *   تسمية مؤقتة          a label only, and only while nobody has been identified
- *
- * Investigators are people, not staff: they speak in the interviews they run, so they are rows
- * in the same registry and can carry a voice print. One whose profile cannot yield a
- * الرقم المرجعي is listed DISABLED rather than hidden, so the gap is visible and fixable.
- *
- * Every link resolves through الرقم المرجعي, never through the displayed name: two people in one
- * session may share a rank and a name, so a row carries its person, not its string.
- */
+/** Select a session participant or registry person using their stable UUID. */
 
 import { useEffect, useMemo, useState } from "react";
 
@@ -28,7 +8,6 @@ import { Modal, useToast } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 import { T, errorMessage } from "@/lib/i18n";
 import { linkToRegistryPerson, linkToSessionParticipant, setTemporaryLabel } from "@/lib/link-speaker";
-import { isPlaceholderName, normalizeReference } from "@/lib/person-reference";
 
 /** How a person is written, everywhere: the CANONICAL name and nothing else.
  *
@@ -60,16 +39,14 @@ function PersonRow({
       className="person-row"
       disabled={busy || !person.selectable}
       title={person.selectable ? undefined : T.pickPersonIncomplete}
-      data-reference={person.reference_number ?? ""}
+      data-identity-id={person.identity_id ?? ""}
       data-testid={testId}
       onClick={onPick}
     >
       <strong>{label(person)}</strong>
       {/* Decoration, beside the name - never part of it. */}
       {person.rank && <span className="muted small">{person.rank}</span>}
-      <span className="ltr muted">
-        {person.reference_number ?? T.pickPersonIncomplete}
-      </span>
+      {!person.selectable && <span className="muted">{T.pickPersonIncomplete}</span>}
     </button>
   );
 }
@@ -83,7 +60,7 @@ export function SpeakerPicker({
 }: {
   sessionId: string;
   speaker: Speaker;
-  /** Re-read from the server: the backend may converge a merged reference onto its survivor,
+  /** Re-read from the server: the backend may converge a merged UUID onto its survivor,
       so what was sent is not always what was stored. */
   onLinked: () => void;
   onAddNew: () => void;
@@ -128,15 +105,15 @@ export function SpeakerPicker({
     return () => clearTimeout(handle);
   }, [q, open, mayIdentify]);
 
-  /* A person is offered ONCE, across every section. Matching is by canonical reference and
+  /* A person is offered ONCE, across every section. Matching is by person UUID and
      never by name - two people who share a name are two people and both must stay pickable.
      De-duplicating against subjects alone is what listed an investigator twice, under two
      different names, in the same modal. */
   const registryResults = useMemo(() => {
     const here = new Set(
-      people.map((p) => normalizeReference(p.reference_number)).filter(Boolean),
+      people.map((p) => p.identity_id).filter(Boolean),
     );
-    return (results ?? []).filter((r) => !here.has(normalizeReference(r.person_reference)));
+    return (results ?? []).filter((r) => !here.has(r.identity_id));
   }, [results, people]);
 
   /* Linking is identical whoever they are - that is the point of one shape. The rank is
@@ -145,7 +122,7 @@ export function SpeakerPicker({
     void run(() =>
       linkToSessionParticipant(sessionId, speaker.id, {
         canonicalName: person.person_name,
-        reference: person.reference_number!,
+        identityId: person.identity_id!,
         // The STORED label is the canonical name too. If it carried the rank, this picker's own
         // trigger button would read "MAJOR ALI" while its rows read "ALI", and the speaker card
         // would disagree with بصمات الأصوات for the same person.
@@ -195,7 +172,7 @@ export function SpeakerPicker({
               <div className="person-list">
                 {subjects.map((p) => (
                   <PersonRow
-                    key={p.participant_key ?? p.reference_number ?? p.person_name}
+                    key={p.participant_key ?? p.identity_id ?? p.person_name}
                     person={p}
                     busy={busy}
                     testId="pick-participant"
@@ -219,7 +196,7 @@ export function SpeakerPicker({
               <div className="person-list mt-8">
                 {investigators.map((inv) => (
                   <PersonRow
-                    key={inv.reference_number ?? inv.person_name}
+                    key={inv.identity_id ?? inv.person_name}
                     person={inv}
                     busy={busy}
                     testId="pick-investigator"
@@ -249,24 +226,21 @@ export function SpeakerPicker({
                       type="button"
                       className="person-row"
                       disabled={busy}
-                      data-reference={r.person_reference}
+                      data-identity-id={r.identity_id}
                       data-testid="pick-registry"
                       onClick={() =>
                         void run(() =>
                           linkToRegistryPerson(sessionId, speaker.id, {
                             canonicalName: r.person_name,
-                            reference: r.person_reference,
+                            identityId: r.identity_id,
                           }),
                         )
                       }
                     >
                       {/* Without this the row reads "CIV-00000019  CIV-00000019". */}
                       <strong>
-                        {isPlaceholderName(r.person_name, r.person_reference)
-                          ? T.unnamed
-                          : r.person_name}
+                        {r.person_name || T.unnamed}
                       </strong>
-                      <span className="ltr muted">{r.person_reference}</span>
                     </button>
                   ))}
                 </div>

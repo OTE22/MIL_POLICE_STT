@@ -111,7 +111,6 @@ const FIELD_LABELS: Record<string, string> = {
   original_text_preserved: "النص الأصلي محفوظ",
   person_name: "اسم الشخص",
   person_print_count: "عدد البصمات",
-  person_reference: "الرقم المرجعي",
   previous: "الحالة السابقة",
   previous_edited_text: "النص قبل التعديل",
   progress: "التقدّم",
@@ -250,9 +249,9 @@ export function auditSummary(action: string, meta: Record<string, unknown> | nul
     case "VOICE_IDENTITY_REJECTED":
       return `${speaker} · ${T.auditSuggestionDismissed} (${s(m.suggested_name)})`;
     case "VOICE_ENROLLED":
-      return `${s(m.person_name)} · ${fieldLabel("person_reference")} ${s(m.person_reference)}`;
+      return s(m.person_name);
     case "VOICE_ENROLLMENT_DELETED":
-      return `${s(m.person_name)} · ${fieldLabel("person_reference")} ${s(m.person_reference)}`;
+      return s(m.person_name);
     case "VOICE_REMATCH_RUN": {
       const scope = SCOPE_LABELS[s(m.scope)] ?? s(m.scope);
       const n = typeof m.suggested === "number" ? m.suggested : 0;
@@ -309,8 +308,8 @@ const SUMMARISED: Record<string, string[]> = {
   VOICE_IDENTITY_SUGGESTED: ["speaker_label", "suggested_name", "score"],
   VOICE_IDENTITY_CONFIRMED: ["speaker_label", "display_name", "suggested_name", "accepted"],
   VOICE_IDENTITY_REJECTED: ["speaker_label", "suggested_name", "accepted", "display_name"],
-  VOICE_ENROLLED: ["person_name", "person_reference"],
-  VOICE_ENROLLMENT_DELETED: ["person_name", "person_reference"],
+  VOICE_ENROLLED: ["person_name"],
+  VOICE_ENROLLMENT_DELETED: ["person_name"],
   VOICE_REMATCH_RUN: ["scope", "suggested"],
   TRANSCRIPT_SEGMENT_EDITED: ["sequence", "speaker_label"],
   TRANSCRIPT_RECEIVED: ["stt_model"],

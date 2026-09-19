@@ -95,7 +95,9 @@ Then open `http://localhost:8080`, create an investigator, create a session, ope
 
 | Document | Content |
 |---|---|
-| **[docs/how-it-works.md](docs/how-it-works.md)** | **Start here** — one recording followed end to end, and why the design holds |
+| **[docs/README.md](docs/README.md)** | **Start here** — which guide you need, a glossary of the Arabic terms, and the system in four sentences |
+| **[docs/daily-use.md](docs/daily-use.md)** | **Using it** — sign in, create a session, record, correct the text, name the speakers, produce the محضر. Written for non-technical readers |
+| [docs/how-it-works.md](docs/how-it-works.md) | One recording followed end to end through the code, and why the design holds |
 | **[docs/production-deployment.md](docs/production-deployment.md)** | **Deploying for real** — the two scripts, air-gapped installs, backups, go-live checklist |
 | [docs/architecture.md](docs/architecture.md) | Distributed architecture, data flow, responsibilities |
 | [docs/central-server.md](docs/central-server.md) | Services, configuration, PostgreSQL schema, roles/permissions, API |
@@ -105,6 +107,8 @@ Then open `http://localhost:8080`, create an investigator, create a session, ope
 | [docs/nvidia-diarization.md](docs/nvidia-diarization.md) | Sortformer diarization, speaker change vs diarization, overlap, limits |
 | [docs/voice-enrollment-guide.md](docs/voice-enrollment-guide.md) | **بصمات الأصوات in practice** — enrolling a voice, re-scanning, and why suggestions go missing |
 | [docs/speaker-identification.md](docs/speaker-identification.md) | SpeakerNet-M voice suggestions, enrolment, consent, calibration |
+| **[docs/investigation-report.md](docs/investigation-report.md)** | **محضر تحقيق** — turning a session into an official Word document: the Q&A composer, the approved template, optional Arabic formalization, and the immutable hashed archive |
+| [docs/database-relationships.md](docs/database-relationships.md) | The ER model: cardinalities, junction tables, delete rules, and the deliberate non-relationships |
 | [docs/subject-identity.md](docs/subject-identity.md) | Interviewed person: classification, nationality, documents, scans, and how الرقم المرجعي is derived |
 | [docs/windows-installation.md](docs/windows-installation.md) | Windows workstation installation (service) |
 | [docs/linux-installation.md](docs/linux-installation.md) | Linux workstation installation (systemd / Docker) |

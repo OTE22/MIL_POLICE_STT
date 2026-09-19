@@ -143,8 +143,7 @@ class SessionSpeaker(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # the server allocated the visible one. Reprocessing the same recording resolves back
     # to this row through it.
     source_label: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    # Canonical person this row refers to. Backend-owned: resolved from the reference
-    # number, never accepted from a client.
+    # Canonical person UUID. Changes require an authorized identity-selection workflow.
     identity_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("person_identities.id", ondelete="SET NULL"),
         nullable=True, index=True
@@ -153,7 +152,6 @@ class SessionSpeaker(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     speaker_role: Mapped[SpeakerRole] = mapped_column(
         Enum(SpeakerRole, name="speaker_role"), nullable=False, default=SpeakerRole.UNKNOWN
     )
-    reference_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # ---- voice-based identity SUGGESTION (never an assignment) -------------

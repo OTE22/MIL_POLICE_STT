@@ -24,24 +24,21 @@ from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 class VoiceEnrollment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "voice_enrollments"
-    # A person may hold SEVERAL prints under one person_reference - different recording
+    # A person may hold SEVERAL prints under one identity_id - different recording
     # conditions give better coverage, and the matcher groups them so they reinforce each
     # other rather than looking like two rival candidates. The index supports that
     # grouping; it is deliberately NOT unique.
     __table_args__ = (
-        Index("ix_voice_enrollment_person_model", "person_reference", "model"),
+        Index("ix_voice_enrollment_identity_model", "identity_id", "model"),
     )
 
     # ---- who ---------------------------------------------------------------
-    # Canonical person this row refers to. Backend-owned: resolved from the reference
-    # number, never accepted from a client.
+    # Canonical person UUID. Changes require an authorized identity-selection workflow.
     identity_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("person_identities.id", ondelete="SET NULL"),
         nullable=True, index=True
     )
     person_name: Mapped[str] = mapped_column(String(200), nullable=False)
-    # Stable identifier for the person: military id, case reference, registry number…
-    person_reference: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # ---- the biometric template -------------------------------------------

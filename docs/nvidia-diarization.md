@@ -1,5 +1,8 @@
 # Speaker diarization — NVIDIA Streaming Sortformer
 
+**Who this is for:** developers and whoever provisions the models. Diarization is the step
+that answers *who spoke when* - it never produces text.
+
 | | |
 |---|---|
 | Model | `nvidia/diar_streaming_sortformer_4spk-v2.1` (end-to-end neural diarizer, arrival-order speaker cache) |

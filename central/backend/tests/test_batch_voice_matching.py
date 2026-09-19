@@ -36,8 +36,6 @@ def _vec(cos_vs_ali: float, ortho_axis: int = 1) -> list[float]:
 
 def _person(db, name: str, reference: str) -> PersonIdentity:
     identity = PersonIdentity(
-        reference_normalized=reference.upper(),
-        reference_display=reference,
         person_name=name,
     )
     db.add(identity)
@@ -49,7 +47,6 @@ def _print(db, identity, embedding, *, model=MODEL, active=True, identity_id="us
     enr = VoiceEnrollment(
         identity_id=identity.id if identity_id == "use" else None,
         person_name=identity.person_name if identity else "بلا هوية",
-        person_reference=identity.reference_display if identity else "X-NONE",
         embedding=embedding,
         embedding_dim=len(embedding),
         model=model,

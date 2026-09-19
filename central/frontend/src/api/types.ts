@@ -15,13 +15,13 @@ export type AgentState =
   | "CANCELLED";
 
 export interface Profile {
+  identity_id?: string | null;
   id: string;
   user_id: string;
   full_name: string;
   rank: string | null;
   military_id: string | null;
   security_branch: SecurityBranch | null;
-  reference_number: string | null;
   unit: string | null;
   department: string | null;
   job_title: string | null;
@@ -65,7 +65,6 @@ export interface SessionPerson {
   identity_id: string | null;
   person_name: string;
   rank: string | null;
-  reference_number: string | null;
   source: "SUBJECT" | "INVESTIGATOR";
   participant_key: string | null;
   selectable: boolean;
@@ -78,8 +77,8 @@ export interface ConfigField {
   group: string;
   label: string;
   description: string;
-  type: "int" | "float" | "select" | "text";
-  value: string | number;
+  type: "int" | "float" | "bool" | "select" | "text";
+  value: string | number | boolean;
   min: number | null;
   max: number | null;
   options: string[] | null;
@@ -90,12 +89,12 @@ export interface ConfigOut {
 }
 
 export interface InvestigatorBrief {
+  identity_id?: string | null;
   id: string;
   full_name: string;
   rank: string | null;
   military_id: string | null;
   /** Null until they are assigned to a session, which is when they are registered as a person. */
-  reference_number: string | null;
   security_branch: SecurityBranch | null;
   unit: string | null;
   department: string | null;
@@ -140,13 +139,13 @@ export interface SubjectDocument {
 }
 
 export interface Subject {
+  identity_id?: string | null;
   id?: string;
   /** Stable session-local handle for this participant. Absent on a row the operator has just
       added; the backend mints it and echoes it back. Round-trip it or the server loses track
       of which submitted person is which existing one. NOT a person identifier. */
   participant_key?: string;
   subject_name: string | null;
-  reference_number: string | null;
   person_type: PersonType;
   military_id: string | null;
   rank: string | null;
@@ -285,7 +284,6 @@ export interface Speaker {
   speaker_label: string;
   display_name: string | null;
   speaker_role: SpeakerRole;
-  reference_number: string | null;
   notes: string | null;
   segment_count: number;
   total_seconds: number;
@@ -299,7 +297,6 @@ export interface Speaker {
   /** Canonical person this speaker is. Backend-owned; never sent by the client. */
   identity_id: string | null;
   identity_name: string | null;
-  identity_reference: string | null;
 }
 
 export interface VoiceEnrollment {
@@ -308,10 +305,8 @@ export interface VoiceEnrollment {
   identity_id: string | null;
   /** CURRENT canonical name/reference, resolved through identity_id. */
   person_name: string;
-  person_reference: string;
   /** What was recorded when the print was taken. History, never authoritative. */
   enrolled_person_name: string | null;
-  enrolled_person_reference: string | null;
   notes: string | null;
   model: string;
   model_revision: string | null;
@@ -328,10 +323,47 @@ export interface VoiceEnrollment {
   updated_at: string;
 }
 
+export type BiometricPrintStatus = "SINGLE_PRINT" | "NEAR_DUPLICATE" | "COHERENT" | "ISOLATED";
+
+/** One print's standing among its own person's other prints. Advisory; never a vector. */
+export interface BiometricPrintCheck {
+  enrollment_id: string;
+  created_at: string;
+  source_session_id: string | null;
+  source_speaker_label: string | null;
+  model: string;
+  embedding_dim: number;
+  sample_seconds: number | null;
+  peer_similarity_max: number | null;
+  peer_similarity_min: number | null;
+  coherent_peer_count: number;
+  /** 1-based within the group. Two components = possibly two different voices. */
+  component_id: number;
+  status: BiometricPrintStatus;
+}
+
+export interface BiometricGroup {
+  model: string;
+  embedding_dim: number;
+  component_count: number;
+  prints: BiometricPrintCheck[];
+}
+
+/** Result of the manual فحص البصمات الصوتية. Read-only: the server changes nothing. */
+export interface BiometricCheck {
+  identity_id: string;
+  person_name: string;
+  total_active_prints: number;
+  number_of_components: number;
+  overall_status: "NO_PRINTS" | "SINGLE_PRINT" | "COHERENT" | "REVIEW_REQUIRED";
+  coherence_threshold: number;
+  near_duplicate_threshold: number;
+  groups: BiometricGroup[];
+}
+
 export interface PersonSearchResult {
   identity_id: string;
   person_name: string;
-  person_reference: string;
   /** Totals cover only sessions this user may access - never global activity. */
   accessible_session_count: number;
   accessible_print_count: number;
@@ -350,7 +382,6 @@ export interface EnrollmentCandidate {
   person_name: string;
   speaker_role: SpeakerRole;
   identity_id: string;
-  person_reference: string;
   sample_seconds: number | null;
   enrollment_state: "never_enrolled" | "enrolled_inactive";
   inactive_enrollment_id: string | null;
@@ -476,4 +507,166 @@ export interface AgentJob {
   warnings: string[];
   sync_attempts: number;
   last_sync_error: string | null;
+}
+
+// ---------------------------------------------------------------- محضر تحقيق (report)
+
+export type ReportStatus = "DRAFT" | "FINAL";
+export type TranscriptSourceMode = "CORRECTED" | "ORIGINAL";
+export type FushaStatus =
+  | "NOT_REQUESTED"
+  | "AI_SUGGESTED"
+  | "HUMAN_EDITED"
+  | "APPROVED"
+  | "REJECTED";
+
+/** One س/ج exchange as it will be printed, beside the transcript text it came from. */
+export interface ReportQABlock {
+  id: string;
+  sequence: number;
+  question_source_text: string | null;
+  answer_source_text: string | null;
+  report_question_text: string | null;
+  report_answer_text: string | null;
+  question_speaker_id: string | null;
+  answer_speaker_id: string | null;
+  question_speaker_name: string | null;
+  answer_speaker_name: string | null;
+  answer_speaker_resolved: boolean;
+  source_segment_ids: string[];
+  source_recording_ids: string[];
+  start_seconds: number | null;
+  end_seconds: number | null;
+  included_in_report: boolean;
+  exclusion_reason: string | null;
+  fusha_status: FushaStatus;
+  llm_suggested_question: string | null;
+  llm_suggested_answer: string | null;
+  edited_at: string | null;
+}
+
+export interface ReportRecordingOption {
+  id: string;
+  index: number;
+  original_filename: string;
+  duration_seconds: number | null;
+  created_at: string;
+  has_transcript: boolean;
+  selected: boolean;
+}
+
+export interface ReportSpeaker {
+  id: string;
+  speaker_label: string;
+  source_label: string | null;
+  recording_id: string | null;
+  role: string;
+  display_name: string | null;
+  person_name: string | null;
+  resolved: boolean;
+  /** Pre-provenance row: which recording it came from was never stored. */
+  legacy: boolean;
+  report_name: string;
+}
+
+export interface ReportStalePin {
+  recording_id: string;
+  transcript_id: string;
+  reason: string;
+}
+
+export interface ReportDraft {
+  id: string;
+  session_id: string;
+  status: ReportStatus;
+  report_number: string | null;
+  case_subject: string | null;
+  report_date: string | null;
+  report_time: string | null;
+  location: string | null;
+  intro_text: string | null;
+  closing_text: string | null;
+  transcript_source_mode: TranscriptSourceMode;
+  unresolved_ack: boolean;
+  updated_at: string;
+  qa_blocks: ReportQABlock[];
+  recordings: ReportRecordingOption[];
+  speakers: ReportSpeaker[];
+  /** Transcripts edited since the draft was built. Refresh is always explicit. */
+  stale: ReportStalePin[];
+  missing_fields: string[];
+  unresolved_speaker_labels: string[];
+  report_version_count: number;
+  /** Whether Fusha assistance can be offered on this server at all. */
+  llm: {
+    available: boolean;
+    provider: string;
+    model: string | null;
+    fallback_reason: string | null;
+  };
+}
+
+export interface ReportTemplateVersion {
+  id: string;
+  version: number;
+  original_filename: string | null;
+  size_bytes: number | null;
+  sha256: string;
+  validation_status: "UNVALIDATED" | "VALID" | "INVALID";
+  validation_message: string | null;
+  /** The bundled stand-in, not an approved official form. */
+  is_development: boolean;
+  is_active: boolean;
+  activated_at: string | null;
+  notes: string | null;
+  uploaded_by: string | null;
+  created_at: string;
+  /** Issued reports citing this version - such a version is never deleted. */
+  reports_issued: number;
+}
+
+export interface ReportTemplateList {
+  active: ReportTemplateVersion | null;
+  /** False while the active form is the development stand-in or does not validate. */
+  production_ready: boolean;
+  environment: string;
+  versions: ReportTemplateVersion[];
+}
+
+export interface GeneratedReport {
+  id: string;
+  report_version: number;
+  report_number: string | null;
+  template_version: number | null;
+  template_is_development: boolean;
+  docx_sha256: string;
+  context_sha256: string | null;
+  template_sha256: string | null;
+  size_bytes: number | null;
+  qa_block_count: number | null;
+  transcript_source_mode: TranscriptSourceMode | null;
+  selected_recording_ids: string[];
+  pinned_transcripts: { recording_id: string; transcript_id: string; segments_sha256: string }[];
+  generated_by: string | null;
+  generated_by_name: string | null;
+  created_at: string;
+}
+
+export interface ReportArchive {
+  reports: GeneratedReport[];
+  can_finalize: boolean;
+  blocked_reasons: string[];
+  missing_fields: string[];
+  unresolved_speaker_labels: string[];
+  active_template_version: number | null;
+  active_template_is_development: boolean;
+}
+
+export interface ReportVerification {
+  report_id: string;
+  ok: boolean;
+  docx_ok: boolean;
+  context_ok: boolean;
+  template_ok: boolean;
+  detail: string;
 }

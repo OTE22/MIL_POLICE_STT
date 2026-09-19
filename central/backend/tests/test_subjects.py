@@ -160,7 +160,7 @@ def test_editing_a_session_preserves_uploaded_scans(client, investigator):
         # participant_key: the handle the form round-trips so the server knows this is the
         # SAME participant being edited rather than a new one claiming their reference.
         "participant_key",
-        "subject_name", "reference_number", "person_type", "military_id", "rank", "unit", "department",
+        "subject_name", "identity_id", "person_type", "military_id", "rank", "unit", "department",
         "security_branch", "nationality_code", "nationality_name", "register_number", "place_of_registration",
         "is_unregistered", "is_undocumented", "undocumented_reason", "identity_confidence", "notes",
     ]

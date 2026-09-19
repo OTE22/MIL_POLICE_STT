@@ -30,7 +30,6 @@ def _enr(reference: str, name: str, embedding: list[float], *, active: bool = Tr
         id=uuid.uuid4(),
         identity_id=_identity_of(reference),
         person_name=name,
-        person_reference=reference,
         embedding=embedding,
         embedding_dim=len(embedding),
         model=MODEL,
@@ -109,7 +108,7 @@ def test_same_person_wins_over_a_distant_rival():
     ]
     match = best_match(VOICE_A, enrollments, model=MODEL, threshold=0.65, margin=0.05)
     assert match is not None
-    assert match.enrollment.person_reference == "MIL-ARMY-1"
+    assert match.enrollment.identity_id == _identity_of("MIL-ARMY-1")
     assert match.person_print_count == 2
     assert match.runner_up == 0.0
 
@@ -186,25 +185,17 @@ def _link_identity(client, token, session_id, speaker_id, reference, name):
     """
     current = client.get(f"/api/investigations/{session_id}", headers=auth(token)).json()
     subjects = current.get("subjects") or []
-    if not any((sub.get("reference_number") or "") == reference for sub in subjects):
-        res = client.put(
-            f"/api/investigations/{session_id}",
-            json={"subjects": subjects + [_subject_for(reference, name)]},
-            headers=auth(token),
-        )
+    serial = reference.removeprefix("MIL-ARMY-")
+    person = next((p for p in subjects if p.get("military_id") == serial and p.get("security_branch") == "ARMY"), None)
+    if person is None or person["subject_name"] != name:
+        res = client.put(f"/api/investigations/{session_id}",
+                         json={"subjects": subjects + [_subject_for(reference, name)]}, headers=auth(token))
         if res.status_code >= 400:
             return res
-    return client.patch(
-        f"/api/investigations/{session_id}/speakers/{speaker_id}",
-        json={
-            "display_name": name,
-            # The canonical name, asserted explicitly. display_name is only a label.
-            "person_name": name,
-            "reference_number": reference,
-            "speaker_role": "SUBJECT",
-        },
-        headers=auth(token),
-    )
+        person = next(p for p in res.json()["subjects"] if p.get("military_id") == serial)
+    return client.patch(f"/api/investigations/{session_id}/speakers/{speaker_id}",
+                        json={"display_name": name, "identity_id": person["identity_id"], "speaker_role": "SUBJECT"},
+                        headers=auth(token))
 
 
 def _enroll(client, token, session_id, speaker_id, reference, name, **over):
@@ -215,7 +206,6 @@ def _enroll(client, token, session_id, speaker_id, reference, name, **over):
         if linked.status_code >= 400:
             return linked
     body = {
-        "person_reference": reference,
         "person_name": name,
         "model": MODEL,
         "model_revision": "1.16.0",
@@ -249,7 +239,7 @@ def test_reference_belonging_to_someone_else_is_refused(client, investigator):
     assert _enroll(client, t, s["id"], sp["SPEAKER_00"]["id"], "MIL-ARMY-1", "الرائد علي حسن").status_code == 201
     clash = _enroll(client, t, s["id"], sp["SPEAKER_01"]["id"], "MIL-ARMY-1", "أحمد محمد")
     assert clash.status_code == 409
-    assert clash.json()["detail"] == "person_reference_name_mismatch"
+    assert clash.json()["detail"] == "person_identity_name_mismatch"
 
 
 def test_enrolling_a_speaker_with_no_embedding_is_refused(client, investigator):
@@ -365,7 +355,7 @@ def test_two_prints_of_one_person_still_suggest_at_identical_scores(client, inve
         assert res.status_code == 201, res.text
 
     rows = client.get("/api/voice-enrollments", headers=auth(t)).json()
-    mine = [r for r in rows if r["person_reference"] == reference]
+    mine = [r for r in rows if r["person_name"] in ("الرائد علي حسن", "علي حسن")]
     assert len(mine) == 2, "the person should own two prints"
     assert len({r["identity_id"] for r in mine}) == 1, "both prints must share one canonical identity"
 
@@ -390,7 +380,7 @@ def test_renaming_the_person_updates_every_print_at_once(client, investigator):
         assert _enroll(client, t, s["id"], sp["SPEAKER_00"]["id"], reference, "علي حسن").status_code == 201
 
     rows = [r for r in client.get("/api/voice-enrollments", headers=auth(t)).json()
-            if r["person_reference"] == reference]
+            if r["person_name"] in ("الرائد علي حسن", "علي حسن")]
     assert len(rows) == 2
 
     from app.db.session import SessionLocal
@@ -402,7 +392,7 @@ def test_renaming_the_person_updates_every_print_at_once(client, investigator):
         db.commit()
 
     after = [r for r in client.get("/api/voice-enrollments", headers=auth(t)).json()
-             if r["person_reference"] == reference]
+             if r["person_name"] in ("الرائد علي حسن", "علي حسن")]
     assert {r["person_name"] for r in after} == {"الرائد علي حسن"}, "current name comes from the registry"
     # The enrolment-time snapshot is history and must be preserved, not rewritten.
     assert {r["enrolled_person_name"] for r in after} == {"علي حسن"}

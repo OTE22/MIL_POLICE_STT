@@ -120,15 +120,13 @@ class Subject(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     participant_key: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), nullable=False, default=uuid.uuid4, index=True
     )
-    # Canonical person this row refers to. Backend-owned: resolved from the reference
-    # number, never accepted from a client.
+    # Canonical person UUID. Changes require an authorized identity-selection workflow.
     identity_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("person_identities.id", ondelete="SET NULL"),
         nullable=True, index=True
     )
     # A person is recorded by name. Enforced in the database too - see e5c8b19d4f27.
     subject_name: Mapped[str] = mapped_column(String(200), nullable=False)
-    reference_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     # ---- identity classification -----------------------------------------
     person_type: Mapped[PersonType] = mapped_column(

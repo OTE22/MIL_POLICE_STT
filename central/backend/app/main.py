@@ -12,10 +12,23 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from app import __version__
-from app.api.investigations import ParticipantReferenceRequired, ReferenceChangeRequired
+from app.api.investigations import ParticipantIdentityRequired
 from app.services.person_identifiers import IdentifierAlreadyAssigned
-from app.services.person_identity import PersonNameRequired, ReferenceNameMismatch
-from app.api import admin, auth, investigations, processing, subject_documents, transcripts, users, voice
+from app.services.person_identity import PersonNameRequired, IdentityNameMismatch
+from app.api import (
+    admin,
+    auth,
+    investigations,
+    llm_capabilities,
+    processing,
+    report_templates,
+    reports,
+    subject_documents,
+    transcripts,
+    users,
+    voice,
+)
+from app.services.llm.hardware import get_hardware
 from app.config import get_settings
 from app.core.logging_setup import RequestContextMiddleware, current_request_id, setup_logging
 from app.core.processing_tokens import ensure_keypair
@@ -33,6 +46,13 @@ async def lifespan(app: FastAPI):
     ensure_keypair(settings.processing_token_private_key_path, settings.processing_token_public_key_path)
     with SessionLocal() as db:
         run_bootstrap(db)
+    # Detect CPU/GPU/RAM/runtime ONCE here and cache it, so no report request ever pays for
+    # shelling out to nvidia-smi or probing a runtime. Never fatal: a machine with no local
+    # model simply reports Fusha assistance as unavailable.
+    try:
+        get_hardware()
+    except Exception as exc:  # detection must never stop the server from starting
+        log.warning("hardware detection skipped: %s", exc.__class__.__name__)
     log.info("Central server %s ready (%s)", __version__, settings.environment)
     yield
 
@@ -85,35 +105,13 @@ def create_app() -> FastAPI:
                 "identifier_type": exc.identifier_type,
                 "identifier_value": exc.value,
                 "held_by_name": exc.held_by.person_name if exc.held_by else None,
-                "held_by_reference": exc.held_by.reference_display if exc.held_by else None,
+                "held_by_identity_id": str(exc.held_by.id) if exc.held_by else None,
             },
         )
 
-    @app.exception_handler(ParticipantReferenceRequired)
-    async def _participant_reference_required(_: Request, __: ParticipantReferenceRequired) -> JSONResponse:
-        """An existing system-referenced participant could not be reconciled.
-
-        Deliberately carries no identifying detail: the caller already knows what they sent,
-        and naming the lost participant here would say more about the stored session than the
-        request did. Nothing was mutated.
-        """
-        return JSONResponse(
-            status_code=status.HTTP_409_CONFLICT,
-            content={"detail": "participant_reference_required"},
-        )
-
-    @app.exception_handler(ReferenceChangeRequired)
-    async def _reference_change(_: Request, exc: ReferenceChangeRequired) -> JSONResponse:
-        """Structured identifiers now imply a different canonical reference.
-
-        Raised by the preflight BEFORE anything is written, so the request mutated nothing.
-        The operator reviews each change and confirms; only then does the reference-correction
-        path run and the old reference become an alias.
-        """
-        return JSONResponse(
-            status_code=status.HTTP_409_CONFLICT,
-            content={"detail": "person_reference_change_required", "changes": exc.changes},
-        )
+    @app.exception_handler(ParticipantIdentityRequired)
+    async def _participant_identity_required(_: Request, exc: ParticipantIdentityRequired) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": "participant_identity_required"})
 
     @app.exception_handler(PersonNameRequired)
     async def _person_name_required(_: Request, exc: PersonNameRequired) -> JSONResponse:
@@ -126,11 +124,11 @@ def create_app() -> FastAPI:
         """
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
-            content={"detail": "person_name_required", "person_reference": exc.reference},
+            content={"detail": "person_name_required"},
         )
 
-    @app.exception_handler(ReferenceNameMismatch)
-    async def _identity_conflict(_: Request, exc: ReferenceNameMismatch) -> JSONResponse:
+    @app.exception_handler(IdentityNameMismatch)
+    async def _identity_conflict(_: Request, exc: IdentityNameMismatch) -> JSONResponse:
         """A reference number already belongs to someone else.
 
         Deterministic and identical from every path that resolves an identity (session save,
@@ -140,8 +138,8 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=status.HTTP_409_CONFLICT,
             content={
-                "detail": "person_reference_name_mismatch",
-                "person_reference": exc.reference,
+                "detail": "person_identity_name_mismatch",
+                "identity_id": str(exc.identity.id),
                 "existing_name": exc.existing_name,
                 "submitted_name": exc.submitted_name,
             },
@@ -184,6 +182,9 @@ def create_app() -> FastAPI:
     app.include_router(transcripts.router, prefix=api_prefix)
     app.include_router(subject_documents.router, prefix=api_prefix)
     app.include_router(voice.router, prefix=api_prefix)
+    app.include_router(reports.router, prefix=api_prefix)
+    app.include_router(report_templates.router, prefix=api_prefix)
+    app.include_router(llm_capabilities.router, prefix=api_prefix)
     app.include_router(admin.router, prefix=api_prefix)
 
     @app.get("/api/health", tags=["health"])

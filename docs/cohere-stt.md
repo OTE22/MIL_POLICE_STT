@@ -1,5 +1,7 @@
 # Arabic speech-to-text — Cohere Transcribe Arabic
 
+**Who this is for:** developers and whoever provisions the models.
+
 | | |
 |---|---|
 | Model | `CohereLabs/cohere-transcribe-arabic-07-2026` (2 B-parameter Conformer encoder-decoder, Arabic + dialects + English) |

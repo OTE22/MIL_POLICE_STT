@@ -5,10 +5,9 @@
    Documents are a list: a person may present several, or none at all.
    Nothing here is mandatory — a session can be saved for an unidentified person. */
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 import { ApiError, api, getToken } from "@/api/client";
-import { useAuth } from "@/lib/auth";
 import type {
   IdentityConfidence,
   PersonType,
@@ -20,7 +19,6 @@ import type {
 } from "@/api/types";
 import { OTHER_COUNTRIES, PRIORITY_COUNTRIES, countryName, isLebanese } from "@/lib/countries";
 import { CAZAS } from "@/lib/cazas";
-import { deriveReference, normalizeReference } from "@/lib/person-reference";
 import { formatBytes, formatDate } from "@/lib/format";
 import { T, errorMessage, t } from "@/lib/i18n";
 import { Alert, Badge, Field, useToast } from "@/components/ui";
@@ -46,7 +44,7 @@ const MILITARY_DOCS: SubjectDocumentType[] = ["MILITARY_ID", "NATIONAL_ID", "CIV
 export function emptySubject(): Subject {
   return {
     subject_name: "",
-    reference_number: "",
+    identity_id: null,
     person_type: "CIVILIAN",
     military_id: "",
     rank: "",
@@ -271,33 +269,6 @@ export function SubjectFields({
   const types = documentTypesFor(subject);
   const lebanese = isLebanese(subject.nationality_code);
 
-  const derived = deriveReference(subject);
-  // Hand-assigning a canonical business key is exceptional, so it is a permission, not a
-  // button everyone gets. The backend enforces the same rule - this only hides an action
-  // the server would refuse anyway.
-  const { can } = useAuth();
-  const mayOverride = can("subjects.reference.override");
-  // The operator has typed a reference that the identifiers do not imply, so they are
-  // deliberately overriding - keep the plain field rather than snapping it back.
-  //
-  // `derived` must be non-null for that to mean anything. Without this an ISSUED reference
-  // looked like an override - a civilian derives nothing, so their CIV-* differed from null
-  // and the field unlocked itself on every saved civilian.
-  const [overriding, setOverriding] = useState(
-    Boolean(subject.reference_number) && Boolean(derived) &&
-      normalizeReference(subject.reference_number) !== normalizeReference(derived),
-  );
-
-  useEffect(() => {
-    // Keep الرقم المرجعي in step with the identifiers while the operator is still typing
-    // them. Never touch it once they have taken it over.
-    if (overriding || !derived) return;
-    if (normalizeReference(subject.reference_number) !== normalizeReference(derived)) {
-      set("reference_number", derived);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [derived, overriding]);
-
   const setPersonType = (value: PersonType) =>
     onChange({
       ...subject,
@@ -351,56 +322,10 @@ export function SubjectFields({
             data-testid="subject-name"
           />
         </Field>
-        {/* الرقم المرجعي is COMPUTED from the identifiers above, so it is not shown as a field
-            to fill in: an empty box invites someone to type one, and hand-typing is exactly
-            what produced MIL-4471 / MIL 4471 / 4471 for a single person. Manual assignment
-            survives for the paperwork that does not fit the rule, but it is now a deliberate
-            action behind a control rather than a box sitting open on every form. */}
-        {overriding ? (
-        <Field
-          label={T.referenceNumber}
-          hint={derived && !overriding ? T.referenceDerived : undefined}
-        >
-          {/* Typing this by hand is what produced MIL-4471 / MIL 4471 / 4471 for one person,
-              so it is system-managed: the operator fills in the structured identifiers and
-              the backend derives the key. Manual assignment survives for the exceptional
-              cases real paperwork produces, but only as a privileged action. */}
-          <input
-            className="input"
-            value={subject.reference_number ?? ""}
-            onChange={(e) => set("reference_number", e.target.value)}
-            maxLength={100}
-            data-testid="reference-number"
-          />
-          {derived && <div className="muted small mt-8">{T.referenceOverrideNote}</div>}
-        </Field>
-        ) : (
-          /* Not offered for civilians: their reference comes from a sequence, so there is
-             nothing to correct and nothing to supply. Overriding exists for people whose
-             reference is DERIVED and whose paperwork does not fit the rule - and the server
-             refuses a hand-typed CIV-* or TMP-* from anyone regardless. */
-          mayOverride && subject.person_type !== "CIVILIAN" && (
-            <div className="field">
-              <button
-                className="btn btn-sm"
-                type="button"
-                data-testid="reference-manual"
-                onClick={() => setOverriding(true)}
-              >
-                {derived ? T.referenceOverride : T.referenceManual}
-              </button>
-              <div className="muted small mt-8">{T.referenceComputedNote}</div>
-            </div>
-          )
-        )}
-
         {/* ---- military -------------------------------------------------- */}
         {subject.person_type === "MILITARY" && (
           <>
-            {/* الجهاز and الرقم العسكري together ARE the reference: MIL-<BRANCH>-<serial>. A
-                serial is unique only within its force, so either one missing means no key can
-                be derived at all - and two people from different forces sharing a serial would
-                collapse into one identity. Required, therefore, not merely encouraged. */}
+            {/* Service numbers are unique only within their security branch. */}
             <Field label={T.securityBranch} required>
               <select className="select" required value={subject.security_branch ?? ""} onChange={(e) => set("security_branch", (e.target.value || null) as SecurityBranch | null)}>
                 <option value="">{T.none}</option>

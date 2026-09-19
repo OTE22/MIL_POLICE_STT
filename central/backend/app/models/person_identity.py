@@ -1,12 +1,6 @@
-"""Canonical person registry.
+"""Stable person UUIDs shared by sessions, investigators and voiceprints.
 
-The one thing this table owns is identity: which real person a reference number belongs to.
-It is deliberately tiny. `Subject` keeps recording a person's participation in a single
-session; this row is what makes many such rows across many sessions converge on one person.
-
-Merged rows are kept, not deleted. `merged_into_id` points at the survivor, and the retained
-UNIQUE(reference_normalized) is what stops a stale client from recreating a reference that
-was merged away.
+Merged rows remain as UUID aliases so stale selections resolve to the surviving person.
 """
 
 from __future__ import annotations
@@ -23,10 +17,6 @@ from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 class PersonIdentity(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "person_identities"
 
-    # The cross-session guarantee. Normalization rule lives in services/person_identity.py.
-    reference_normalized: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, index=True)
-    # The reference exactly as an investigator typed it, for display.
-    reference_display: Mapped[str] = mapped_column(String(100), nullable=False)
     # Authoritative CURRENT name. Session-local and enrolment-time names are history.
     person_name: Mapped[str] = mapped_column(String(200), nullable=False)
 

@@ -1,5 +1,10 @@
 # How the system works
 
+**Who this is for:** developers and maintainers. It follows one recording through the code,
+naming real files and functions.
+
+**Just want to USE the system?** Read [daily-use.md](daily-use.md) instead.
+
 This document follows **one recording** from the microphone to the finished Arabic
 transcript, naming the real files and functions at each step. Read
 [architecture.md](architecture.md) first for the shape; this one explains the mechanism.
@@ -200,6 +205,21 @@ That is why `الجهاز` and `الرقم العسكري` are **required** on e
 *within* its force, so `MIL-ARMY-4471` and `MIL-ISF-4471` are two people. `آخر` is refused
 outright — a catch-all is not a namespace, and two "other" forces would collide into one
 identity, pooling two humans' voice prints.
+
+Once the transcript is reviewed and the speakers are named, the session can become an
+official document: **إنشاء محضر تحقيق** builds chronological speaker turns, pairs them into
+س/ج blocks, and hands them to a composer where the investigator controls the content — while
+the layout comes from one approved Word template the organisation owns. The report is a
+DERIVED document: editing it never touches the recording, the transcript or the identities,
+and an issued محضر is frozen, hashed and versioned. See
+[investigation-report.md](investigation-report.md).
+
+Pooled prints are the one contamination the rules cannot prevent outright — an operator can
+still enrol the wrong speaker under a person by hand. It can be *detected*, though: the
+**فحص البصمات الصوتية** button on بصمات الأصوات measures whether one person's prints all
+sound like the same voice and flags a split (**تحتاج مراجعة**) for a human to resolve —
+advisory only, nothing is removed automatically
+(see [voice-enrollment-guide.md](voice-enrollment-guide.md) §4).
 
 A profile predating that requirement cannot yield a reference, and a guessed branch would be
 invented identity evidence. Such an investigator is left unregistered and shown in the picker

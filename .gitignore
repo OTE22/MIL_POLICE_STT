@@ -14,11 +14,15 @@ central/frontend/dist/
 # Environment / secrets
 .env
 *.env.local
-secrets/*.pem
+# Everything in secrets/ is a credential. Ignore the DIRECTORY's contents, not just *.pem:
+# an api-key file (nvidia_api_key) has no extension and was slipping past the old pattern.
+secrets/*
 !secrets/.gitkeep
-desktop-agent/secrets/*.pem
+desktop-agent/secrets/*
+!desktop-agent/secrets/.gitkeep
 
 # Runtime data
+storage/backups/
 storage/recordings/
 desktop-agent/data/
 desktop-agent/models/

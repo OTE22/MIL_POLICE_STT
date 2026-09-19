@@ -14,6 +14,7 @@ from tests.test_voice_matching import (
     EMB_A,
     EMB_B,
     _enroll,
+    _link_identity,
     _speakers,
     _subject_for,
     _submit,
@@ -29,25 +30,7 @@ def _candidates(client, token):
 
 def _identify(client, token, session, speaker_id, name, reference):
     """Identify a speaker exactly as the UI does: existing session PUT, then speaker PATCH."""
-    current = client.get(f"/api/investigations/{session['id']}", headers=auth(token)).json()
-    subjects = current.get("subjects") or []
-    if not any((s.get("reference_number") or "") == reference for s in subjects):
-        # Derived, not typed: see _subject_for in test_voice_matching.
-        subjects = subjects + [_subject_for(reference, name)]
-    res = client.put(f"/api/investigations/{session['id']}", json={"subjects": subjects}, headers=auth(token))
-    assert res.status_code == 200, res.text
-    res = client.patch(
-        f"/api/investigations/{session['id']}/speakers/{speaker_id}",
-        json={
-            "display_name": name,
-            # The dialog knows exactly who this is, so it asserts the canonical name -
-            # keeping the wrong-reference guard alive on the path that most needs it.
-            "person_name": name,
-            "reference_number": reference,
-            "speaker_role": "SUBJECT",
-        },
-        headers=auth(token),
-    )
+    res = _link_identity(client, token, session["id"], speaker_id, reference, name)
     assert res.status_code == 200, res.text
     return res.json()
 
@@ -71,7 +54,7 @@ def test_identified_speaker_becomes_a_candidate(client, investigator):
     rows = _candidates(client, t)
     assert len(rows) == 1
     assert rows[0]["display_name"] == "أحمد محمد"
-    assert rows[0]["person_reference"] == reference
+    assert rows[0]["identity_id"]
     assert rows[0]["enrollment_state"] == "never_enrolled"
 
     assert _enroll(client, t, s["id"], sp["SPEAKER_00"]["id"], reference, "أحمد محمد").status_code == 201
@@ -92,8 +75,8 @@ def test_identifying_an_existing_person_creates_no_second_identity(client, inves
     b = _identify(client, t, second, sp2["SPEAKER_00"]["id"], "الرائد علي حسن", reference)
 
     assert a["identity_id"] == b["identity_id"]
-    people = [p for p in client.get(f"/api/voice-enrollments/people?q={reference}", headers=auth(t)).json()
-              if p["person_reference"] == reference]
+    people = [p for p in client.get(f"/api/voice-enrollments/people?q=الرائد علي حسن", headers=auth(t)).json()
+              if p["person_name"] == "الرائد علي حسن"]
     assert len(people) == 1, "one canonical person, not two"
 
 
@@ -107,12 +90,12 @@ def test_same_reference_different_name_is_refused_for_review(client, investigato
     s2 = _submit(client, t, voice=_voice(SPEAKER_00=EMB_B, SPEAKER_01=EMB_A))
     res = client.put(
         f"/api/investigations/{s2['id']}",
-        json={"subjects": [{"subject_name": "أحمد محمد", "reference_number": reference}]},
+        json={"subjects": s2["subjects"] + [_subject_for(reference, "أحمد محمد")]},
         headers=auth(t),
     )
     assert res.status_code == 409
     body = res.json()
-    assert body["detail"] == "person_reference_name_mismatch"
+    assert body["detail"] == "person_identity_name_mismatch"
     # The UI shows both names, so the investigator can see what to correct.
     assert body["existing_name"] == "الرائد علي حسن"
     assert body["submitted_name"] == "أحمد محمد"
@@ -159,7 +142,7 @@ def test_reactivating_over_an_active_print_is_a_clean_conflict(client, investiga
     assert res.json()["detail"] == "enrollment_already_active"
 
     rows = client.get("/api/voice-enrollments?include_inactive=true", headers=auth(t)).json()
-    active = [r for r in rows if r["person_reference"] == reference and r["is_active"]]
+    active = [r for r in rows if r["person_name"] == "أحمد محمد" and r["is_active"]]
     assert len(active) == 1, "exactly one active print per sample"
 
 
@@ -173,12 +156,12 @@ def test_person_search_does_not_leak_inaccessible_activity(client, investigator,
     _identify(client, t1, s, sp["SPEAKER_00"]["id"], "الرائد علي حسن", reference)
     assert _enroll(client, t1, s["id"], sp["SPEAKER_00"]["id"], reference, "الرائد علي حسن").status_code == 201
 
-    mine = [p for p in client.get(f"/api/voice-enrollments/people?q={reference}", headers=auth(t1)).json()
-            if p["person_reference"] == reference]
+    mine = [p for p in client.get(f"/api/voice-enrollments/people?q=الرائد علي حسن", headers=auth(t1)).json()
+            if p["person_name"] == "الرائد علي حسن"]
     assert mine and mine[0]["accessible_print_count"] == 1
 
-    theirs = [p for p in client.get(f"/api/voice-enrollments/people?q={reference}", headers=auth(t2)).json()
-              if p["person_reference"] == reference]
+    theirs = [p for p in client.get(f"/api/voice-enrollments/people?q=الرائد علي حسن", headers=auth(t2)).json()
+              if p["person_name"] == "الرائد علي حسن"]
     assert theirs, "the identity must still be reusable"
     assert theirs[0]["person_name"] == "الرائد علي حسن"
     assert theirs[0]["accessible_print_count"] == 0, "counts must not disclose inaccessible activity"
@@ -208,15 +191,18 @@ def test_client_cannot_choose_the_identity(client, investigator):
         json={"display_name": "شخص آخر", "identity_id": victim["identity_id"]},
         headers=auth(t),
     )
-    assert res.status_code == 200, res.text
-    assert res.json()["identity_id"] != victim["identity_id"], "a client-supplied identity_id must be ignored"
+    assert res.status_code == 400, res.text
+    assert res.json()["detail"] == "person_not_in_session"
 
 
 def test_stale_merged_reference_converges_on_the_survivor(client, investigator):
     """Requirement §2: a stale payload must not keep re-submitting a dead reference."""
     from app.db.session import SessionLocal
     from app.models import PersonIdentity, SessionSpeaker, Subject
-    from app.services.person_identity import find_identity, merge_identities
+    from app.services.person_identity import merge_identities
+    from app.services.person_identifiers import find_by_identifier
+    def find_identity(db, reference):
+        return find_by_identifier(db, identifier_type="MILITARY", issuer="ARMY", value=reference.removeprefix("MIL-ARMY-"))
 
     t = investigator["token"]
     ref_a, ref_b = _ref(), _ref()
@@ -245,9 +231,8 @@ def test_stale_merged_reference_converges_on_the_survivor(client, investigator):
         assert db.query(PersonIdentity).count() == before, "the merged reference must not be recreated"
 
         speaker = db.get(SessionSpeaker, uuid.UUID(sp2["SPEAKER_00"]["id"]))
-        assert speaker.reference_number == survivor.reference_display, "speaker stores the canonical reference"
         subject = db.query(Subject).filter(Subject.identity_id == survivor.id).first()
-        assert subject is not None and subject.reference_number == survivor.reference_display
+        assert subject is not None and subject.identity_id == survivor.id
 
 
 def test_an_identified_speaker_with_no_display_name_is_still_a_candidate(client, investigator):
@@ -276,7 +261,7 @@ def test_an_identified_speaker_with_no_display_name_is_still_a_candidate(client,
     assert after["display_name"] is None
     assert after["identity_id"], "the speaker is still identified"
     assert after["identity_name"] == "أحمد محمد", "the canonical name must still be available"
-    assert after["identity_reference"] == reference
+    assert after["identity_id"]
 
     rows = _candidates(client, t)
     assert len(rows) == 1, "an identified speaker must be enrollable even with a blank label"
@@ -285,7 +270,7 @@ def test_an_identified_speaker_with_no_display_name_is_still_a_candidate(client,
     # "الرائد علي حسن" into the registry. The canonical name has its own field.
     assert rows[0]["display_name"] == ""
     assert rows[0]["person_name"] == "أحمد محمد"
-    assert rows[0]["person_reference"] == reference
+    assert rows[0]["identity_id"]
 
 
 def test_a_speaker_with_no_identity_cannot_be_enrolled(client, investigator):

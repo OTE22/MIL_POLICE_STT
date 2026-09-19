@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from app.db.session import SessionLocal
 from app.services.person_identifiers import find_by_identifier, identifiers_for
-from app.services.person_identity import find_identity
+import uuid
+from app.models import PersonIdentity
 from tests.conftest import auth, create_session
 
 UNHCR = "556677"
@@ -25,21 +26,21 @@ def _civilian(name: str, documents: list[dict]) -> dict:
 
 def _identifiers_of(reference: str):
     with SessionLocal() as db:
-        identity = find_identity(db, reference)
+        identity = db.get(PersonIdentity, uuid.UUID(reference))
         return {(r.identifier_type, r.issuer_namespace, r.value_normalized) for r in identifiers_for(db, identity.id)}
 
 
 def test_an_agency_card_on_a_subject_becomes_an_identifier(client, investigator):
     t = investigator["token"]
     s = create_session(client, t, subjects=[_civilian("علي حسن", [_doc("UNHCR_CARD", UNHCR)])])
-    reference = s["subjects"][0]["reference_number"]
+    reference = s["subjects"][0]["identity_id"]
 
-    assert reference.startswith("CIV-"), "the card is evidence, not the canonical reference"
+    assert uuid.UUID(reference)
     assert ("UNHCR", "", UNHCR) in _identifiers_of(reference)
 
     with SessionLocal() as db:
         found = find_by_identifier(db, identifier_type="UNHCR", value=UNHCR)
-        assert found is not None and found.reference_display == reference
+        assert found is not None and str(found.id) == reference
 
 
 def test_a_passport_needs_its_issuer_to_key_anything(client, investigator):
@@ -52,8 +53,8 @@ def test_a_passport_needs_its_issuer_to_key_anything(client, investigator):
         _civilian("ريم قاسم", [_doc("PASSPORT", "P7654321", None)]),
     ])
 
-    assert ("PASSPORT", "LB", "P1234567") in _identifiers_of(with_issuer["subjects"][0]["reference_number"])
-    assert _identifiers_of(without["subjects"][0]["reference_number"]) == set()
+    assert ("PASSPORT", "LB", "P1234567") in _identifiers_of(with_issuer["subjects"][0]["identity_id"])
+    assert _identifiers_of(without["subjects"][0]["identity_id"]) == set()
 
 
 def test_documents_with_no_proven_namespace_key_nothing(client, investigator):
@@ -62,19 +63,19 @@ def test_documents_with_no_proven_namespace_key_nothing(client, investigator):
     s = create_session(client, t, subjects=[
         _civilian("مريم حسن", [_doc("CIVIL_EXTRACT", "123"), _doc("DRIVING_LICENSE", "D9")]),
     ])
-    assert _identifiers_of(s["subjects"][0]["reference_number"]) == set()
+    assert _identifiers_of(s["subjects"][0]["identity_id"]) == set()
 
 
 def test_re_saving_the_same_documents_does_not_accumulate(client, investigator):
     t = investigator["token"]
     s = create_session(client, t, subjects=[_civilian("علي حسن", [_doc("UNHCR_CARD", UNHCR)])])
-    reference = s["subjects"][0]["reference_number"]
+    reference = s["subjects"][0]["identity_id"]
     subject = s["subjects"][0]
 
     payload = {
         "participant_key": subject["participant_key"],
         "subject_name": subject["subject_name"],
-        "reference_number": reference,
+        "identity_id": reference,
         "person_type": "CIVILIAN",
         "documents": [{k: d[k] for k in ("id", "document_type", "document_number", "issuing_country")}
                       for d in subject["documents"]],
@@ -88,7 +89,7 @@ def test_a_card_belonging_to_someone_else_refuses_the_save(client, investigator)
     """Never transferred: the operator is told who holds it, and can reuse that person."""
     t = investigator["token"]
     first = create_session(client, t, subjects=[_civilian("علي حسن", [_doc("UNHCR_CARD", UNHCR)])])
-    owner_reference = first["subjects"][0]["reference_number"]
+    owner_reference = first["subjects"][0]["identity_id"]
 
     res = client.post(
         "/api/investigations",
@@ -102,7 +103,7 @@ def test_a_card_belonging_to_someone_else_refuses_the_save(client, investigator)
     assert res.status_code == 409, res.text
     body = res.json()
     assert body["detail"] == "person_identifier_already_assigned"
-    assert body["held_by_reference"] == owner_reference
+    assert body["held_by_identity_id"] == owner_reference
     assert body["held_by_name"] == "علي حسن"
     # Nothing about WHERE that person appears: the caller may not be entitled to know.
     assert "session" not in res.text.lower()

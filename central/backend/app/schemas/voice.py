@@ -1,20 +1,15 @@
 from __future__ import annotations
 
+from app.schemas.person import PersonInput
+
 import uuid
 from datetime import datetime
 
 from pydantic import BaseModel, Field
 
 
-class VoiceEnrollmentCreate(BaseModel):
-    """Create a voice template from an already-identified speaker in a session.
-
-    There is deliberately NO person_name or person_reference here. Who the print belongs to is
-    read from the registry via the speaker's identity_id - a client-supplied name or reference
-    was ignored, and a required field that changes nothing is worse than no field: it fails
-    requests that are otherwise correct, and it implies the caller gets to say who this is.
-    Extra keys are ignored, so an older client still sending them keeps working.
-    """
+class VoiceEnrollmentCreate(PersonInput):
+    """Enroll an identified speaker. The server resolves their person UUID and name."""
 
     notes: str | None = Field(default=None, max_length=2000)
     model: str = Field(max_length=200)
@@ -25,12 +20,11 @@ class VoiceEnrollmentCreate(BaseModel):
     consent_recorded: bool = False
 
 
-class VoiceEnrollmentUpdate(BaseModel):
+class VoiceEnrollmentUpdate(PersonInput):
     # Canonical identity fields. They live on the person, not the print, so they may only be
     # changed with apply_to_person=true - otherwise one person's prints could disagree about
     # who they belong to.
     person_name: str | None = Field(default=None, max_length=200)
-    person_reference: str | None = Field(default=None, max_length=100)
     apply_to_person: bool = False
     # Per-print fields, always scoped to the row addressed.
     notes: str | None = Field(default=None, max_length=2000)
@@ -45,11 +39,9 @@ class VoiceEnrollmentOut(BaseModel):
     # person is" must use these.
     identity_id: uuid.UUID | None = None
     person_name: str
-    person_reference: str
     # What was recorded when the print was taken. History: never overrides the registry, and
     # never rewritten when the canonical identity changes.
     enrolled_person_name: str | None = None
-    enrolled_person_reference: str | None = None
     notes: str | None
     model: str
     model_revision: str | None
@@ -83,7 +75,6 @@ class PersonSearchOut(BaseModel):
 
     identity_id: uuid.UUID
     person_name: str
-    person_reference: str
     accessible_session_count: int = 0
     accessible_print_count: int = 0
     accessible_sample_seconds: float = 0.0
@@ -103,7 +94,6 @@ class EnrollmentCandidateOut(BaseModel):
     person_name: str
     speaker_role: str
     identity_id: uuid.UUID
-    person_reference: str
     sample_seconds: float | None = None
     # never_enrolled | enrolled_inactive  (actively enrolled speakers are not candidates)
     enrollment_state: str
@@ -115,3 +105,44 @@ class IdentityConsolidateIn(BaseModel):
     """Merge one canonical identity into another. No voice print need exist."""
 
     into_identity_id: uuid.UUID
+
+
+
+class BiometricPrintCheckOut(BaseModel):
+    """One print's standing among ITS OWN person's other prints. Never the vector."""
+
+    enrollment_id: uuid.UUID
+    created_at: datetime
+    source_session_id: uuid.UUID | None
+    source_speaker_label: str | None
+    model: str
+    embedding_dim: int
+    sample_seconds: float | None
+    peer_similarity_max: float | None
+    peer_similarity_min: float | None
+    coherent_peer_count: int
+    # Component index within this (model, dim) group, 1-based. Two components = the
+    # person's prints fall into internally-coherent sets that do NOT match each other.
+    component_id: int
+    status: str  # SINGLE_PRINT | NEAR_DUPLICATE | COHERENT | ISOLATED
+
+
+class BiometricGroupOut(BaseModel):
+    """Prints are only comparable within one (model, embedding_dim); each such group is
+    analysed on its own and reported separately."""
+
+    model: str
+    embedding_dim: int
+    component_count: int
+    prints: list[BiometricPrintCheckOut]
+
+
+class BiometricCheckOut(BaseModel):
+    identity_id: uuid.UUID
+    person_name: str
+    total_active_prints: int
+    number_of_components: int
+    overall_status: str  # NO_PRINTS | SINGLE_PRINT | COHERENT | REVIEW_REQUIRED
+    coherence_threshold: float
+    near_duplicate_threshold: float
+    groups: list[BiometricGroupOut]

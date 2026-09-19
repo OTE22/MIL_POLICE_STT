@@ -1,5 +1,10 @@
 # بصمات الأصوات — how voice enrolment works
 
+> **Updated identity model:** Person reference numbers have been removed. People now use internal UUIDs. See [the current identity contract and migration](person-identity-migration.md). Reference-number descriptions below document the earlier implementation.
+
+**Who this is for:** investigators who enrol voices, and anyone wondering why a name was
+or was not suggested. Practical throughout; no technical knowledge needed.
+
 A practical guide to the voice registry: what a "print" is, how one gets created, what the
 system does with it, and what to do when suggestions do not appear.
 
@@ -156,6 +161,32 @@ is refused (`person_reference_name_mismatch`). That is almost always a typo in t
 number, and filing someone's voice under another person's identity is the one mistake this
 area must not make quietly.
 
+### فحص البصمات الصوتية — checking that a person's prints agree
+
+More prints only help **when they are all really the same voice**. A print enrolled from the
+wrong speaker sits under the person forever and makes that other voice match at ~100%. To
+find this, every person row on **بصمات الأصوات** has a **فحص البصمات الصوتية** button
+(anyone who can view the page can run it):
+
+* It runs **only when you press it** — never at enrolment, never on page load, and only for
+  that one person.
+* The server compares the person's **active prints with each other** (one pgvector cosine
+  query; prints from a different model or dimension are grouped and reported separately —
+  they are never compared across groups).
+* Prints that match at or above **عتبة اقتراح الهوية** (the same threshold the matcher uses,
+  from إعدادات النظام) are linked; the linked sets are the **المجموعات الصوتية**. One group
+  = healthy. **More than one group = تحتاج مراجعة**: internally-coherent sets that do not
+  match each other usually mean two different voices were enrolled under one person.
+* Per print you see the highest similarity to a sibling and a status: **منسجمة** (has a
+  matching sibling), **شبه مكررة** (above عتبة البصمة شبه المكررة — same sample twice, adds
+  no coverage), **معزولة** (matches none of the siblings), or **بصمة واحدة**.
+
+The check is **advisory only**. It never deletes, deactivates, merges, or re-assigns
+anything, and it never decides which group is the real person — listen to the source
+recordings (each print links to its session) and use the existing تعطيل/حذف controls
+yourself. Both thresholds live in **إعدادات النظام**; changing them there changes the next
+check immediately.
+
 ---
 
 ## 5. What happens after enrolment
@@ -197,6 +228,7 @@ reference; the checkbox shows deactivated prints too.
 |---|---|
 | **تعطيل** (`is_active=false`) | Stops the print being used for future suggestions. Nothing is destroyed, and names already confirmed are unaffected. |
 | **حذف** | Removes the print permanently. |
+| **فحص البصمات الصوتية** | Measures whether the person's active prints agree with each other and reports — changes nothing (see §4). |
 
 Prefer **تعطيل** over **حذف**. Deleting is permanent, and it also clears the link from any
 speaker that was confirmed against that print — the identification stays confirmed, and the
@@ -302,6 +334,8 @@ section of [speaker-identification.md](speaker-identification.md).
 * Prints are compared only within the model that produced them.
 * When the best two *people* are too close, the system **abstains** instead of guessing.
 * Re-scans never overwrite a human decision.
+* **فحص البصمات الصوتية is advisory only.** It never deletes, deactivates, merges or
+  re-assigns anything, and it never decides which group of prints is the real person.
 * Every enrolment, suggestion, confirmation, rejection, deactivation, deletion and re-scan
   is audited with who did it and when.
 
@@ -311,7 +345,7 @@ section of [speaker-identification.md](speaker-identification.md).
 
 | Permission | Grants | Roles |
 |---|---|---|
-| `voice.identify` | See suggestions, confirm/reject, view the registry, run a re-scan | ADMIN, INVESTIGATOR |
+| `voice.identify` | See suggestions, confirm/reject, view the registry, run a re-scan, run **فحص البصمات الصوتية** | ADMIN, INVESTIGATOR |
 | `voice.enroll` | Create, deactivate and delete prints | ADMIN, INVESTIGATOR |
 | `speakers.assign` | Label a speaker: الاسم المعروض, الصفة, ملاحظات. Required *in addition* to accept a suggestion | ADMIN, INVESTIGATOR |
 

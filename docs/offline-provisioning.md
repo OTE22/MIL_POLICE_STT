@@ -1,5 +1,8 @@
 # Offline provisioning
 
+**Who this is for:** whoever prepares the AI model files, and anyone installing at a site
+with no internet. Practical, but it assumes you are comfortable with a command line.
+
 After provisioning, normal operation needs **no Internet access**: no model downloads, no
 CDN fonts/scripts (IBM Plex Sans Arabic and all JS/CSS are bundled), no cloud STT or
 diarization.

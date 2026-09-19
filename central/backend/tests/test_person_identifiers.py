@@ -22,11 +22,11 @@ from app.services.person_identifiers import (
     identifiers_for,
     resolves_automatically,
 )
-from app.services.person_identity import allocate_civilian_reference, get_or_create_identity
+from app.services.person_identity import create_identity
 
 
 def _civilian(db, name: str):
-    return get_or_create_identity(db, allocate_civilian_reference(db), name)
+    return create_identity(db, name)
 
 
 # --------------------------------------------------------------------------
@@ -62,7 +62,7 @@ def test_an_identifier_finds_the_person_it_belongs_to():
 
         found = find_by_identifier(db, identifier_type="UNHCR", value="556677")
         assert found is not None and found.id == person.id
-        assert found.reference_display.startswith("CIV-")
+        assert found.id == person.id
 
 
 def test_the_same_number_under_two_agencies_is_two_people():

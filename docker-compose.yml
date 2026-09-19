@@ -54,6 +54,14 @@ services:
       CENTRAL_PROCESSING_TOKEN_PRIVATE_KEY_PATH: /secrets/processing_token_private.pem
       CENTRAL_PROCESSING_TOKEN_PUBLIC_KEY_PATH: /secrets/processing_token_public.pem
       CENTRAL_STORAGE_ROOT: /storage
+      # Optional Arabic-formalization assistance for the محضر. The key is a SECRET the
+      # operator provisions as secrets/nvidia_api_key (gitignored); no file = no AI, and the
+      # report workflow stays fully usable by hand. Production ignores it entirely: local
+      # runtimes only, never a cloud call.
+      CENTRAL_NVIDIA_API_KEY_FILE: ${CENTRAL_NVIDIA_API_KEY_FILE:-/secrets/nvidia_api_key}
+      CENTRAL_DEVELOPMENT_LLM_MODEL: ${CENTRAL_DEVELOPMENT_LLM_MODEL:-nvidia/nemotron-3-ultra-550b-a55b}
+      CENTRAL_LLM_RUNTIME_MODE: ${CENTRAL_LLM_RUNTIME_MODE:-auto}
+      CENTRAL_OLLAMA_BASE_URL: ${CENTRAL_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       CENTRAL_LOG_LEVEL: ${CENTRAL_LOG_LEVEL:-INFO}
       CENTRAL_LOG_LEVELS: ${CENTRAL_LOG_LEVELS:-}
       CENTRAL_SLOW_QUERY_MS: ${CENTRAL_SLOW_QUERY_MS:-200}
@@ -64,6 +72,10 @@ services:
     volumes:
       - ./storage:/storage
       - ./secrets:/secrets
+    # Reaching a locally provisioned LLM runtime (Ollama) on the HOST. Docker Desktop maps
+    # this name for free; a Linux server needs it declared or production AI cannot resolve.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks: [internal]
 
   frontend:
@@ -82,8 +94,11 @@ services:
       - backend
       - frontend
     ports:
-      - "${CENTRAL_HTTP_PORT:-8080}:80"
-      - "${CENTRAL_HTTPS_PORT:-8443}:443"
+      # CENTRAL_BIND_ADDRESS decides WHICH of this machine's addresses answer. The default
+      # 0.0.0.0 means every one of them - loopback, LAN, the static IP - which is what a
+      # server wants. Set it to a single address to deliberately narrow that.
+      - "${CENTRAL_BIND_ADDRESS:-0.0.0.0}:${CENTRAL_HTTP_PORT:-8080}:80"
+      - "${CENTRAL_BIND_ADDRESS:-0.0.0.0}:${CENTRAL_HTTPS_PORT:-8443}:443"
     volumes:
       - ./central/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./central/nginx/conf.d:/etc/nginx/conf.d:ro

@@ -1,5 +1,7 @@
 # Audio pipeline
 
+**Who this is for:** developers. How audio is validated, cut into segments and reconciled.
+
 ## Input validation (browser → agent → central)
 
 | Check | Where |

@@ -1,5 +1,11 @@
 # Speaker identification (SpeakerNet-M)
 
+> **Updated identity model:** Person reference numbers have been removed. People now use internal UUIDs. See [the current identity contract and migration](person-identity-migration.md). Reference-number descriptions below document the earlier implementation.
+
+**Who this is for:** developers, and administrators tuning the matching thresholds.
+
+**Enrolling a voice in practice?** Read [voice-enrollment-guide.md](voice-enrollment-guide.md).
+
 > Looking for the day-to-day workflow — how to enrol a voice, re-scan a session, or work
 > out why a suggestion is missing? See [voice-enrollment-guide.md](voice-enrollment-guide.md).
 > This document covers the model and the matching rules.
@@ -158,11 +164,44 @@ across sessions the caller may not be able to open.
 > `identity_id`. Rewriting it consolidates nothing — the two identities go on competing and
 > the matcher goes on abstaining — while looking like it worked.
 
+## Checking one person's prints against each other — فحص البصمات الصوتية
+
+Consolidation fixes one person split across identities. The opposite failure — **two
+people's voices filed under one identity** — is worse for matching (the wrong voice matches
+at ~1.0 forever) and invisible from counts alone. The per-person check makes it measurable:
+
+```
+POST /api/voice-enrollments/people/{identity_id}/biometric-check   (voice.identify)
+```
+
+The **فحص البصمات الصوتية** button on each person row of بصمات الأصوات calls it. In one
+pgvector statement the server computes every pairwise cosine between that person's **active**
+prints (per model/dimension group — incompatible prints are never compared), then links
+prints that reach **عتبة اقتراح الهوية** and reports the **connected components**:
+
+* **1 component** — every print reaches every other, directly or through siblings: coherent.
+* **2+ components** — internally-similar sets that do *not* match each other: probably two
+  different voices under one name → `REVIEW_REQUIRED`. The system never guesses which
+  component is the real person; each print links to its source session so a human can listen
+  and decide.
+
+Per print it reports the best/worst similarity to a sibling, how many siblings it reaches,
+its component number, and a status: `COHERENT`, `ISOLATED` (reaches none), `NEAR_DUPLICATE`
+(≥ عتبة البصمة شبه المكررة — same sample enrolled twice, adds no coverage), or
+`SINGLE_PRINT`. Components matter because max-similarity alone cannot see a split identity:
+in A↔B = 0.84, C↔D = 0.86, cross ≈ 0.40, every print has an excellent peer — and there are
+still two voices.
+
+The check is **advisory and read-only**: it runs only when pressed (never at enrolment,
+never on page load, never registry-wide), it deactivates/deletes/merges/re-assigns nothing,
+and no vector ever reaches the browser or the logs. Remediation is the existing manual
+تعطيل/حذف controls. Each run leaves one log line (see the table below).
+
 ## Permissions and privacy
 
 | Permission | Grants |
 |---|---|
-| `voice.identify` | see suggestions, confirm/reject, list enrolment metadata |
+| `voice.identify` | see suggestions, confirm/reject, list enrolment metadata, run فحص البصمات الصوتية |
 | `voice.enroll` | create, update and delete voice templates |
 
 Both are granted to ADMIN and INVESTIGATOR; the read-only USER role has neither.
@@ -255,6 +294,7 @@ Every stage of the similarity workflow logs its part - and never the vectors the
 | The complete field | `app.services.voice_matching` DEBUG | `voice ranking probe=...: 1) <identity> 0.8412, 2) <identity> 0.5372, 3) ...` - every eligible identity, ranked |
 | The verdict | `app.services.voice_matching` INFO | `voice decision ... decision=UNKNOWN best=0.5372 runner_up=- threshold=0.65 margin=0.05 prints=1 candidates=2` |
 | The SQL itself | `app.sql` DEBUG | the batch statement with its duration |
+| A manual print-coherence check | `app.api.voice` INFO | `biometric check identity=... person=علي عباس prints=6 components=3 status=REVIEW_REQUIRED thresholds=0.65/0.98` |
 
 All lines carry the request id, so one grep of `storage/logs/backend.jsonl` reconstructs a
 recording's entire identification story. To see the DEBUG detail on a running server, set

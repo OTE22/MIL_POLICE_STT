@@ -167,7 +167,7 @@ export function VoiceEnrollButton({
             // rank-decorated label as a canonical name. The server ignores both fields now
             // and reads the identity itself; they are sent for the confirmation screen.
             personName: speaker.identity_name ?? "",
-            reference: speaker.identity_reference ?? "",
+            identityId: speaker.identity_id ?? "",
             model: speaker.suggested_model,
             sampleSeconds: speaker.total_seconds,
           }}

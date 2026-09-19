@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import AuditAction, PersonIdentifier, PersonIdentity
-from app.services.person_identity import normalize_reference, resolve_identity
+from app.services.person_identity import normalize_identifier, resolve_identity
 
 # Namespaces whose values are person-unique, and therefore may resolve an identity by
 # themselves. The value is what must be supplied as `issuer_namespace`.
@@ -30,7 +30,7 @@ from app.services.person_identity import normalize_reference, resolve_identity
 # Deliberately absent: رقم السجل and محل القيد (a family record, not a human), name, date of
 # birth, mother's name, address, phone. Those are search aids and nothing more.
 AGENCY_SCOPED = {"UNHCR", "UNRWA"}
-ISSUER_SCOPED = {"PASSPORT", "RESIDENCY"}
+ISSUER_SCOPED = {"PASSPORT", "RESIDENCY", "MILITARY"}
 RESOLVING_TYPES = AGENCY_SCOPED | ISSUER_SCOPED
 
 
@@ -71,7 +71,7 @@ def find_by_identifier(
     db: Session, *, identifier_type: str, value: str, issuer: str | None = None
 ) -> PersonIdentity | None:
     """The canonical person this identifier belongs to, following any merge."""
-    normalized = normalize_reference(value)
+    normalized = normalize_identifier(value)
     if not normalized or not resolves_automatically(identifier_type, issuer):
         return None
     row = db.scalar(
@@ -100,7 +100,7 @@ def attach_identifier(
     proven) - recording it as evidence on the Subject is still fine, it simply resolves nobody.
     Re-attaching the same value to the same person is a no-op, so repeated saves are safe.
     """
-    normalized = normalize_reference(value)
+    normalized = normalize_identifier(value)
     if not normalized or not resolves_automatically(identifier_type, issuer):
         return None
 
@@ -205,5 +205,5 @@ def _audit(db: Session, user_id, action, identity: PersonIdentity, metadata: dic
         user_id=user_id,
         entity_type="person_identity",
         entity_id=identity.id,
-        metadata={"person_reference": identity.reference_display, **metadata},
+        metadata={"identity_id": str(identity.id), **metadata},
     )

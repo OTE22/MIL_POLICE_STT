@@ -18,8 +18,8 @@ export interface EnrollTarget {
   sessionId: string;
   speakerId: string;
   personName: string;
-  /** الرقم المرجعي — the canonical identity key. */
-  reference: string;
+  /** Internal person UUID; never displayed or typed. */
+  identityId: string;
   model?: string | null;
   sampleSeconds?: number | null;
 }
@@ -35,14 +35,12 @@ export function EnrollDialog({
 }) {
   const toast = useToast();
   const [personName, setPersonName] = useState(target.personName);
-  const [reference, setReference] = useState(target.reference);
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setPersonName(target.personName);
-    setReference(target.reference);
     setConsent(false);
     setError(null);
   }, [target]);
@@ -54,7 +52,7 @@ export function EnrollDialog({
       const created = await http.post<VoiceEnrollment>(
         `/investigations/${target.sessionId}/speakers/${target.speakerId}/enroll`,
         {
-          // The name and الرقم المرجعي are shown for confirmation only. They are NOT sent:
+          // The name is shown for confirmation only. They are NOT sent:
           // the server reads the person from the speaker's identity, and letting a client
           // name the subject of a biometric record is exactly the wrong authority.
           model: target.model || SPEAKER_ID_MODEL,
@@ -84,7 +82,7 @@ export function EnrollDialog({
             type="button"
             // Consent is not optional: the API refuses without it, and the button must not
             // suggest otherwise.
-            disabled={busy || !consent || !personName.trim() || !reference.trim()}
+            disabled={busy || !consent || !personName.trim() || !target.identityId}
             onClick={() => void submit()}
             data-testid="voice-enroll-submit"
           >
@@ -108,15 +106,6 @@ export function EnrollDialog({
           was never true and is exactly the confusion this whole area had to unpick. */}
       <Field label={T.voicePersonName}>
         <input className="input" value={personName} readOnly data-testid="voice-enroll-person" />
-      </Field>
-      <Field label={T.voicePersonReference} hint={T.voiceEnrollIdentityFixed}>
-        <input
-          className="input ltr"
-          dir="ltr"
-          value={reference}
-          readOnly
-          data-testid="voice-enroll-reference"
-        />
       </Field>
       <label className="checkbox">
         <input

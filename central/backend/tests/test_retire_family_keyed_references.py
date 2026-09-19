@@ -16,7 +16,31 @@ import uuid
 import pytest
 import sqlalchemy as sa
 
-from app.db.session import SessionLocal
+from app.db.session import SessionLocal, engine
+
+
+@pytest.fixture(autouse=True)
+def legacy_reference_columns():
+    """This historical migration is tested against its historical schema only."""
+    columns = {
+        "person_identities": ["reference_normalized", "reference_display"],
+        "subjects": ["reference_number"],
+        "session_speakers": ["reference_number"],
+        "voice_enrollments": ["person_reference"],
+    }
+    with engine.begin() as db:
+        for table, names in columns.items():
+            for name in names:
+                db.execute(sa.text(f"ALTER TABLE {table} ADD COLUMN {name} varchar(100)"))
+        db.execute(sa.text("CREATE SEQUENCE civilian_person_reference_seq"))
+    try:
+        yield
+    finally:
+        with engine.begin() as db:
+            for table, names in columns.items():
+                for name in names:
+                    db.execute(sa.text(f"ALTER TABLE {table} DROP COLUMN {name}"))
+            db.execute(sa.text("DROP SEQUENCE civilian_person_reference_seq"))
 
 MIGRATION = "20260826_c4f70ab8d915_retire_family_keyed_references"
 

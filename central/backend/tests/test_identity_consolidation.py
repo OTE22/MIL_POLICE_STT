@@ -13,7 +13,10 @@ from sqlalchemy import select
 
 from app.db.session import SessionLocal
 from app.models import PersonIdentity, SessionSpeaker, Subject, VoiceEnrollment
-from app.services.person_identity import find_identity
+from app.services.person_identifiers import find_by_identifier
+
+def find_identity(db, value):
+    return find_by_identifier(db, identifier_type="MILITARY", issuer="ARMY", value=value.removeprefix("MIL-ARMY-"))
 from tests.conftest import auth, create_session
 
 
@@ -42,7 +45,6 @@ def _make_person(client, token, name: str, military_id: str) -> tuple[str, str]:
                 session_id=uuid.UUID(session["id"]),
                 speaker_label="SPEAKER_00",
                 display_name=name,
-                reference_number=reference,
                 identity_id=identity.id,
             )
         )
@@ -74,12 +76,10 @@ def test_two_identities_with_no_prints_can_be_consolidated(client, admin_token, 
         survivor = db.get(PersonIdentity, uuid.UUID(identity_b))
         for subject in db.scalars(select(Subject).where(Subject.session_id == uuid.UUID(session_a))).all():
             assert str(subject.identity_id) == identity_b
-            assert subject.reference_number == survivor.reference_display
         for speaker in db.scalars(
             select(SessionSpeaker).where(SessionSpeaker.session_id == uuid.UUID(session_a))
         ).all():
             assert str(speaker.identity_id) == identity_b
-            assert speaker.reference_number == survivor.reference_display
 
         # A survives as an alias, never deleted - that is what blocks resurrection.
         merged = db.get(PersonIdentity, uuid.UUID(identity_a))
@@ -143,4 +143,4 @@ def test_consolidation_is_audited_with_the_affected_counts(client, admin_token, 
     assert meta["affected_enrollments"] == 0
     assert meta["affected_subjects"] >= 1
     assert meta["affected_speakers"] >= 1
-    assert meta["identity_before"]["person_reference"] == "MIL-ARMY-7301"
+    assert meta["identity_before"]["person_name"] == "علي حسن"

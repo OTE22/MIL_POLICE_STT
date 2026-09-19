@@ -372,7 +372,6 @@ def _apply_match_outcome(
             # deleting a print must not erase which print a confirmation rested on.
             "enrollment_id": result.enrollment_id,
             "identity_id": result.identity_id,
-            "person_reference": identity.reference_display,
             "person_print_count": result.print_count,
             "score": round(result.score, 4),
             "runner_up": round(result.runner_up_score, 4) if result.runner_up_score is not None else None,

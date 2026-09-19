@@ -84,7 +84,37 @@ export const http = {
   put: <T>(path: string, body?: unknown) => api<T>(path, { method: "PUT", body: JSON.stringify(body) }),
   patch: <T>(path: string, body?: unknown) => api<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
   del: <T>(path: string) => api<T>(path, { method: "DELETE" }),
+  upload: <T>(path: string, file: File, field = "file") => {
+    const form = new FormData();
+    form.append(field, file);
+    // No Content-Type header: the browser must set the multipart boundary itself.
+    return api<T>(path, { method: "POST", body: form });
+  },
 };
+
+/** Download an authenticated file. The token rides the header, never the URL - a URL with a
+ *  credential in it lands in browser history, proxy logs and shoulder-surfing range. */
+export async function downloadFile(path: string, fallbackName: string): Promise<void> {
+  const headers = new Headers();
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const res = await fetch(`/api${path}`, { headers });
+  if (!res.ok) throw await parseError(res);
+
+  const disposition = res.headers.get("content-disposition") ?? "";
+  const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
+  const plain = /filename="?([^";]+)"?/i.exec(disposition);
+  const name = utf8 ? decodeURIComponent(utf8[1]) : plain ? plain[1] : fallbackName;
+
+  const url = URL.createObjectURL(await res.blob());
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = name;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
 
 export function qs(params: Record<string, string | number | boolean | null | undefined>): string {
   const p = new URLSearchParams();

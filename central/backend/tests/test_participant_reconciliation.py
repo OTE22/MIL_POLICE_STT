@@ -21,7 +21,7 @@ from app.models import PersonIdentity, Subject
 from tests.conftest import auth, create_session
 
 KEEP = (
-    "participant_key", "subject_name", "reference_number", "person_type", "military_id",
+    "participant_key", "subject_name", "identity_id", "person_type", "military_id",
     "rank", "unit", "department", "security_branch", "nationality_code", "nationality_name",
     "register_number", "place_of_registration", "caza_code", "is_unregistered",
     "is_undocumented", "undocumented_reason", "identity_confidence", "notes",
@@ -58,9 +58,9 @@ def _two_undocumented(client, token):
     s = create_session(client, token, subjects=[_undocumented(NAME_A), _undocumented(NAME_B)])
     subjects = _get(client, token, s["id"])
     by_name = {x["subject_name"]: x for x in subjects}
-    assert by_name[NAME_A]["reference_number"].startswith("TMP-")
-    assert by_name[NAME_B]["reference_number"].startswith("TMP-")
-    assert by_name[NAME_A]["reference_number"] != by_name[NAME_B]["reference_number"]
+    assert by_name[NAME_A]["identity_id"]
+    assert by_name[NAME_B]["identity_id"]
+    assert by_name[NAME_A]["identity_id"] != by_name[NAME_B]["identity_id"]
     return s, subjects, by_name
 
 
@@ -72,7 +72,7 @@ def test_removing_one_participant_and_adding_another_in_one_save(client, investi
     """The flow the form actually produces: the subject list is edited, then saved once."""
     t = investigator["token"]
     s, subjects, by_name = _two_undocumented(client, t)
-    tmp_a = by_name[NAME_A]["reference_number"]
+    tmp_a = by_name[NAME_A]["identity_id"]
     key_a = by_name[NAME_A]["participant_key"]
     key_b = by_name[NAME_B]["participant_key"]
 
@@ -85,11 +85,11 @@ def test_removing_one_participant_and_adding_another_in_one_save(client, investi
     after = {x["subject_name"]: x for x in _get(client, t, s["id"])}
     assert set(after) == {NAME_A, NAME_C}
     # A is untouched, all the way down to its participation handle.
-    assert after[NAME_A]["reference_number"] == tmp_a
+    assert after[NAME_A]["identity_id"] == tmp_a
     assert after[NAME_A]["participant_key"] == key_a
     # C is genuinely new: exactly one key and exactly one TMP, not a recycled one.
-    assert after[NAME_C]["reference_number"].startswith("TMP-")
-    assert after[NAME_C]["reference_number"] != tmp_a
+    assert after[NAME_C]["identity_id"]
+    assert after[NAME_C]["identity_id"] != tmp_a
     assert after[NAME_C]["participant_key"] not in (key_a, key_b)
 
 
@@ -97,19 +97,19 @@ def test_a_lost_participant_alongside_a_new_one_fails_closed(client, investigato
     """B has lost its handle AND its reference, and something new wants a TMP. Unanswerable."""
     t = investigator["token"]
     s, subjects, by_name = _two_undocumented(client, t)
-    tmp_a = by_name[NAME_A]["reference_number"]
-    tmp_b = by_name[NAME_B]["reference_number"]
+    tmp_a = by_name[NAME_A]["identity_id"]
+    tmp_b = by_name[NAME_B]["identity_id"]
 
     payload = [x for x in _trip(subjects) if x["subject_name"] != NAME_B]
     payload.append(_undocumented(NAME_C))
     # No removed_participant_keys: the client is not claiming B was deleted.
     res = _save(client, t, s["id"], payload)
     assert res.status_code == 409, res.text
-    assert res.json()["detail"] == "participant_reference_required"
+    assert res.json()["detail"] == "participant_identity_required"
     # The refusal says nothing about the participant it could not place.
     assert "مجهول" not in res.text and "TMP-" not in res.text
 
-    after = {x["subject_name"]: x["reference_number"] for x in _get(client, t, s["id"])}
+    after = {x["subject_name"]: x["identity_id"] for x in _get(client, t, s["id"])}
     assert after == {NAME_A: tmp_a, NAME_B: tmp_b}, "nothing may be mutated"
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(Subject)) == 2
@@ -126,7 +126,7 @@ def test_a_lost_participant_alongside_a_new_one_fails_closed(client, investigato
 def test_reorder_and_unrelated_edits_never_reallocate(client, investigator):
     t = investigator["token"]
     s, subjects, _ = _two_undocumented(client, t)
-    before = {x["subject_name"]: (x["participant_key"], x["reference_number"]) for x in subjects}
+    before = {x["subject_name"]: (x["participant_key"], x["identity_id"]) for x in subjects}
 
     with SessionLocal() as db:
         identities_before = db.scalar(select(func.count()).select_from(PersonIdentity))
@@ -139,7 +139,7 @@ def test_reorder_and_unrelated_edits_never_reallocate(client, investigator):
         assert res.status_code == 200, res.text
         payload = _trip(_get(client, t, s["id"]))
 
-    after = {x["subject_name"]: (x["participant_key"], x["reference_number"]) for x in _get(client, t, s["id"])}
+    after = {x["subject_name"]: (x["participant_key"], x["identity_id"]) for x in _get(client, t, s["id"])}
     assert after == before
     with SessionLocal() as db:
         # A DELTA, not a total: the investigator running the session is a canonical person too
@@ -154,12 +154,12 @@ def test_the_key_alone_carries_an_issued_reference_forward(client, investigator)
     s, subjects, by_name = _two_undocumented(client, t)
     payload = _trip(subjects)
     for row in payload:
-        row["reference_number"] = None      # the form dropped it; only the key remains
+        row["identity_id"] = None      # the form dropped it; only the key remains
     res = _save(client, t, s["id"], payload)
     assert res.status_code == 200, res.text
 
-    after = {x["subject_name"]: x["reference_number"] for x in _get(client, t, s["id"])}
-    assert after == {n: by_name[n]["reference_number"] for n in (NAME_A, NAME_B)}
+    after = {x["subject_name"]: x["identity_id"] for x in _get(client, t, s["id"])}
+    assert after == {n: by_name[n]["identity_id"] for n in (NAME_A, NAME_B)}
 
 
 def test_a_duplicate_participant_key_is_rejected(client, investigator):

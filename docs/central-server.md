@@ -1,5 +1,10 @@
 # Central server
 
+> **Updated identity model:** Person reference numbers have been removed. People now use internal UUIDs. See [the current identity contract and migration](person-identity-migration.md). Reference-number descriptions below document the earlier implementation.
+
+**Who this is for:** developers and administrators. Configuration, database schema, roles
+and the API surface.
+
 ## Configuration (`.env`, prefix `CENTRAL_`)
 
 | Variable | Purpose |
@@ -18,7 +23,10 @@ Processing-token keys are generated automatically into `./secrets/` on first sta
 (`processing_token_private.pem`, `processing_token_public.pem`). Only the public key is ever
 copied to workstations.
 
-## PostgreSQL schema (Alembic revision `b2e94c1f7a06`)
+## PostgreSQL schema (Alembic revision `c7e14b93a2f6`)
+
+How the tables relate — cardinalities, junction tables, delete rules, and the ER diagrams —
+is documented in [database-relationships.md](database-relationships.md).
 
 ```
 users                 id, username(unique), password_hash(Argon2id), is_active, must_change_password,
@@ -64,7 +72,35 @@ session_speakers      id, session_id, speaker_label, display_name, speaker_role
                       (INVESTIGATOR|SUBJECT|WITNESS|OTHER|UNKNOWN), reference_number, notes
                       [unique session_id+speaker_label]
 audit_logs            id, user_id, action, entity_type, entity_id, safe_metadata(jsonb), ip_address, created_at
+
+report_template_versions
+                      id, version(unique), storage_path, sha256, original_filename, size_bytes,
+                      validation_status(UNVALIDATED|VALID|INVALID), validation_message,
+                      is_development, is_active, activated_at, notes, uploaded_by
+report_drafts         id, session_id(unique), status(DRAFT|FINAL), report_number, case_subject,
+                      report_date, report_time, location, intro_text, closing_text,
+                      transcript_source_mode(CORRECTED|ORIGINAL), selected_recording_ids(jsonb),
+                      pinned_transcripts(jsonb), unresolved_ack, unresolved_ack_by/at,
+                      created_by, updated_by
+report_qa_blocks      id, draft_id, sequence, question_source_text, answer_source_text,
+                      report_question_text, report_answer_text, question_speaker_id,
+                      answer_speaker_id, source_segment_ids(jsonb), source_recording_ids(jsonb),
+                      start_seconds, end_seconds, included_in_report, exclusion_reason,
+                      excluded_by/at, fusha_status, llm_suggested_question/answer,
+                      llm_provenance(jsonb), edited_by/at      [unique draft_id+sequence]
+generated_reports     id, session_id, draft_id, report_version, template_version_id,
+                      storage_path, context_path, docx_sha256, context_sha256, template_sha256,
+                      size_bytes, report_number, transcript_source_mode,
+                      selected_recording_ids(jsonb), pinned_transcripts(jsonb), qa_block_count,
+                      generated_by                     [unique session_id+report_version]
 ```
+
+The four report tables are the محضر تحقيق (see [investigation-report.md](investigation-report.md)).
+The report is a DERIVED document: its Q&A rows COPY their source text rather than reading
+through to `transcript_segments` at render time, so correcting a transcript next month cannot
+alter a report submitted today. `generated_reports.draft_id` is SET NULL and
+`template_version_id` is RESTRICT — an issued document outlives its draft and pins the layout
+it cites.
 
 All ids are UUIDs; foreign keys cascade from sessions to their children; audio files live on
 disk under `storage/recordings/{session_uuid}/{recording_uuid}.{ext}` (never as BLOBs).
@@ -123,8 +159,12 @@ each setting takes effect: [system-settings.md](system-settings.md).
 | subjects.documents.view (ID/passport scans) | ✔ | ✔ | |
 | transcripts.read | ✔ | ✔ | ✔ |
 | transcripts.edit / speakers.assign | ✔ | ✔ | |
-| voice.identify (say which human a speaker is; confirm/reject suggestions; re-scan) | ✔ | ✔ | |
+| voice.identify (say which human a speaker is; confirm/reject suggestions; re-scan; run فحص البصمات الصوتية) | ✔ | ✔ | |
 | voice.enroll (create, deactivate and delete voice prints) | ✔ | ✔ | |
+| reports.read (view report drafts and the archive of issued محاضر) | ✔ | ✔ | ✔ |
+| reports.generate (create and edit the report draft, request فصحى suggestions) | ✔ | ✔ | |
+| reports.finalize (issue the final official document) | ✔ | ✔ | |
+| reports.templates.manage (upload / validate / activate the official Word template) | ✔ | | |
 | subjects.reference.override (hand-assign a *derived* الرقم المرجعي) | ✔ | | |
 | system.configure (change runtime settings from إعدادات النظام) | ✔ | | |
 | workstations.read / workstations.register | ✔ | ✔ | |
@@ -184,6 +224,26 @@ GET  /api/recordings/{id}/audio
 POST/GET/DELETE /api/investigations/{id}/subject-documents/{doc_id}/file
 GET  /api/workstations                    POST /api/workstations/register
 GET  /api/audit-logs                      GET /api/health
+GET  /api/voice-enrollments               POST /api/investigations/{id}/speakers/{speaker_id}/enroll
+PATCH/DELETE /api/voice-enrollments/{id}  GET /api/voice-enrollments/candidates
+POST /api/voice-enrollments/rematch       POST /api/investigations/{id}/voice-rematch
+POST /api/voice-enrollments/people/{identity_id}/consolidate
+POST /api/voice-enrollments/people/{identity_id}/biometric-check   (advisory, read-only)
+GET/PUT /api/admin/config                                          (system.configure)
+GET/POST/PUT /api/investigations/{id}/report                       (the محضر draft)
+POST /api/investigations/{id}/report/refresh                       (تحديث من النص المنقح)
+POST /api/investigations/{id}/report/reopen                        (correct an issued report)
+PATCH /api/investigations/{id}/report/blocks/{block_id}
+POST /api/investigations/{id}/report/blocks/{block_id}/exclude|restore|merge|split
+POST /api/investigations/{id}/report/blocks/{block_id}/fusha           (suggestion)
+POST /api/investigations/{id}/report/blocks/{block_id}/fusha/decision  (اعتماد/تعديل/رفض)
+GET/POST /api/investigations/{id}/reports                          (archive / issue)
+GET  /api/investigations/{id}/reports/{report_id}/file|verify
+GET/POST /api/report-templates                                     (reports.templates.manage)
+GET  /api/report-templates/placeholders
+GET  /api/report-templates/{id}/file
+POST /api/report-templates/{id}/activate|revalidate
+GET  /api/llm/capabilities                     (which formalization runtime resolved, and why)
 ```
 
 Errors return `{"detail": "<code>"}`; the frontend maps every code to an Arabic message

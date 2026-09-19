@@ -1,5 +1,7 @@
 # Local AI Agent (desktop-agent/)
 
+**Who this is for:** developers and maintainers of the desktop program.
+
 ## Structure
 
 ```

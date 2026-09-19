@@ -104,18 +104,7 @@ function SpeakerForm({
             ))}
           </select>
         </Field>
-        <Field label={T.referenceNumber}>
-          {/* Whatever the server stored. It arrives by picking a person and is never typed;
-              after a merge the backend converges it onto the survivor, so this shows what is
-              stored rather than what was sent. */}
-          <input
-            className="input ltr"
-            value={speaker.identity_reference || speaker.reference_number || ""}
-            readOnly
-            data-testid="speaker-reference"
-          />
-        </Field>
-        <Field label={T.notes}>
+<Field label={T.notes}>
           <input className="input" value={notes} onChange={(e) => setNotes(e.target.value)} disabled={!editable} maxLength={2000} />
         </Field>
       </div>

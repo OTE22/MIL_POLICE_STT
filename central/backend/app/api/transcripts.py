@@ -25,7 +25,8 @@ from app.models import (
 )
 from app.schemas.transcripts import SegmentEditIn, SegmentOut, SpeakerOut, SpeakerUpdateIn, TranscriptOut
 from app.services.audit import record_audit
-from app.services.person_identity import find_identity, get_or_create_identity, normalize_reference
+from app.services.person_identity import resolve_identity
+from app.models import PersonIdentity
 from app.services.storage import absolute_path
 
 router = APIRouter(tags=["transcripts"])
@@ -63,7 +64,7 @@ def _speakers_out(db: Session, session_id: uuid.UUID, transcript: Transcript | N
     # The canonical name/reference for every identified speaker, resolved once rather than
     # per row. display_name is session-local and may be blank even when the person is known.
     identities = {
-        pi.id: (pi.person_name, pi.reference_display)
+        pi.id: pi.person_name
         for pi in db.scalars(
             select(PersonIdentity).where(
                 PersonIdentity.id.in_(
@@ -100,7 +101,6 @@ def _speakers_out(db: Session, session_id: uuid.UUID, transcript: Transcript | N
                 speaker_label=s.speaker_label,
                 display_name=s.display_name,
                 speaker_role=s.speaker_role,
-                reference_number=s.reference_number,
                 notes=s.notes,
                 segment_count=count,
                 total_seconds=round(total, 3),
@@ -111,8 +111,7 @@ def _speakers_out(db: Session, session_id: uuid.UUID, transcript: Transcript | N
                 suggested_model=s.suggested_model,
                 has_voice_embedding=bool(s.voice_embedding),
                 identity_id=s.identity_id,
-                identity_name=identities.get(s.identity_id, (None, None))[0],
-                identity_reference=identities.get(s.identity_id, (None, None))[1],
+                identity_name=identities.get(s.identity_id),
             )
         )
     return out
@@ -232,52 +231,27 @@ def update_speaker(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="speaker_not_found")
     previous = {"display_name": speaker.display_name, "speaker_role": speaker.speaker_role.value}
     data = body.model_dump(exclude_unset=True)
-    # Not a column. Without this pop the loop below would setattr it onto the ORM row, which
-    # SQLAlchemy accepts silently and never persists.
-    asserted_name = (data.pop("person_name", None) or "").strip() or None
-
-    # Labelling a speaker and binding them to a person are DIFFERENT authorities, and the
-    # difference cannot live in the client: hiding the option in React leaves the endpoint open
-    # to anyone who can call it. A reference round-tripped unchanged is an ordinary save; a NEW
-    # one, or an asserted canonical name, is a claim about who this human is.
-    #
-    # Decided from the PROPOSED payload and refused BEFORE the loop below touches the row -
-    # a refusal that leaves a dirtied object in the session is only safe by accident of the
-    # rollback, and authorization that depends on a rollback is not authorization.
-    previous_reference = speaker.reference_number
-    proposed_reference = data.get("reference_number", previous_reference)
-    asserts_identity = asserted_name is not None or (
-        normalize_reference(proposed_reference) != normalize_reference(previous_reference)
-    )
-    if asserts_identity and "voice.identify" not in user.permission_codes:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="identity_change_not_permitted")
-
+    # UUID selection establishes identity and always requires voice.identify.
+    if "identity_id" in data:
+        if "voice.identify" not in user.permission_codes:
+            raise HTTPException(403, detail="identity_change_not_permitted")
+        selected_id = data.pop("identity_id")
+        identity = resolve_identity(db, db.get(PersonIdentity, selected_id)) if selected_id else None
+        if identity is None:
+            raise HTTPException(404, detail="identity_not_found")
+        allowed = [sub.identity_id for sub in session.subjects]
+        allowed.extend(link.investigator.identity_id for link in session.investigators)
+        resolved_ids = {p.id for value in allowed if value is not None
+                        if (p := resolve_identity(db, db.get(PersonIdentity, value))) is not None}
+        if identity.id not in resolved_ids:
+            raise HTTPException(400, detail="person_not_in_session")
+        speaker.identity_id = identity.id
+        speaker.display_name = identity.person_name
     for key, value in data.items():
         if key == "speaker_role":
             speaker.speaker_role = SpeakerRole(value) if value is not None else SpeakerRole.UNKNOWN
         else:
             setattr(speaker, key, value.strip() if isinstance(value, str) else value)
-    if speaker.speaker_role is None:
-        speaker.speaker_role = SpeakerRole.UNKNOWN
-
-    # identity_id is BACKEND-OWNED. The client sends business fields only; a client that could
-    # post an arbitrary UUID could attach this speaker to another person's identity.
-    #
-    # display_name is NEVER the canonical name - it is a session label and may carry a rank.
-    # A new reference therefore needs an explicit person_name; seeding one from the label is
-    # exactly what would file "رائد علي عباس" as a person. And when no name is asserted we
-    # claim the reference and assert nothing: re-validating display_name on every save turns
-    # any speaker whose label has drifted from person_name into a permanent 409, so an
-    # unrelated PATCH (notes, role) could never succeed again.
-    if speaker.reference_number and not asserted_name and find_identity(db, speaker.reference_number) is None:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, detail="person_name_required_for_new_reference"
-        )
-    identity = get_or_create_identity(db, speaker.reference_number, asserted_name)
-    if identity is not None:
-        speaker.identity_id = identity.id
-        # Converge a stale, merged-away reference onto the survivor's canonical one.
-        speaker.reference_number = identity.reference_display
 
     record_audit(
         db,

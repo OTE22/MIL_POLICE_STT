@@ -14,7 +14,7 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from app.db.session import SessionLocal
 from app.models import PersonIdentity
-from app.services.person_identity import PersonNameRequired, get_or_create_identity
+from app.services.person_identity import PersonNameRequired, create_identity, resolve_identity
 
 from conftest import auth
 
@@ -72,9 +72,9 @@ def test_a_latin_name_is_accepted(client, investigator):
 def test_creating_an_identity_without_a_name_is_refused():
     with SessionLocal() as db:
         with pytest.raises(PersonNameRequired):
-            get_or_create_identity(db, "MIL-ARMY-NONAME-1", None)
+            create_identity(db, None)
         with pytest.raises(PersonNameRequired):
-            get_or_create_identity(db, "MIL-ARMY-NONAME-2", "   ")
+            create_identity(db, "   ")
         db.rollback()
 
 
@@ -83,7 +83,7 @@ def test_a_reference_can_never_become_a_person_name(client, investigator):
     res = _post(client, investigator["token"], _subject(subject_name="سعاد نصر",
                                                         military_id="REF-NOT-NAME"))
     assert res.status_code == 201, res.text
-    reference = res.json()["subjects"][0]["reference_number"]
+    reference = res.json()["subjects"][0]["identity_id"]
     assert reference
 
     with SessionLocal() as db:
@@ -96,9 +96,9 @@ def test_a_reference_can_never_become_a_person_name(client, investigator):
 def test_looking_up_an_existing_identity_without_a_name_still_works():
     """Only CREATION needs a name. A lookup already knows who it is, and callers rely on it."""
     with SessionLocal() as db:
-        created = get_or_create_identity(db, "MIL-ARMY-LOOKUP-1", "زياد مراد")
+        created = create_identity(db, "زياد مراد")
         db.flush()
-        again = get_or_create_identity(db, "MIL-ARMY-LOOKUP-1", None)
+        again = resolve_identity(db, db.get(PersonIdentity, created.id))
         assert again is not None and again.id == created.id
         db.rollback()
 
@@ -122,8 +122,8 @@ def test_the_database_refuses_a_blank_person_name():
             with pytest.raises((IntegrityError, DBAPIError)):
                 db.execute(text(
                     "INSERT INTO person_identities "
-                    "(id, reference_normalized, reference_display, person_name) "
-                    f"VALUES (gen_random_uuid(), 'X-{bad}', 'X', {bad})"))
+                    "(id, person_name) "
+                    f"VALUES (gen_random_uuid(), {bad})"))
                 db.flush()
             db.rollback()
 

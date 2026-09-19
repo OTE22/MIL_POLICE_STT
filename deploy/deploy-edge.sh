@@ -49,12 +49,61 @@ note() { printf '  %s%s%s\n' "$DIM" "$*" "$RST"; }
 # This script is run on every investigator desktop, usually by someone who did not build the
 # system and will not run it again for months. A bare "[ ok ] image built" tells that person
 # nothing about whether they may move to the next machine. Pass --quiet to skip these.
+# --- how each step explains itself -------------------------------------------
+#
+# This install is usually done by the investigator who will USE the machine, not by whoever
+# built the system. Every step therefore answers five questions before it runs:
+#
+#   WHAT  in plain words, what is about to happen
+#   WHY   why the step exists, and what breaks without it
+#   TIME  roughly how long to wait before suspecting a problem
+#   GOOD  what success looks like on screen
+#   FAIL  what to do about it, and whether it is safe to re-run
+#
+# Pass --quiet to suppress them once you know the system.
+
+TERM_COLS="$( { tput cols 2>/dev/null || echo 80; } )"
+case "$TERM_COLS" in ''|*[!0-9]*) TERM_COLS=80 ;; esac
+[ "$TERM_COLS" -gt 100 ] && TERM_COLS=100
+[ "$TERM_COLS" -lt 60 ] && TERM_COLS=80
+WRAP_AT=$((TERM_COLS - 12))
+
+# _field LABEL TEXT - one wrapped, hanging-indented field of the explanation box.
+_field() {
+  # The trailing newline matters: `while read` discards a final UNTERMINATED line, which
+  # would silently swallow one-line fields (TIME) and the last line of longer ones.
+  printf '%s\n' "$2" | fold -s -w "$WRAP_AT" | {
+    first=1
+    while IFS= read -r line; do
+      if [ "$first" = 1 ]; then
+        printf '  %s| %-4s %s%s\n' "$DIM" "$1" "$RST" "$line"; first=0
+      else
+        printf '  %s|      %s%s\n' "$DIM" "$RST" "$line"
+      fi
+    done
+  }
+}
+
+# explain WHAT WHY TIME GOOD FAIL
 explain() {
   [ "$QUIET" = "true" ] && return 0
-  printf '\n  %s┌ WHAT %s %s\n' "$DIM" "$RST" "$1"
-  printf '  %s│ WHY  %s %s\n'   "$DIM" "$RST" "$2"
-  printf '  %s│ GOOD %s %s\n'   "$DIM" "$RST" "$3"
-  printf '  %s└ FAIL %s %s\n\n' "$DIM" "$RST" "$4"
+  rule="$(printf '%*s' "$((WRAP_AT + 7))" '' | tr ' ' '-')"
+  printf '\n  %s+%s%s\n' "$DIM" "$rule" "$RST"
+  _field "WHAT" "$1"
+  _field "WHY"  "$2"
+  _field "TIME" "$3"
+  _field "GOOD" "$4"
+  _field "FAIL" "$5"
+  printf '  %s+%s%s\n\n' "$DIM" "$rule" "$RST"
+}
+
+# roadmap TITLE LINE... - the whole journey, printed once before step 1.
+roadmap() {
+  [ "$QUIET" = "true" ] && return 0
+  title="$1"; shift
+  printf '\n%s%s%s\n' "$BLU" "$title" "$RST"
+  for entry in "$@"; do printf '  %s\n' "$entry"; done
+  printf '\n'
 }
 
 usage() {
@@ -109,12 +158,27 @@ SEARCH_DIR="${SEARCH_DIR:-$SCRIPT_DIR}"
 case "$COMPUTE" in cpu|gpu) ;; *) die "--compute must be cpu or gpu" ;; esac
 case "$VERIFY_MODE" in size|full) ;; *) die "--verify must be size or full" ;; esac
 
+roadmap "What is about to happen (8 steps, about 20-45 minutes in total)" \
+  "1. Preflight     check Docker, disk and the graphics card    seconds" \
+  "2. Find models   locate the AI folders you downloaded        seconds" \
+  "3. Verify        check every model byte-for-byte             1-3 min (reads gigabytes)" \
+  "4. Stage         copy the verified models into place         1-5 min" \
+  "5. Server key    install the key that authorises jobs        seconds" \
+  "6. Configure     write the agent settings file               seconds" \
+  "7. Build         build or load the agent application         5-30 min (the long one)" \
+  "8. Start         run it and prove it works                   1-2 min" \
+  "" \
+  "The AUDIO NEVER LEAVES THIS MACHINE: the models run here and only finished text goes" \
+  "to the server. That is why this install is larger than the server one." \
+  "Every step is safe to re-run."
+
 # =============================================================================
 explain \
-  "Check this desktop can run the agent: Docker, disk space, and - if you asked for GPU - a working graphics card." \
-  "The models are large and the agent runs on this machine, not the server. A GPU that is present but not usable by Docker is the most common surprise, and it is better found now than after a 4 GB build." \
-  "Every line says [ ok ]. With --compute gpu you also see the card named." \
-  "For a GPU failure, either install the NVIDIA Container Toolkit or re-run with --compute cpu. CPU works everywhere; it is only slower."
+  "Check this desktop can run the agent: Docker, free disk space, and - if you asked for GPU - a graphics card that Docker can actually reach." \
+  "The AI runs HERE, not on the server, so this machine must carry it. A GPU that exists but is invisible to Docker is the most common surprise on these installs, and finding it now costs seconds instead of derailing a first interview. Nothing is written in this step." \
+  "A few seconds." \
+  "Every line says [ ok ]. With --compute gpu the card is named back to you." \
+  "For a GPU failure install the NVIDIA Container Toolkit, or re-run with --compute cpu. CPU works everywhere and is only slower - a perfectly valid way to run this."
 
 step "1/8  Preflight"
 # =============================================================================
@@ -153,10 +217,11 @@ fi
 
 # =============================================================================
 explain \
-  "Find the three AI model folders you downloaded, wherever you put them next to this script." \
-  "The models are not in this package - they are several gigabytes and are downloaded once, separately. This step finds them by CONTENT, so the folder names do not have to match." \
+  "Find the AI model folders you downloaded, wherever you happened to put them near this script." \
+  "The models are deliberately NOT in this package: they are several gigabytes, licensed separately, and downloaded once then reused on every desktop. This step identifies them by CONTENT rather than folder name, so it still works when someone renamed a folder or nested it a level deeper." \
+  "A few seconds." \
   "Each model is listed with the folder it was found in." \
-  "If a model is 'not found', check you unpacked it next to this script or pass --models with the right folder. Speaker identification is optional; the other two are required."
+  "If one says not found, check it was unpacked near this script, or pass --models with the right folder. Speaker identification is OPTIONAL - without it transcription still works and only voice prints are unavailable. The other two are required."
 
 step "2/8  Locating the downloaded models"
 # =============================================================================
@@ -223,10 +288,11 @@ done
 
 # =============================================================================
 explain \
-  "Check every model file byte-for-byte against the exact fingerprint this release expects." \
-  "A truncated download or a tampered file would otherwise be discovered as strange transcription results months later. This is the one step that cannot be skipped safely." \
-  "'integrity verified' for each model. This takes a minute on slower disks - it is reading gigabytes." \
-  "A mismatch means the file is NOT the one this release was tested with. Re-download it. Do not work around this check."
+  "Check every model file byte-for-byte against the exact fingerprint this release was tested with." \
+  "A truncated download or a tampered file does not announce itself: it surfaces months later as strange transcription results in real cases, and by then nobody connects the two. Checking here is the only cheap moment. It also proves the models on THIS desktop are identical to every other desktop, so two investigators cannot get different results from the same audio." \
+  "1-3 minutes - it is genuinely reading gigabytes from disk." \
+  "integrity verified for each model." \
+  "A mismatch means the file is NOT the tested one. Re-download it. Do not work around this check - it is the one step that cannot be skipped safely."
 
 step "3/8  Verifying model integrity against the pinned revisions"
 # =============================================================================
@@ -264,10 +330,11 @@ done
 
 # =============================================================================
 explain \
-  "Copy the verified models into the folder the agent will read them from." \
-  "Copying only after verification means a half-copied or wrong model can never end up in the live location." \
-  "'staged' for each model, and a MANIFEST.json recording exactly what was installed." \
-  "Almost always disk space. The models need several gigabytes free at the destination."
+  "Copy the verified models into the folder the agent reads from, and record what was installed in a MANIFEST.json." \
+  "Copying only AFTER verification is deliberate: a truncated or wrong model can then never reach the live location, even if this step is interrupted halfway. The manifest matters later - when a transcript looks wrong months from now, it says exactly which model version produced it." \
+  "1-5 minutes, depending on the disk." \
+  "staged for each model, plus the MANIFEST.json path." \
+  "Almost always disk space: the destination needs several gigabytes free. Re-running is safe and simply re-copies."
 
 step "4/8  Staging models into $MODEL_DIR"
 # =============================================================================
@@ -328,10 +395,11 @@ ok "$staged model(s) staged read-only under $MODEL_DIR"
 
 # =============================================================================
 explain \
-  "Install the key file that lets this desktop verify that a processing request really came from your server." \
-  "Without it the agent refuses every job. The key is PUBLIC - it only verifies signatures and cannot create them, so carrying it on a USB stick is safe. The private half never leaves the server." \
-  "'public key installed'." \
-  "Copy deploy/central_public_key.pem from the server, or let the script fetch it from --central-url if this desktop can reach the server."
+  "Install the key file this desktop uses to check that a processing request really came from your server." \
+  "Without it the agent refuses every job - which is the point: a random web page or a stray script on this machine cannot make the AI process audio. The key is PUBLIC: it can only VERIFY signatures, never create them, so carrying it on a USB stick between machines is safe. The matching private key never leaves the server." \
+  "Seconds." \
+  "public key installed." \
+  "Copy deploy/central_public_key.pem from the server - the server install wrote it in its verification step - or let this script fetch it from --central-url if the desktop can reach the server."
 
 step "5/8  Installing the central public key"
 # =============================================================================
@@ -373,10 +441,11 @@ fi
 
 # =============================================================================
 explain \
-  "Write the agent's settings file: your server address, which models to use, and how it listens." \
-  "The agent only ever listens on this machine (127.0.0.1). Nothing on the network can reach it - the browser on this desktop talks to it locally." \
-  "'configuration written'." \
-  "If the folder is not writable, run the script with the privileges the install location needs."
+  "Write the agent settings: your server address, which models to use, and how it listens for work." \
+  "The agent binds to 127.0.0.1 ONLY. Nothing else on the network can reach it - not another desktop, not the server - because the only client it needs is the browser on this same machine. That single choice is what keeps interview audio on the desktop where it was recorded." \
+  "Seconds." \
+  "configuration written, with the path shown." \
+  "If the folder is not writable, re-run with the privileges that install location needs. Re-running rewrites the file safely."
 
 step "6/8  Writing the agent configuration"
 # =============================================================================
@@ -412,10 +481,11 @@ note "allowed browser origin: $CENTRAL_ORIGIN"
 
 # =============================================================================
 explain \
-  "Build the agent application, or load a prebuilt one on machines with no internet." \
-  "This is the longest step - several minutes, and much longer for the GPU build. Long silences are normal and do not mean it has hung." \
-  "'agent image ready'." \
-  "On an air-gapped desktop use --image-tar with the file exported from a connected machine, rather than trying to build without a network."
+  "Build the agent application into a container image, or load a prebuilt one on a machine with no internet." \
+  "This is the long step. Building here means every desktop runs byte-identical software, which is what lets you trust that two investigators processing the same audio get the same transcript. The GPU build is substantially larger because it carries the CUDA runtime." \
+  "5-15 minutes for CPU, 15-30+ for GPU. Long silences are normal - it is downloading and compiling, not hung." \
+  "agent image ready." \
+  "On an air-gapped desktop use --image-tar with a file exported from a connected machine rather than trying to build offline. A failed build resumes from Docker cache on re-run."
 
 step "7/8  Building or loading the agent image"
 # =============================================================================
@@ -492,10 +562,11 @@ install -m 0444 "$KEY_PATH" "$DATA_DIR/central_public_key.pem"
 
 # =============================================================================
 explain \
-  "Start the agent and confirm it answers, knows your server, and reports which AI models it has." \
-  "A container that is running is not the same as an agent that works. This step checks what an investigator would actually notice, including whether voice prints can be produced at all." \
-  "'agent is healthy' plus a model list. 'voice identification available' means voice prints will work." \
-  "If speaker_id is missing or not staged, transcription still works fully - only voice prints are unavailable. The message says which case you are in."
+  "Start the agent, then confirm it answers, knows your server, and reports which AI models it actually has." \
+  "A container that is running is not the same as an agent that works. This checks what an investigator would notice on their first real interview - including whether voice identification is available on THIS desktop, which stays invisible in the interface until someone tries to enrol a voice and finds the button disabled." \
+  "1-2 minutes: the first model load is the slow part." \
+  "agent is healthy plus a model list. voice identification available means voice prints will work here." \
+  "If speaker_id is missing or unstaged, transcription still works fully and only voice prints are unavailable - the message says which case you are in. Re-run after provisioning that model to enable it."
 
 step "8/8  Starting the agent and verifying it"
 # =============================================================================
