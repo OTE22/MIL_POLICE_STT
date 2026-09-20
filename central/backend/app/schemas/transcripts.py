@@ -26,6 +26,8 @@ class SegmentOut(BaseModel):
 
 
 class SpeakerOut(BaseModel):
+    recording_id: uuid.UUID | None = None
+    recording_name: str | None = None
     id: uuid.UUID
     session_id: uuid.UUID
     speaker_label: str

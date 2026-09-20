@@ -63,14 +63,11 @@ export function VoiceSuggestion({
   const decide = async (accept: boolean) => {
     setBusy(true);
     try {
-      const res = await http.post<{ identification_status: string; display_name: string | null }>(
+      const res = await http.post<Pick<Speaker, "identification_status" | "display_name" | "identity_id" | "identity_name" | "speaker_role">>(
         `/investigations/${sessionId}/speakers/${speaker.id}/identification`,
         { accept },
       );
-      onDecided({
-        identification_status: res.identification_status as Speaker["identification_status"],
-        display_name: res.display_name,
-      });
+      onDecided(res);
       toast.success(accept ? T.voiceConfirmed : T.voiceRejected);
     } catch (err) {
       toast.error(err instanceof ApiError ? errorMessage(err.code) : T.err_generic);

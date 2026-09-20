@@ -133,5 +133,15 @@ validation can never become the active official form.
 
 ## Not included (by design, spec §83)
 
-Voice biometrics / automatic speaker identification, face recognition, LLM chat, RAG,
-vector databases, cloud STT, Whisper, NVIDIA ASR, central GPU inference.
+Automatic identity assignment, face recognition, LLM chat, RAG, cloud STT, Whisper,
+NVIDIA ASR and central GPU inference remain outside this workflow. Voice-print assistance
+and pgvector storage were added after the original specification; a human still confirms
+identity assignments.
+
+Voice-review reads require `voice.identify`. Source playback additionally requires
+`transcripts.read` and access to the source investigation. Notes, flags, deactivation,
+same-person set confirmation and reopening require `voice.enroll`. Each decision records
+the operator, reason and time. Confirmation validates the active print IDs, canonical owner
+and reviewed timestamps; duplicate or stale submissions are refused. The append-only audit
+stores print IDs and timestamps, never embedding vectors. See
+[voice-review-panel.md](voice-review-panel.md).

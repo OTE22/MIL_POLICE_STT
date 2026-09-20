@@ -11,14 +11,16 @@ ignore the rest — most of this folder is written for engineers and you do not 
 | **The administrator (accounts, settings)** | [daily-use.md](daily-use.md) → [system-settings.md](system-settings.md) → [security.md](security.md) | the pipeline internals |
 | **A developer or maintainer** | [how-it-works.md](how-it-works.md) → [architecture.md](architecture.md) → [central-server.md](central-server.md) | nothing |
 | **Something is broken** | [troubleshooting.md](troubleshooting.md) — a table of symptoms with fixes | — |
+| **Reviewing voice prints or repeated speaker labels** | [voice-review-panel.md](voice-review-panel.md) → [voice-enrollment-guide.md](voice-enrollment-guide.md) | model internals unless troubleshooting |
 
 ---
 
-## The system in four sentences
+## The system at a glance
 
 Investigators record or upload an interview. The AI on **their own desktop** turns the
-audio into Arabic text and works out who spoke when — **the audio never leaves that
-machine**. The finished text goes to the central server, where an investigator checks it,
+audio into Arabic text and works out who spoke when — **AI inference runs on that
+machine**. The finished text goes to the central server; uploaded source recordings are
+available for authorized playback. An investigator checks the transcript,
 says who each speaker actually is, and turns the session into an official **محضر تحقيق**
 Word document. The server keeps the record and the audit trail; it runs no AI itself.
 
@@ -26,7 +28,7 @@ Word document. The server keeps the record and the audit trail; it runs no AI it
    interview  ──►  the investigator's desktop  ──►  the server  ──►  محضر تحقيق
    (audio)          speech → Arabic text            review,          official
                     who spoke when                  identify         Word document
-                    AUDIO STAYS HERE                people
+                    MODELS RUN HERE                 people
 ```
 
 ---
@@ -40,9 +42,10 @@ The interface is in Arabic. These are the ones worth knowing before you start.
 | **جلسة** (session) | One interview. Everything — recordings, text, people, the report — hangs off it. |
 | **هوية الشخص** | Internal UUID linking a person across sessions and voiceprints; selected through the person picker, never typed. See [migration notes](person-identity-migration.md). |
 | **التفريغ / النص المفرغ** | The transcript — the interview written out as text. |
-| **المتحدثون** (speakers) | The voices the AI found in a recording, before anyone says who they are. Shown as `SPEAKER_00`, `SPEAKER_01`… |
+| **المتحدثون** (speakers) | One card per identified person, with expandable recording observations. Unknown observations remain separate; `SPEAKER_*` codes appear in source details. |
 | **تحديد الهوية** | Saying which real person a voice belongs to. Only a human does this. |
 | **بصمة الصوت** (voice print) | A stored measurement of someone's voice, used to *suggest* their name in later interviews. A suggestion is never accepted automatically. |
+| **تأكيد وحدة الهوية** | A recorded human decision that selected prints belong to the displayed person, within one group or across groups. It does not merge vectors or person records. |
 | **محضر تحقيق** | The official Word document produced from a session. |
 | **الصياغة بالفصحى** | An optional AI suggestion that rewrites colloquial Arabic into formal Arabic. You approve, edit or reject every one. |
 | **القالب الرسمي** | The approved Word file that controls how the محضر *looks*. An administrator uploads it once. |

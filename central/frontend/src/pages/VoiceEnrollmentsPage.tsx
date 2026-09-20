@@ -6,14 +6,12 @@
  * prints, and the second tab fills itself as sessions identify new speakers.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { ApiError, http, qs } from "@/api/client";
 import type {
   BiometricCheck,
-  BiometricPrintCheck,
-  BiometricPrintStatus,
   EnrollmentCandidate,
   VoiceEnrollment,
 } from "@/api/types";
@@ -23,6 +21,8 @@ import { T, errorMessage } from "@/lib/i18n";
 import { Alert, Badge, Field, Loading, Modal, useToast } from "@/components/ui";
 import { IconMic, IconRefresh, IconSearch } from "@/components/Icons";
 import { EnrollDialog, type EnrollTarget } from "@/components/voice/EnrollDialog";
+
+import { BiometricCheckModal } from "@/components/voice/BiometricCheckModal";
 
 type Tab = "people" | "pending";
 
@@ -130,93 +130,6 @@ function EditPersonModal({
   );
 }
 
-const BIO_STATUS: Record<BiometricPrintStatus, { label: () => string; kind: "green" | "blue" | "amber" | "gray" }> = {
-  COHERENT: { label: () => T.voiceBioStatusCoherent, kind: "green" },
-  NEAR_DUPLICATE: { label: () => T.voiceBioStatusNearDup, kind: "blue" },
-  ISOLATED: { label: () => T.voiceBioStatusIsolated, kind: "amber" },
-  SINGLE_PRINT: { label: () => T.voiceBioStatusSingle, kind: "gray" },
-};
-
-const BIO_OVERALL: Record<BiometricCheck["overall_status"], { label: () => string; kind: "green" | "amber" | "gray" }> = {
-  COHERENT: { label: () => T.voiceBioOverallCoherent, kind: "green" },
-  REVIEW_REQUIRED: { label: () => T.voiceBioOverallReview, kind: "amber" },
-  SINGLE_PRINT: { label: () => T.voiceBioOverallSingle, kind: "gray" },
-  NO_PRINTS: { label: () => T.voiceBioOverallNone, kind: "gray" },
-};
-
-function BioPrintLine({ row, showComponent }: { row: BiometricPrintCheck; showComponent: boolean }) {
-  const status = BIO_STATUS[row.status];
-  return (
-    <div className="audit-stage" data-testid="bio-print-row">
-      <span className="num when">{formatDateTime(row.created_at)}</span>
-      <span className="flex gap wrap">
-        {row.source_session_id ? (
-          <Link to={`/investigations/${row.source_session_id}?tab=speakers`} className="ltr">
-            {row.source_speaker_label ?? T.view}
-          </Link>
-        ) : (
-          <span className="muted">{T.none}</span>
-        )}
-        {row.peer_similarity_max != null && (
-          <span className="muted num" dir="ltr">
-            {T.voiceBioMaxSim} {row.peer_similarity_max.toFixed(2)}
-          </span>
-        )}
-        {showComponent && (
-          <Badge kind="navy">{T.voiceBioComponent.replace("{n}", String(row.component_id))}</Badge>
-        )}
-        <Badge kind={status.kind}>{status.label()}</Badge>
-      </span>
-    </div>
-  );
-}
-
-/** Result of the manual, advisory فحص البصمات الصوتية. Pure display: nothing was changed. */
-function BiometricCheckModal({ result, onClose }: { result: BiometricCheck; onClose: () => void }) {
-  const overall = BIO_OVERALL[result.overall_status];
-  return (
-    <Modal title={`${T.voiceBioCheckTitle} — ${result.person_name}`} onClose={onClose}>
-      <div className="flex gap wrap" data-testid="bio-check-summary">
-        <span>
-          {T.voiceBioOverall}: <Badge kind={overall.kind}>{overall.label()}</Badge>
-        </span>
-        <span className="muted">
-          {T.voiceBioActivePrints}: <span className="num">{result.total_active_prints}</span>
-        </span>
-        <span className="muted">
-          {T.voiceBioComponents}: <span className="num" data-testid="bio-components">{result.number_of_components}</span>
-        </span>
-      </div>
-      <div className="muted small mt-8" dir="rtl">
-        {T.voiceBioThresholds}:{" "}
-        <span className="num" dir="ltr">
-          {result.coherence_threshold.toFixed(2)} / {result.near_duplicate_threshold.toFixed(2)}
-        </span>
-      </div>
-      {result.overall_status === "REVIEW_REQUIRED" && (
-        <div className="mt-8">
-          <Alert kind="warning">{T.voiceBioReviewHint}</Alert>
-        </div>
-      )}
-      {result.groups.map((group) => (
-        <div className="mt-8" key={`${group.model}:${group.embedding_dim}`}>
-          {result.groups.length > 1 && (
-            <div className="muted small ltr">
-              {group.model} · {group.embedding_dim}
-            </div>
-          )}
-          <div className="audit-stages">
-            {group.prints.map((row) => (
-              <BioPrintLine key={row.enrollment_id} row={row} showComponent={group.component_count > 1} />
-            ))}
-          </div>
-        </div>
-      ))}
-      <div className="muted small mt-8">{T.voiceBioAdvisory}</div>
-    </Modal>
-  );
-}
-
 function PersonRow({
   person,
   manage,
@@ -288,7 +201,7 @@ function PersonRow({
   return (
     <div className="person-card" data-testid="person-row" data-identity-id={person.identityId}>
       {editing && <EditPersonModal person={person} onClose={() => setEditing(false)} onSaved={onChanged} />}
-      {checkResult && <BiometricCheckModal result={checkResult} onClose={() => setCheckResult(null)} />}
+      {checkResult && <BiometricCheckModal initialResult={checkResult} onClose={() => { setCheckResult(null); onChanged(); }} />}
       <div className="person-head">
         <div>
           <strong>{person.name}</strong>
@@ -325,6 +238,9 @@ function PersonRow({
                   <span className="muted">{T.none}</span>
                 )}
                 <span className="muted">{formatDuration(row.sample_seconds)}</span>
+                {(!row.model_revision || !row.provider) && (
+                  <span className="error-text">{T.voiceLegacyProvenance}</span>
+                )}
                 <Badge kind={row.is_active ? "green" : "gray"}>
                   {row.is_active ? T.voiceActive : T.voiceInactive}
                 </Badge>
@@ -390,17 +306,29 @@ export function VoiceEnrollmentsPage() {
   const [rematching, setRematching] = useState(false);
   const [enrolling, setEnrolling] = useState<EnrollTarget | null>(null);
   const manage = can("voice.enroll");
+  const generation = useRef(0);
+  const [listError, setListError] = useState<string | null>(null);
+  const [candidateError, setCandidateError] = useState<string | null>(null);
 
   const load = useCallback(() => {
+    const request = ++generation.current;
+    setListError(null);
+    setCandidateError(null);
+    setRows(null);
+    setCandidates(null);
     void http
       .get<VoiceEnrollment[]>(`/voice-enrollments${qs({ q, include_inactive: includeInactive })}`)
-      .then(setRows)
-      .catch(() => setRows([]));
+      .then((data) => { if (request === generation.current) setRows(data); })
+      .catch((err) => {
+        if (request === generation.current) setListError(err instanceof ApiError ? errorMessage(err.code) : T.err_generic);
+      });
     if (manage) {
       void http
         .get<EnrollmentCandidate[]>("/voice-enrollments/candidates")
-        .then(setCandidates)
-        .catch(() => setCandidates([]));
+        .then((data) => { if (request === generation.current) setCandidates(data); })
+        .catch((err) => {
+          if (request === generation.current) setCandidateError(err instanceof ApiError ? errorMessage(err.code) : T.err_generic);
+        });
     } else {
       setCandidates([]);
     }
@@ -408,7 +336,7 @@ export function VoiceEnrollmentsPage() {
 
   useEffect(() => {
     const h = setTimeout(load, 200);
-    return () => clearTimeout(h);
+    return () => { clearTimeout(h); generation.current++; };
   }, [load]);
 
   const rematchAll = async () => {
@@ -532,7 +460,10 @@ export function VoiceEnrollmentsPage() {
             </div>
           )}
 
-          {!rows ? (
+          {listError ? (
+            <div className="card-body" role="alert"><Alert kind="danger">{listError}</Alert>
+              <button className="btn mt-8" onClick={load}>{T.voiceRetry}</button></div>
+          ) : !rows ? (
             <Loading />
           ) : people.length === 0 ? (
             <div className="card-body muted center">{T.voiceNoPeople}</div>
@@ -552,7 +483,10 @@ export function VoiceEnrollmentsPage() {
         </div>
       ) : (
         <div className="card">
-          {!candidates ? (
+          {candidateError ? (
+            <div className="card-body" role="alert"><Alert kind="danger">{candidateError}</Alert>
+              <button className="btn mt-8" onClick={load}>{T.voiceRetry}</button></div>
+          ) : !candidates ? (
             <Loading />
           ) : candidates.length === 0 ? (
             <div className="card-body muted center">{T.voiceNoPending}</div>

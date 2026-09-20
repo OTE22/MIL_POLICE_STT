@@ -96,6 +96,8 @@ def best_match(
     model: str,
     threshold: float,
     margin: float,
+    model_revision: str | None = None,
+    provider: str | None = None,
 ) -> MatchResult | None:
     """Best enrolled voice for this embedding, or None when uncertain.
 
@@ -105,6 +107,8 @@ def best_match(
     scored: list[tuple[float, VoiceEnrollment]] = []
     for enr in enrollments:
         if not enr.is_active or enr.model != model or enr.embedding_dim != len(embedding):
+            continue
+        if enr.model_revision != model_revision or enr.provider != provider:
             continue
         if enr.identity_id is None:
             # Biometric evidence attributed to nobody. It cannot name a speaker, so it must
@@ -168,6 +172,8 @@ def batch_match_voice_embeddings(
     probes: list[tuple[str, list[float]]],
     *,
     model: str,
+    model_revision: str | None = None,
+    provider: str | None = None,
     threshold: float | None = None,
     margin: float | None = None,
 ) -> list[VoiceMatchResult]:
@@ -195,7 +201,7 @@ def batch_match_voice_embeddings(
         return []
 
     values_sql = ", ".join(f"(:k{i}, :d{i}, CAST(:e{i} AS vector))" for i in range(len(probes)))
-    params: dict[str, object] = {"model": model}
+    params: dict[str, object] = {"model": model, "revision": model_revision, "provider": provider}
     for i, (key, emb) in enumerate(probes):
         params[f"k{i}"] = str(key)
         params[f"d{i}"] = len(emb)
@@ -220,6 +226,8 @@ def batch_match_voice_embeddings(
               ON ve.is_active
              AND ve.identity_id IS NOT NULL
              AND ve.model = :model
+             AND ve.model_revision IS NOT DISTINCT FROM CAST(:revision AS text)
+             AND ve.provider IS NOT DISTINCT FROM CAST(:provider AS text)
              AND ve.embedding_dim = p.dim
         ),
         best_prints AS (SELECT * FROM prints WHERE print_rank = 1),
@@ -316,6 +324,14 @@ def _apply_match_outcome(
     `display_name` or `reference_number`: those belong to the human workflow.
     """
     settings = get_settings()
+    # Serialize against manual selection/confirmation and re-read the human decision.
+    # Flush first so newly stored probe provenance is not discarded by refresh.
+    db.flush()
+    db.refresh(row, with_for_update=True)
+    if row.identity_id is not None or row.identification_status in (
+        IdentificationStatus.CONFIRMED, IdentificationStatus.REJECTED
+    ):
+        return False
     log.info(
         "voice decision session=%s recording=%s speaker=%s source=%s decision=%s "
         "best_identity=%s best=%s runner_up=%s threshold=%.2f margin=%.2f prints=%d candidates=%d",
@@ -444,7 +460,9 @@ def apply_voice_identification(
                 continue
             # A human decision is final: never overwrite a confirmed/rejected speaker -
             # including its stored voiceprint, which by then may back an enrolment.
-            if row.identification_status in (IdentificationStatus.CONFIRMED, IdentificationStatus.REJECTED):
+            human_decided = row.identity_id is not None or row.identification_status in (
+                IdentificationStatus.CONFIRMED, IdentificationStatus.REJECTED)
+            if human_decided and row.voice_embedding:
                 log.debug(
                     "probe skipped speaker=%s (source=%s): human decision %s is final",
                     row.speaker_label, local_label, row.identification_status.value,
@@ -452,6 +470,13 @@ def apply_voice_identification(
                 continue
             row.voice_embedding = embedding
             row.voice_embedding_model = model
+            row.voice_embedding_revision = voice.get("model_revision")
+            row.voice_embedding_provider = voice.get("provider")
+            row.voice_embedding_seconds = payload.get("seconds")
+            if human_decided:
+                # A name may be selected before the first usable voice arrives. Fill the
+                # missing probe, but do not reopen that human identity decision.
+                continue
             log.debug(
                 "probe stored session=%s recording=%s speaker=%s (source=%s) dim=%d model=%s seconds=%s",
                 session_id, recording_id, row.speaker_label, local_label,
@@ -462,7 +487,8 @@ def apply_voice_identification(
 
         if not probes:
             return 0
-        results = batch_match_voice_embeddings(db, probes, model=model)
+        results = batch_match_voice_embeddings(db, probes, model=model,
+            model_revision=voice.get("model_revision"), provider=voice.get("provider"))
         suggested = 0
         for result in results:
             if _apply_match_outcome(
@@ -510,10 +536,10 @@ def rematch_speakers(
     suggested = 0
     skipped_unknown_model = 0
     touched: set[uuid.UUID] = set()
-    by_model: dict[str, list[SessionSpeaker]] = {}
+    by_model: dict[tuple, list[SessionSpeaker]] = {}
 
     for row in rows:
-        if row.identification_status in (IdentificationStatus.CONFIRMED, IdentificationStatus.REJECTED):
+        if row.identity_id is not None or row.identification_status in (IdentificationStatus.CONFIRMED, IdentificationStatus.REJECTED):
             continue
         if not list(row.voice_embedding or []):
             continue
@@ -525,19 +551,19 @@ def rematch_speakers(
             continue
         scanned += 1
         touched.add(row.session_id)
-        by_model.setdefault(model, []).append(row)
+        by_model.setdefault((model, row.voice_embedding_revision, row.voice_embedding_provider), []).append(row)
 
-    for model, group in by_model.items():
+    for (model, revision, provider), group in by_model.items():
         probes = [(str(row.id), list(row.voice_embedding)) for row in group]
         rows_by_key = {str(row.id): row for row in group}
-        for result in batch_match_voice_embeddings(db, probes, model=model):
+        for result in batch_match_voice_embeddings(db, probes, model=model, model_revision=revision, provider=provider):
             row = rows_by_key[result.key]
             if _apply_match_outcome(
                 db,
                 row=row,
                 result=result,
                 model=model,
-                model_revision=row.suggested_model_revision,
+                model_revision=row.voice_embedding_revision,
                 user_id=user_id,
                 now=now,
             ):

@@ -286,7 +286,11 @@ def test_rematch_never_overrides_a_human_decision(client, investigator):
     t = investigator["token"]
     s = _submit(client, t, voice=_voice(SPEAKER_00=EMB_A, SPEAKER_01=EMB_B))
     sp = _speakers(client, t, s["id"])
-    assert _enroll(client, t, s["id"], sp["SPEAKER_00"]["id"], "MIL-ARMY-1", "الرائد علي حسن").status_code == 201
+    # Enroll a different observation. The enrolled observation itself is already a
+    # human-confirmed identity and must never be reopened as a suggestion.
+    source = _submit(client, t, voice=_voice(SPEAKER_00=EMB_A))
+    source_sp = _speakers(client, t, source["id"])
+    assert _enroll(client, t, source["id"], source_sp["SPEAKER_00"]["id"], "MIL-ARMY-1", "الرائد علي حسن").status_code == 201
 
     client.post(f"/api/investigations/{s['id']}/voice-rematch", headers=auth(t))
     sp = _speakers(client, t, s["id"])
@@ -307,7 +311,9 @@ def test_global_rematch_only_touches_undecided_speakers(client, investigator, ad
     t = investigator["token"]
     s = _submit(client, t, voice=_voice(SPEAKER_00=EMB_A, SPEAKER_01=EMB_B))
     sp = _speakers(client, t, s["id"])
-    assert _enroll(client, t, s["id"], sp["SPEAKER_00"]["id"], "MIL-ARMY-1", "الرائد علي حسن").status_code == 201
+    source = _submit(client, t, voice=_voice(SPEAKER_00=EMB_A))
+    source_sp = _speakers(client, t, source["id"])
+    assert _enroll(client, t, source["id"], source_sp["SPEAKER_00"]["id"], "MIL-ARMY-1", "الرائد علي حسن").status_code == 201
 
     res = client.post("/api/voice-enrollments/rematch", headers=auth(t))
     assert res.status_code == 200, res.text

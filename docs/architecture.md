@@ -42,8 +42,12 @@ Cohere Transcribe   =  WHAT WAS SAID    (Arabic text for each speaker turn)
 segment_service     =  combines them    (speaker + start + end + text + is_overlap)
 ```
 
-NVIDIA ASR is never used. Cohere never identifies speakers. No voice biometrics: speaker
-names are assigned manually by the investigator.
+NVIDIA ASR is never used. Cohere never identifies speakers. The separately added SpeakerNet
+voice-print workflow can suggest an identity; only a human confirms the assignment.
+The central server compares compatible embeddings using pgvector, without AI inference.
+Manual same-person confirmations across selected prints preserve the vectors and computed
+groups. See [speaker-identification.md](speaker-identification.md) and
+[voice-review-panel.md](voice-review-panel.md).
 
 ## 4. Local pipeline
 

@@ -1,8 +1,7 @@
 """The official محضر template: one format, a version history, and a gate before activation.
 
-Deliberately small. There is ONE approved layout, so this is not a document designer - it is
-"here is the current official form, download it, edit it in Word, upload the replacement,
-validate it, activate it". Everything about how the report LOOKS lives inside that .docx.
+Layouts can be authored by annotating sample pages or uploading a Word template.
+Both paths produce a versioned DOCX and share validation, review and activation.
 
 Validation gates ACTIVATION, not upload: a bad file can be stored and inspected, but it can
 never become the form that official documents are printed on.
@@ -12,11 +11,13 @@ from __future__ import annotations
 
 import logging
 import uuid
+import io
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from app.config import get_settings
 from app.core.deps import client_ip, require_permission
@@ -24,6 +25,7 @@ from app.db.base import utcnow
 from app.db.session import get_db
 from app.models import (
     AuditAction,
+    AuditLog,
     GeneratedReport,
     ReportTemplateVersion,
     TemplateValidationStatus,
@@ -35,6 +37,7 @@ from app.schemas.report_templates import (
     TemplatesOut,
 )
 from app.services.audit import record_audit
+from app.services.report_layout import ReportLayout, sample_pages, build_layout, read_layout, MAX_BYTES
 from app.services.report_renderer import (
     ALLOWED_PLACEHOLDERS,
     LIST_PLACEHOLDERS,
@@ -53,6 +56,63 @@ log = logging.getLogger(__name__)
 router = APIRouter(tags=["report-templates"])
 
 MANAGE = "reports.templates.manage"
+
+
+def _lock_registry(db: Session) -> None:
+    db.execute(select(func.pg_advisory_xact_lock(8432701)))
+
+
+@router.post('/report-templates/sample')
+async def import_sample(file: UploadFile = File(...), _: User = Depends(require_permission(MANAGE))):
+    data = await file.read(MAX_BYTES + 1)
+    try:
+        return {'pages': sample_pages(data)}
+    except Exception as exc:
+        log.info('Report sample could not be decoded: %s', type(exc).__name__)
+        raise HTTPException(422, detail='report_sample_invalid') from exc
+
+
+@router.post('/report-templates/layout', response_model=TemplatesOut, status_code=201)
+async def save_layout(body: ReportLayout, request: Request,
+                      user: User = Depends(require_permission(MANAGE)), db: Session = Depends(get_db)):
+    try:
+        data = build_layout(body)
+    except Exception as exc:
+        raise HTTPException(422, detail='report_layout_invalid') from exc
+    result = validate_template(data)
+    if not result.ok:
+        log.error('Generated layout failed validation: %s', result.message)
+        raise HTTPException(422, detail='report_layout_invalid')
+    # The existing upload path handles versioning, audit, hashing and atomic storage.
+    return await upload_template(request, UploadFile(file=io.BytesIO(data), filename=body.name + '.docx'), user, db)
+
+
+@router.get('/report-templates/{template_id}/layout')
+def get_layout(template_id: uuid.UUID, _: User = Depends(require_permission(MANAGE)), db: Session = Depends(get_db)):
+    template = _require(db, template_id)
+    path = absolute_path(template.storage_path)
+    if path is None or template.validation_status != TemplateValidationStatus.VALID:
+        raise HTTPException(404, detail='report_template_file_missing')
+    layout = read_layout(path.read_bytes())
+    if layout is None:
+        raise HTTPException(404, detail='report_layout_not_available')
+    return layout
+
+
+@router.get('/report-templates/{template_id}/preview')
+def preview_layout(template_id: uuid.UUID, _: User = Depends(require_permission(MANAGE)), db: Session = Depends(get_db)):
+    from app.services.report_renderer import render, sample_context, RenderError
+    template = _require(db, template_id)
+    path = absolute_path(template.storage_path)
+    if path is None or template.validation_status != TemplateValidationStatus.VALID:
+        raise HTTPException(404, detail='report_template_file_missing')
+    try:
+        data = render(path.read_bytes(), sample_context())
+    except RenderError as exc:
+        raise HTTPException(409, detail=exc.code) from exc
+    return Response(data,
+        media_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        headers={'Content-Disposition': 'attachment; filename="template-preview.docx"', 'Cache-Control': 'no-store'})
 
 
 def _out(db: Session, template: ReportTemplateVersion) -> TemplateVersionOut:
@@ -171,7 +231,10 @@ async def upload_template(
 
     result = validate_template(data)
 
-    next_version = int(db.scalar(select(func.max(ReportTemplateVersion.version))) or 0) + 1
+    _lock_registry(db)
+    previous_deleted = db.scalar(select(func.max(AuditLog.safe_metadata['version'].as_integer())).where(
+        AuditLog.action == AuditAction.REPORT_TEMPLATE_DELETED.value)) or 0
+    next_version = max(int(db.scalar(select(func.max(ReportTemplateVersion.version))) or 0), int(previous_deleted)) + 1
     template = ReportTemplateVersion(
         version=next_version,
         storage_path="",
@@ -225,6 +288,7 @@ def activate_template(
     db: Session = Depends(get_db),
 ) -> TemplatesOut:
     """Make this version the official form. Only a VALID version may be activated."""
+    _lock_registry(db)
     template = _require(db, template_id)
     if template.validation_status is not TemplateValidationStatus.VALID:
         raise HTTPException(
@@ -258,6 +322,42 @@ def activate_template(
     )
     db.commit()
     log.info("report template v%d activated by %s", template.version, user.username)
+    return list_templates(user, db)
+
+
+@router.delete("/report-templates/{template_id}", response_model=TemplatesOut)
+def delete_template(
+    template_id: uuid.UUID,
+    request: Request,
+    user: User = Depends(require_permission(MANAGE)),
+    db: Session = Depends(get_db),
+) -> TemplatesOut:
+    _lock_registry(db)
+    template = db.scalar(select(ReportTemplateVersion).where(
+        ReportTemplateVersion.id == template_id).with_for_update())
+    if template is None:
+        raise HTTPException(404, detail="report_template_not_found")
+    if template.is_active:
+        raise HTTPException(409, detail="report_template_delete_active")
+    if db.scalar(select(GeneratedReport.id).where(
+        GeneratedReport.template_version_id == template_id).limit(1)):
+        raise HTTPException(409, detail="report_template_delete_used")
+    relative_path = template.storage_path
+    record_audit(db, action=AuditAction.REPORT_TEMPLATE_DELETED, user_id=user.id,
+                 entity_type="report_template", entity_id=template.id,
+                 metadata={"version": template.version, "filename": template.original_filename,
+                           "sha256": template.sha256}, ip_address=client_ip(request))
+    db.delete(template)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(409, detail="report_template_delete_used") from exc
+    # Commit first so a rolled-back deletion never loses the template file.
+    try:
+        remove_file(relative_path)
+    except OSError:
+        log.exception("Deleted template file cleanup failed for %s", template_id)
     return list_templates(user, db)
 
 

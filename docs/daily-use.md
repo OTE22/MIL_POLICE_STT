@@ -136,10 +136,14 @@ Click any line to hear that exact moment. Correct anything the AI misheard.
 
 ## 6. Say who each speaker is
 
-Open the **المتحدثون** tab. The AI separates voices but cannot know names, so they appear
-as **SPEAKER_00**, **SPEAKER_01**…
+Open the **المتحدثون** tab. Identified observations are grouped under one card per person.
+Expand **العينات وإجراءات تحديد الهوية** to see each recording's observation, role, notes
+and enrollment controls. Recording filenames identify the sources; **تفاصيل المصدر**
+contains the technical `SPEAKER_*` codes. Unknown observations remain separate, even if
+their temporary names match. Totals cover each recording's latest transcript, without
+counting reprocessing twice.
 
-For each one press **تحديد الهوية** and choose the person. Also set the **الصفة** (role) —
+For each observation use **اختيار الشخص** to choose the person. Also set the **الصفة** (role) —
 **المحقق** for the interviewer, **الشخص الذي تتم مقابلته** for the interviewed person.
 
 **Setting the role matters more than it looks.** The report builds its
@@ -173,9 +177,22 @@ different rooms, so the person is recognised in varied conditions. Prints never 
 with each other; each one only widens the range of situations where they are recognised.
 
 On the **بصمات الأصوات** page, **فحص البصمات الصوتية** checks whether one person's prints
-really all sound like the same voice. If it reports **تحتاج مراجعة**, some print may have
-been saved from the wrong speaker — listen to the source recordings and remove the odd one
-out. Full details in [voice-enrollment-guide.md](voice-enrollment-guide.md).
+are consistent. **تحتاج مراجعة** is a prompt to investigate, not proof of a wrong identity.
+Use **استماع ومقارنة**, then record a note, flag the sample, or explicitly deactivate it
+with a reason if appropriate. Incompatible model versions cannot be compared numerically.
+
+If you verify that multiple samples belong to the displayed person:
+
+1. Select two or more samples, within the same group or across different groups. You can
+   select individual samples, a whole group, or all samples (up to 100 per decision).
+2. Compare source audio; **مقارنة العينتين المحددتين** accepts exactly two selected samples.
+3. Enter a reason under **تأكيد وحدة الهوية** and press **تأكيد أن العينات للشخص نفسه**.
+4. The decision appears as **نفس الشخص — مؤكّد يدوياً**, with reviewer, date and reason.
+
+The computed groups and similarity scores remain visible. **إعادة فتح المراجعة** records
+a reason for reopening without deleting the original decision. New samples do not inherit
+old confirmations; changes to a covered sample require a fresh review. See
+[voice-review-panel.md](voice-review-panel.md) for the complete workflow.
 
 ---
 

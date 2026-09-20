@@ -13,7 +13,7 @@ from tests.conftest import auth, create_session
 def speaker_for(session):
     with SessionLocal() as db:
         speaker = SessionSpeaker(session_id=uuid.UUID(session['id']), speaker_label='SPEAKER_00',
-                                 voice_embedding=[1.0] + [0.0] * 15)
+                                 voice_embedding=[1.0] + [0.0] * 15, voice_embedding_model='test')
         db.add(speaker)
         db.commit()
         return str(speaker.id)

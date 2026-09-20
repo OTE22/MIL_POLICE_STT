@@ -59,6 +59,7 @@ from app.services.report_finalize import (
     verify,
 )
 from app.services.report_storage import absolute_path as report_file_path
+from app.services.report_renderer import RenderError
 from app.services.report_context import completed_recordings, speaker_map
 from app.services.report_draft import (
     DraftIsFinal,
@@ -824,6 +825,8 @@ def finalize_report(
         raise HTTPException(
             status.HTTP_409_CONFLICT, detail={"code": exc.code, **exc.detail}
         ) from exc
+    except RenderError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=exc.code) from exc
 
     record_audit(
         db,

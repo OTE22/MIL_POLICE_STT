@@ -217,9 +217,13 @@ and an issued محضر is frozen, hashed and versioned. See
 Pooled prints are the one contamination the rules cannot prevent outright — an operator can
 still enrol the wrong speaker under a person by hand. It can be *detected*, though: the
 **فحص البصمات الصوتية** button on بصمات الأصوات measures whether one person's prints all
-sound like the same voice and flags a split (**تحتاج مراجعة**) for a human to resolve —
-advisory only, nothing is removed automatically
-(see [voice-enrollment-guide.md](voice-enrollment-guide.md) §4).
+sound consistent, comparing only compatible model/dimension/revision/provider groups.
+Separate groups prompt **تحتاج مراجعة**, not a conclusion about identity. The operator can
+listen to source segments, record a review, or confirm that explicitly selected samples
+belong to the same person, within or across groups. Human confirmations keep their own
+history and can be reopened; they never alter the numerical scores or merge vectors.
+New or changed samples require review. Nothing is removed automatically; see
+[voice-review-panel.md](voice-review-panel.md).
 
 A profile predating that requirement cannot yield a reference, and a guessed branch would be
 invented identity evidence. Such an investigator is left unregistered and shown in the picker

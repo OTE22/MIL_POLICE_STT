@@ -106,6 +106,7 @@ Then open `http://localhost:8080`, create an investigator, create a session, ope
 | [docs/cohere-stt.md](docs/cohere-stt.md) | The Arabic STT model, loading, configuration |
 | [docs/nvidia-diarization.md](docs/nvidia-diarization.md) | Sortformer diarization, speaker change vs diarization, overlap, limits |
 | [docs/voice-enrollment-guide.md](docs/voice-enrollment-guide.md) | **بصمات الأصوات in practice** — enrolling a voice, re-scanning, and why suggestions go missing |
+| [docs/voice-review-panel.md](docs/voice-review-panel.md) | Source listening, review history, same-person confirmation within/across groups, and grouped speaker cards |
 | [docs/speaker-identification.md](docs/speaker-identification.md) | SpeakerNet-M voice suggestions, enrolment, consent, calibration |
 | **[docs/investigation-report.md](docs/investigation-report.md)** | **محضر تحقيق** — turning a session into an official Word document: the Q&A composer, the approved template, optional Arabic formalization, and the immutable hashed archive |
 | [docs/database-relationships.md](docs/database-relationships.md) | The ER model: cardinalities, junction tables, delete rules, and the deliberate non-relationships |

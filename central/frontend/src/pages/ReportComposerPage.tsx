@@ -55,6 +55,7 @@ function QABlockCard({
   onSplit,
   onFusha,
   onFushaDecide,
+  onDirtyChange,
   sessionId,
 }: {
   block: ReportQABlock;
@@ -69,6 +70,7 @@ function QABlockCard({
   onSplit: (head: string, tail: string) => void;
   onFusha: () => void;
   onFushaDecide: (accept: boolean, edited?: { question?: string; answer?: string }) => void;
+  onDirtyChange: (id: string, dirty: boolean) => void;
   sessionId: string;
 }) {
   const [question, setQuestion] = useState(block.report_question_text ?? "");
@@ -82,6 +84,8 @@ function QABlockCard({
 
   const dirty =
     question !== (block.report_question_text ?? "") || answer !== (block.report_answer_text ?? "");
+  useEffect(() => { onDirtyChange(block.id, dirty); }, [block.id, dirty, onDirtyChange]);
+  useEffect(() => () => onDirtyChange(block.id, false), [block.id, onDirtyChange]);
   const changedFromSource =
     (block.report_question_text ?? "") !== (block.question_source_text ?? "") ||
     (block.report_answer_text ?? "") !== (block.answer_source_text ?? "");
@@ -301,7 +305,13 @@ export function ReportComposerPage() {
   const [showPreview, setShowPreview] = useState(false);
   const [archive, setArchive] = useState<ReportArchive | null>(null);
   const [verified, setVerified] = useState<Record<string, ReportVerification>>({});
-  const mayEdit = can("reports.generate");
+  const [dirtyBlocks, setDirtyBlocks] = useState<Set<string>>(new Set());
+  const markBlockDirty = useCallback((id: string, dirty: boolean) => setDirtyBlocks(previous => {
+    if (previous.has(id) === dirty) return previous;
+    const next = new Set(previous); if (dirty) next.add(id); else next.delete(id); return next;
+  }), []);
+  const mayGenerate = can("reports.generate");
+  const mayEdit = mayGenerate && draft?.status !== "FINAL";
   const mayFinalize = can("reports.finalize");
 
   const loadArchive = useCallback(async () => {
@@ -328,6 +338,7 @@ export function ReportComposerPage() {
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true); setError(null); setArchive(null);
     void (async () => {
       try {
         const info = await http.get<Investigation>(`/investigations/${sessionId}`);
@@ -337,13 +348,15 @@ export function ReportComposerPage() {
           if (!cancelled) adopt(existing);
         } catch (err) {
           // No draft yet: build one on first open, which is the zero-config path.
-          if (err instanceof ApiError && err.status === 404 && mayEdit) {
+          if (err instanceof ApiError && err.status === 404 && mayGenerate) {
             const created = await http.post<ReportDraft>(`/investigations/${sessionId}/report`, {});
             if (!cancelled) adopt(created);
           } else if (!cancelled) {
             setError(err instanceof ApiError ? errorMessage(err.code) : T.err_generic);
           }
         }
+        const issued = await http.get<ReportArchive>(`/investigations/${sessionId}/reports`);
+        if (!cancelled) setArchive(issued);
       } catch (err) {
         if (!cancelled) setError(err instanceof ApiError ? errorMessage(err.code) : T.err_generic);
         if (!cancelled) await loadArchive().catch(() => setArchive(null));
@@ -354,13 +367,15 @@ export function ReportComposerPage() {
     return () => {
       cancelled = true;
     };
-  }, [sessionId, adopt, mayEdit, loadArchive]);
+  }, [sessionId, adopt, mayGenerate, loadArchive]);
 
   const call = useCallback(
-    async (fn: () => Promise<ReportDraft>, success?: string) => {
+    async (fn: () => Promise<ReportDraft>, success?: string, resetMeta = false) => {
       setBusy(true);
       try {
-        adopt(await fn());
+        const updated = await fn();
+        if (resetMeta) adopt(updated); else setDraft(updated);
+        await loadArchive();
         if (success) toast.success(success);
       } catch (err) {
         fail(err);
@@ -368,7 +383,7 @@ export function ReportComposerPage() {
         setBusy(false);
       }
     },
-    [adopt, fail, toast],
+    [adopt, fail, toast, loadArchive],
   );
 
   const saveMeta = () =>
@@ -384,12 +399,17 @@ export function ReportComposerPage() {
           closing_text: meta.closing_text,
         }),
       T.reportSaved,
+      true,
     );
 
   const included = useMemo(
     () => (draft?.qa_blocks ?? []).filter((b) => b.included_in_report),
     [draft],
   );
+  const metaDirty = !!draft && Object.entries(meta).some(([key, value]) => {
+    const saved = draft[key as keyof typeof meta] ?? "";
+    return value !== (key === "report_time" ? String(saved).slice(0, 5) : saved);
+  });
 
   if (loading) return <Loading />;
   if (error && !draft)
@@ -423,6 +443,7 @@ export function ReportComposerPage() {
           </p>
         </div>
         <div className="actions">
+          {can("reports.templates.manage") && <Link className="btn" to="/report-template">تصميم قالب المحضر</Link>}
           <button
             className="btn"
             type="button"
@@ -446,6 +467,7 @@ export function ReportComposerPage() {
       </div>
 
       <div className="muted small mb-16">{T.reportEvidenceNote}</div>
+      {draft.status === "FINAL" && <Alert kind="info">هذا المحضر صادر ومحفوظ. يمكنك تنزيل النسخة الصادرة أو إعادة فتح مسودة لإصدار نسخة جديدة. <a href="#report-archive">انتقل إلى المحاضر الصادرة</a></Alert>}
 
       {draft.stale.length > 0 && (
         <div className="mb-16">
@@ -688,6 +710,7 @@ export function ReportComposerPage() {
                 index={i + 1}
                 sessionId={sessionId}
                 busy={busy || !mayEdit}
+                onDirtyChange={markBlockDirty}
                 canMergeNext={i + 1 < draft.qa_blocks.length}
                 fushaAvailable={draft.llm.available && mayEdit}
                 onFusha={() =>
@@ -738,13 +761,16 @@ export function ReportComposerPage() {
       </div>
 
       {/* ---- المحاضر الصادرة: immutable, hashed, verifiable ------------------ */}
-      <div className="card" data-testid="report-archive">
+      <div className="card" id="report-archive" data-testid="report-archive">
         <div className="card-head">
           {T.reportArchive}{" "}
           <span className="num muted">({archive?.reports.length ?? 0})</span>
         </div>
         <div className="card-body">
           <div className="muted small mb-16">{T.reportFinalNote}</div>
+          {error && <Alert kind="danger">{error}<button className="btn" onClick={() => void loadArchive().then(() => setError(null)).catch(fail)}>إعادة تحميل حالة المحضر</button></Alert>}
+          {metaDirty && <Alert kind="info">احفظ بيانات المحضر قبل إصدار النسخة النهائية.</Alert>}
+          {dirtyBlocks.size > 0 && <Alert kind="info">توجد تعديلات غير محفوظة في الأسئلة والأجوبة. احفظها قبل إصدار المحضر.</Alert>}
 
           {archive && !archive.can_finalize && (
             <Alert kind="warning">
@@ -760,7 +786,7 @@ export function ReportComposerPage() {
             </Alert>
           )}
 
-          {mayEdit && draft.status === "FINAL" && (
+          {mayGenerate && draft.status === "FINAL" && (
             <button
               className="btn mt-8"
               type="button"
@@ -782,7 +808,7 @@ export function ReportComposerPage() {
             <button
               className="btn btn-primary mt-8"
               type="button"
-              disabled={busy || !archive?.can_finalize}
+              disabled={busy || metaDirty || dirtyBlocks.size > 0 || !archive?.can_finalize}
               onClick={() =>
                 void (async () => {
                   setBusy(true);

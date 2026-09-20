@@ -48,6 +48,9 @@ const CATEGORY_OF: Record<string, AuditCategory> = {
 
   VOICE_ENROLLED: "voice",
   VOICE_ENROLLMENT_UPDATED: "voice",
+  VOICE_PRINT_REVIEWED: "voice",
+  VOICE_IDENTITY_SET_CONFIRMED: "voice",
+  VOICE_IDENTITY_SET_REOPENED: "voice",
   VOICE_ENROLLMENT_DELETED: "voice",
   VOICE_IDENTITY_SUGGESTED: "voice",
   VOICE_IDENTITY_CONFIRMED: "voice",
@@ -250,6 +253,10 @@ export function auditSummary(action: string, meta: Record<string, unknown> | nul
       return `${speaker} · ${T.auditSuggestionDismissed} (${s(m.suggested_name)})`;
     case "VOICE_ENROLLED":
       return s(m.person_name);
+    case "VOICE_PRINT_REVIEWED":
+    case "VOICE_IDENTITY_SET_CONFIRMED":
+    case "VOICE_IDENTITY_SET_REOPENED":
+      return s(m.reason);
     case "VOICE_ENROLLMENT_DELETED":
       return s(m.person_name);
     case "VOICE_REMATCH_RUN": {

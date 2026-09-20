@@ -13,7 +13,7 @@ def test_identifier_conflict_rolls_back_whole_save(client, admin_token):
     s = create_session(client, admin_token, subjects=[
         {"subject_name":"علي", "person_type":"MILITARY", "military_id":"4471", "security_branch":"ARMY"},
         {"subject_name":"حسن", "person_type":"MILITARY", "military_id":"4472", "security_branch":"ARMY"}])
-    people = s["subjects"]
+    people = sorted(s["subjects"], key=lambda person: person["military_id"])
     res = client.put(f"/api/investigations/{s['id']}", headers=auth(admin_token),
                      json={"subjects":[{**people[0], "notes":"must roll back"}, {**people[1], "military_id":"4471"}]})
     assert res.status_code == 409

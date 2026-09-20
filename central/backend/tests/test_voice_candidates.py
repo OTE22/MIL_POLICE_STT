@@ -76,7 +76,7 @@ def test_identifying_an_existing_person_creates_no_second_identity(client, inves
 
     assert a["identity_id"] == b["identity_id"]
     people = [p for p in client.get(f"/api/voice-enrollments/people?q=الرائد علي حسن", headers=auth(t)).json()
-              if p["person_name"] == "الرائد علي حسن"]
+              if p["identity_id"] == a["identity_id"]]
     assert len(people) == 1, "one canonical person, not two"
 
 
@@ -153,15 +153,15 @@ def test_person_search_does_not_leak_inaccessible_activity(client, investigator,
 
     s = _submit(client, t1, voice=_voice(SPEAKER_00=EMB_A, SPEAKER_01=EMB_B))
     sp = _speakers(client, t1, s["id"])
-    _identify(client, t1, s, sp["SPEAKER_00"]["id"], "الرائد علي حسن", reference)
+    identified = _identify(client, t1, s, sp["SPEAKER_00"]["id"], "الرائد علي حسن", reference)
     assert _enroll(client, t1, s["id"], sp["SPEAKER_00"]["id"], reference, "الرائد علي حسن").status_code == 201
 
     mine = [p for p in client.get(f"/api/voice-enrollments/people?q=الرائد علي حسن", headers=auth(t1)).json()
-            if p["person_name"] == "الرائد علي حسن"]
+            if p["identity_id"] == identified["identity_id"]]
     assert mine and mine[0]["accessible_print_count"] == 1
 
     theirs = [p for p in client.get(f"/api/voice-enrollments/people?q=الرائد علي حسن", headers=auth(t2)).json()
-              if p["person_name"] == "الرائد علي حسن"]
+              if p["identity_id"] == identified["identity_id"]]
     assert theirs, "the identity must still be reusable"
     assert theirs[0]["person_name"] == "الرائد علي حسن"
     assert theirs[0]["accessible_print_count"] == 0, "counts must not disclose inaccessible activity"

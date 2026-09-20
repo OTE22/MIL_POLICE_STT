@@ -15,6 +15,7 @@ from app.db.session import get_db
 from app.models import (
     AudioRecording,
     AuditAction,
+    IdentificationStatus,
     InvestigationSession,
     RecordingUploadStatus,
     SessionSpeaker,
@@ -58,7 +59,7 @@ def _segment_out(db: Session, seg: TranscriptSegment) -> SegmentOut:
     )
 
 
-def _speakers_out(db: Session, session_id: uuid.UUID, transcript: Transcript | None) -> list[SpeakerOut]:
+def _speakers_out(db: Session, session_id: uuid.UUID) -> list[SpeakerOut]:
     from app.models import PersonIdentity
 
     # The canonical name/reference for every identified speaker, resolved once rather than
@@ -79,18 +80,19 @@ def _speakers_out(db: Session, session_id: uuid.UUID, transcript: Transcript | N
     speakers = db.scalars(
         select(SessionSpeaker).where(SessionSpeaker.session_id == session_id).order_by(SessionSpeaker.speaker_label)
     ).all()
-    stats: dict[str, tuple[int, float]] = {}
-    if transcript is not None:
-        rows = db.execute(
-            select(
-                TranscriptSegment.speaker_label,
-                func.count(TranscriptSegment.id),
-                func.coalesce(func.sum(TranscriptSegment.end_seconds - TranscriptSegment.start_seconds), 0),
-            )
-            .where(TranscriptSegment.transcript_id == transcript.id)
-            .group_by(TranscriptSegment.speaker_label)
-        ).all()
-        stats = {label: (int(count), float(total)) for label, count, total in rows}
+    # Session totals use the newest transcript per recording. Reprocessing must not
+    # double-count speech, and opening the latest file must not zero older observations.
+    latest_ids = (select(Transcript.id).where(Transcript.session_id == session_id)
+                  .distinct(Transcript.recording_id)
+                  .order_by(Transcript.recording_id, Transcript.created_at.desc(), Transcript.id.desc()))
+    rows = db.execute(select(
+        TranscriptSegment.speaker_label, func.count(TranscriptSegment.id),
+        func.coalesce(func.sum(TranscriptSegment.end_seconds - TranscriptSegment.start_seconds), 0),
+    ).where(TranscriptSegment.transcript_id.in_(latest_ids))
+      .group_by(TranscriptSegment.speaker_label)).all()
+    stats = {label: (int(count), float(total)) for label, count, total in rows}
+    recording_names = dict(db.execute(select(AudioRecording.id, AudioRecording.original_filename)
+                          .where(AudioRecording.session_id == session_id)).all())
     out = []
     for s in speakers:
         count, total = stats.get(s.speaker_label, (0, 0.0))
@@ -98,6 +100,8 @@ def _speakers_out(db: Session, session_id: uuid.UUID, transcript: Transcript | N
             SpeakerOut(
                 id=s.id,
                 session_id=s.session_id,
+                recording_id=s.recording_id,
+                recording_name=recording_names.get(s.recording_id),
                 speaker_label=s.speaker_label,
                 display_name=s.display_name,
                 speaker_role=s.speaker_role,
@@ -158,7 +162,7 @@ def get_transcript(
         completed_at=transcript.completed_at,
         audio_available=audio_available,
         segments=[_segment_out(db, s) for s in transcript.segments],
-        speakers=_speakers_out(db, session.id, transcript),
+        speakers=_speakers_out(db, session.id),
     )
 
 
@@ -214,7 +218,7 @@ def list_speakers(
     _: User = Depends(require_permission("transcripts.read")),
     db: Session = Depends(get_db),
 ) -> list[SpeakerOut]:
-    return _speakers_out(db, session.id, _latest_transcript(db, session.id))
+    return _speakers_out(db, session.id)
 
 
 @router.patch("/investigations/{session_id}/speakers/{speaker_id}", response_model=SpeakerOut)
@@ -226,10 +230,13 @@ def update_speaker(
     user: User = Depends(require_permission("speakers.assign")),
     db: Session = Depends(get_db),
 ) -> SpeakerOut:
-    speaker = db.get(SessionSpeaker, speaker_id)
+    speaker = db.scalar(select(SessionSpeaker).where(SessionSpeaker.id == speaker_id).with_for_update())
     if speaker is None or speaker.session_id != session.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="speaker_not_found")
-    previous = {"display_name": speaker.display_name, "speaker_role": speaker.speaker_role.value}
+    previous = {"display_name": speaker.display_name, "speaker_role": speaker.speaker_role.value,
+                "identity_id": str(speaker.identity_id) if speaker.identity_id else None,
+                "identification_status": speaker.identification_status.value,
+                "suggested_enrollment_id": str(speaker.suggested_enrollment_id) if speaker.suggested_enrollment_id else None}
     data = body.model_dump(exclude_unset=True)
     # UUID selection establishes identity and always requires voice.identify.
     if "identity_id" in data:
@@ -247,6 +254,16 @@ def update_speaker(
             raise HTTPException(400, detail="person_not_in_session")
         speaker.identity_id = identity.id
         speaker.display_name = identity.person_name
+        # An explicit person selection is a human decision, not an unresolved suggestion.
+        speaker.identification_status = IdentificationStatus.CONFIRMED
+        speaker.decided_by = user.id
+        speaker.decided_at = datetime.now(timezone.utc)
+        speaker.suggested_name = None
+        speaker.suggested_enrollment_id = None
+        speaker.suggested_score = None
+        speaker.suggested_model = None
+        speaker.suggested_model_revision = None
+        speaker.suggested_at = None
     for key, value in data.items():
         if key == "speaker_role":
             speaker.speaker_role = SpeakerRole(value) if value is not None else SpeakerRole.UNKNOWN
@@ -270,7 +287,7 @@ def update_speaker(
     )
     db.commit()
     db.refresh(speaker)
-    for item in _speakers_out(db, session.id, _latest_transcript(db, session.id)):
+    for item in _speakers_out(db, session.id):
         if item.id == speaker.id:
             return item
     raise HTTPException(status.HTTP_404_NOT_FOUND, detail="speaker_not_found")

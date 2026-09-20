@@ -160,7 +160,7 @@ each setting takes effect: [system-settings.md](system-settings.md).
 | transcripts.read | ✔ | ✔ | ✔ |
 | transcripts.edit / speakers.assign | ✔ | ✔ | |
 | voice.identify (say which human a speaker is; confirm/reject suggestions; re-scan; run فحص البصمات الصوتية) | ✔ | ✔ | |
-| voice.enroll (create, deactivate and delete voice prints) | ✔ | ✔ | |
+| voice.enroll (manage prints, record reviews, confirm same-person sets and reopen them) | ✔ | ✔ | |
 | reports.read (view report drafts and the archive of issued محاضر) | ✔ | ✔ | ✔ |
 | reports.generate (create and edit the report draft, request فصحى suggestions) | ✔ | ✔ | |
 | reports.finalize (issue the final official document) | ✔ | ✔ | |
@@ -229,6 +229,11 @@ PATCH/DELETE /api/voice-enrollments/{id}  GET /api/voice-enrollments/candidates
 POST /api/voice-enrollments/rematch       POST /api/investigations/{id}/voice-rematch
 POST /api/voice-enrollments/people/{identity_id}/consolidate
 POST /api/voice-enrollments/people/{identity_id}/biometric-check   (advisory, read-only)
+GET  /api/voice-enrollments/people/{identity_id}/reviews          (latest 100 print reviews)
+POST /api/voice-enrollments/{enrollment_id}/reviews               (note / flag / resolve / deactivate)
+GET  /api/voice-enrollments/{enrollment_id}/source                (authorized source recording/segments)
+POST /api/voice-enrollments/people/{identity_id}/identity-confirmations
+POST /api/voice-enrollments/people/{identity_id}/identity-confirmations/{confirmation_id}/reopen
 GET/PUT /api/admin/config                                          (system.configure)
 GET/POST/PUT /api/investigations/{id}/report                       (the محضر draft)
 POST /api/investigations/{id}/report/refresh                       (تحديث من النص المنقح)

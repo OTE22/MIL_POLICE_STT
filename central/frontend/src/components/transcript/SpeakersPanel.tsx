@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ApiError, http } from "@/api/client";
 import type { Speaker, SpeakerRole } from "@/api/types";
 import { useAuth } from "@/lib/auth";
 import { formatDuration, speakerColor } from "@/lib/format";
 import { T, errorMessage, t } from "@/lib/i18n";
-import { Field, useToast } from "@/components/ui";
+import { Badge, Field, useToast } from "@/components/ui";
+import { groupSpeakerObservations } from "@/lib/transcript-speakers";
 import { VoiceEnrollButton, VoiceSuggestion } from "./VoiceSuggestion";
 import { IdentifySpeakerDialog } from "@/components/voice/IdentifySpeakerDialog";
 import { SpeakerPicker } from "./SpeakerPicker";
@@ -17,6 +18,7 @@ function SpeakerForm({
   speaker,
   onSaved,
   onReloadRequested,
+  observationNumber,
 }: {
   sessionId: string;
   speaker: Speaker;
@@ -24,6 +26,7 @@ function SpeakerForm({
   /** Identifying rewrites the speaker and the session server-side, so refetch rather
       than patch local state. */
   onReloadRequested: () => void;
+  observationNumber: number;
 }) {
   const toast = useToast();
   const { can } = useAuth();
@@ -32,6 +35,7 @@ function SpeakerForm({
   const [notes, setNotes] = useState(speaker.notes ?? "");
   const [busy, setBusy] = useState(false);
   const editable = can("speakers.assign");
+  useEffect(() => setRole(speaker.speaker_role), [speaker.speaker_role]);
 
   /* الصفة and ملاحظات are the ONLY things حفظ writes. Identity is established by اختيار الشخص
      and nothing else - which is what the old تعيين الاسم got wrong: it either labelled a
@@ -59,6 +63,7 @@ function SpeakerForm({
     <div className="speaker-card" data-testid="speaker-card" data-label={speaker.speaker_label}>
       {identifying && (
         <IdentifySpeakerDialog
+          initialMode="new"
           sessionId={sessionId}
           speaker={speaker}
           onClose={() => setIdentifying(false)}
@@ -70,19 +75,27 @@ function SpeakerForm({
         speaker={speaker}
         /* No local name state to sync any more: the picker renders speaker.display_name, so
            updating the speaker is enough. */
-        onDecided={(patch) => onSaved({ ...speaker, ...patch })}
+        onDecided={(patch) => {
+          onSaved({ ...speaker, ...patch });
+          onReloadRequested();
+        }}
       />
       <div className="head">
         <strong>
           <span className="sw" style={{ background: speakerColor(speaker.speaker_label) }} />
-          <span className="ltr">{speaker.speaker_label}</span>
-          {" → "}
-          {speaker.display_name || (speaker.speaker_role !== "UNKNOWN" ? t(`role_${speaker.speaker_role}`) : T.unnamed)}
+          العينة الصوتية {observationNumber}
+          {speaker.recording_name && <> · <bdi>{speaker.recording_name}</bdi></>}
+          {speaker.speaker_role !== "UNKNOWN" && <> · {t(`role_${speaker.speaker_role}`)}</>}
         </strong>
         <span className="meta">
           {T.segmentCount}: <span className="num">{speaker.segment_count}</span> — {T.speakingTime}: {formatDuration(speaker.total_seconds)}
         </span>
       </div>
+      <details className="muted small mb-16"><summary>تفاصيل المصدر</summary>
+        <div>رمز المتحدث في النظام: <bdi>{speaker.speaker_label}</bdi></div>
+        <div>معرّف العينة: <bdi>{speaker.id}</bdi></div>
+        {speaker.recording_id && <div>معرّف التسجيل: <bdi>{speaker.recording_id}</bdi></div>}
+      </details>
       <div className="form-grid">
         <Field label={T.speakerPerson}>
           {/* One control. Selecting a person IS identifying them - there is no separate
@@ -168,13 +181,14 @@ export function SpeakersPanel({
   };
 
   const canRematch = can("voice.identify") && speakers.some((s) => s.has_voice_embedding);
+  const groups = groupSpeakerObservations(speakers);
 
   return (
     <div className="card">
       <div className="card-header">
         <h3>{T.speakers}</h3>
         <div className="flex gap">
-          <span className="muted small">{speakers.length > 4 ? T.speakerLimitWarning : ""}</span>
+          <span className="muted small">{groups.filter(g => g.identified).length} أشخاص محددون · {groups.filter(g => !g.identified).length} عينات بانتظار تحديد الهوية</span>
           {canRematch && (
             <button
               className="btn btn-sm"
@@ -191,15 +205,23 @@ export function SpeakersPanel({
       </div>
       <div className="card-body">
         {speakers.length === 0 && <div className="muted center">{T.noTranscript}</div>}
-        {speakers.map((s) => (
-          <SpeakerForm
-            key={s.id}
-            sessionId={sessionId}
-            speaker={s}
-            onSaved={(u) => onChange(speakers.map((x) => (x.id === u.id ? u : x)))}
-            onReloadRequested={() => onReload?.()}
-          />
-        ))}
+        {speakers.length > 0 && <p className="muted small">تُجمع العينات تحت اسم واحد بعد ربطها بالشخص نفسه. يبقى كل متحدث غير محدد مستقلاً حتى مراجعة هويته.</p>}
+        {groups.map((group, index) => <section className="card card-body mb-16" key={group.key} data-testid="speaker-person-group">
+          <div className="flex gap wrap">
+            <strong>{group.name}</strong>
+            <Badge kind={group.identified ? "green" : "amber"}>{group.identified ? "هوية محددة" : "بانتظار تحديد الهوية"}</Badge>
+            <span className="muted small">{group.observations.length} عينات صوتية · {T.segmentCount}: {group.segmentCount} · {T.speakingTime}: {formatDuration(group.totalSeconds)}</span>
+          </div>
+          {groups.some(other => other.key !== group.key && other.name === group.name) && <p className="muted small">سجل مستقل {index + 1} — تشابه الأسماء لا يعني تطابق الهوية.</p>}
+          <details className="mt-8" open={!group.identified}>
+            <summary>العينات وإجراءات تحديد الهوية ({group.observations.length})</summary>
+            {group.observations.map((s, i) => <SpeakerForm
+              key={s.id} sessionId={sessionId} speaker={s} observationNumber={i + 1}
+              onSaved={u => onChange(speakers.map(x => x.id === u.id ? u : x))}
+              onReloadRequested={() => onReload?.()}
+            />)}
+          </details>
+        </section>)}
       </div>
     </div>
   );

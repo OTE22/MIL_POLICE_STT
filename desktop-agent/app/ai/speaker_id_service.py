@@ -174,6 +174,42 @@ def build_speaker_id_service(settings: Settings) -> SpeakerIdentificationService
     raise ValueError(f"unsupported speaker identification provider: {provider}")
 
 
+def clean_speaker_spans(segments) -> dict[str, list[tuple[float, float]]]:
+    """Use only non-overlapping speech; subtract other voices even if flags are absent."""
+    result: dict[str, list[tuple[float, float]]] = {}
+    for segment in segments:
+        if segment.is_overlap:
+            continue
+        pieces = [(segment.start_seconds, segment.end_seconds)]
+        for other in segments:
+            if other.speaker_label == segment.speaker_label and not other.is_overlap:
+                continue
+            remaining = []
+            for start, end in pieces:
+                a, b = other.start_seconds, other.end_seconds
+                if b <= start or a >= end:
+                    remaining.append((start, end))
+                else:
+                    if start < a:
+                        remaining.append((start, a))
+                    if b < end:
+                        remaining.append((b, end))
+            pieces = remaining
+        result.setdefault(segment.speaker_label, []).extend(pieces)
+    # Merge duplicate/overlapping windows so duration means unique speech.
+    for label, spans in result.items():
+        merged = []
+        for start, end in sorted(spans):
+            if end <= start:
+                continue
+            if merged and start <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(end, merged[-1][1]))
+            else:
+                merged.append((start, end))
+        result[label] = merged
+    return result
+
+
 def collect_speaker_audio(
     audio: np.ndarray,
     sample_rate: int,

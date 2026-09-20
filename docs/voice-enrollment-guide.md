@@ -163,6 +163,11 @@ area must not make quietly.
 
 ### فحص البصمات الصوتية — checking that a person's prints agree
 
+The result now includes explanations, source listening and comparison, and explicit review
+actions with reasons and history. See [the review panel guide](voice-review-panel.md).
+Running the check still changes nothing; saving a review or deactivating a print is a
+separate operator action.
+
 More prints only help **when they are all really the same voice**. A print enrolled from the
 wrong speaker sits under the person forever and makes that other voice match at ~100%. To
 find this, every person row on **بصمات الأصوات** has a **فحص البصمات الصوتية** button
@@ -171,21 +176,37 @@ find this, every person row on **بصمات الأصوات** has a **فحص ال
 * It runs **only when you press it** — never at enrolment, never on page load, and only for
   that one person.
 * The server compares the person's **active prints with each other** (one pgvector cosine
-  query; prints from a different model or dimension are grouped and reported separately —
+  query; prints from a different model, dimension, revision or provider are grouped and reported separately —
   they are never compared across groups).
 * Prints that match at or above **عتبة اقتراح الهوية** (the same threshold the matcher uses,
   from إعدادات النظام) are linked; the linked sets are the **المجموعات الصوتية**. One group
-  = healthy. **More than one group = تحتاج مراجعة**: internally-coherent sets that do not
-  match each other usually mean two different voices were enrolled under one person.
+  means connected at the current threshold. **More than one group = تحتاج مراجعة**:
+  review the source audio and model compatibility. Different recording conditions or
+  incompatible models can also produce separate groups; the result does not prove two identities.
 * Per print you see the highest similarity to a sibling and a status: **منسجمة** (has a
-  matching sibling), **شبه مكررة** (above عتبة البصمة شبه المكررة — same sample twice, adds
-  no coverage), **معزولة** (matches none of the siblings), or **بصمة واحدة**.
+  matching sibling), **شبه مكررة** (above عتبة البصمة شبه المكررة — inspect the sources before
+  concluding duplication), **معزولة** (matches none of the compatible siblings), or **بصمة واحدة**.
 
 The check is **advisory only**. It never deletes, deactivates, merges, or re-assigns
 anything, and it never decides which group is the real person — listen to the source
-recordings (each print links to its session) and use the existing تعطيل/حذف controls
-yourself. Both thresholds live in **إعدادات النظام**; changing them there changes the next
-check immediately.
+recordings with **استماع ومقارنة**. Separate actions let you add a note, flag or resolve a
+review, or deactivate a print with a recorded reason. Both thresholds live in
+**إعدادات النظام**; changing them changes the next numerical check immediately.
+
+### تأكيد وحدة الهوية — within one group or across groups
+
+Select two or more samples individually, by **تحديد المجموعة**, or with **تحديد جميع العينات**.
+After reviewing the sources, enter the reason under **تأكيد وحدة الهوية** and press
+**تأكيد أن العينات للشخص نفسه**. The selected samples may be in one computed group,
+different groups, or groups whose model metadata makes numerical comparison unavailable.
+Each decision covers at most 100 explicit samples belonging to the displayed person.
+
+The result shows **نفس الشخص — مؤكّد يدوياً**, the reviewer, date, reason and sample details.
+This does not merge vectors, change scores, override matching, or consolidate person records.
+New samples are not covered automatically. Changes to a covered print's recorded update
+timestamp (including a new print review), deactivation or deletion make the decision stale.
+**إعادة فتح المراجعة** requires a reason and retains the original confirmation in history.
+See [voice-review-panel.md](voice-review-panel.md) for permissions, APIs and limitations.
 
 ---
 
@@ -346,7 +367,7 @@ section of [speaker-identification.md](speaker-identification.md).
 | Permission | Grants | Roles |
 |---|---|---|
 | `voice.identify` | See suggestions, confirm/reject, view the registry, run a re-scan, run **فحص البصمات الصوتية** | ADMIN, INVESTIGATOR |
-| `voice.enroll` | Create, deactivate and delete prints | ADMIN, INVESTIGATOR |
+| `voice.enroll` | Manage prints; save notes/flags/reviews; confirm same-person sample sets and reopen decisions | ADMIN, INVESTIGATOR |
 | `speakers.assign` | Label a speaker: الاسم المعروض, الصفة, ملاحظات. Required *in addition* to accept a suggestion | ADMIN, INVESTIGATOR |
 
 **Labelling and identifying are different authorities.** `speakers.assign` says *you may name

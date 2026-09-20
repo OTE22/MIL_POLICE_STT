@@ -182,6 +182,9 @@ class SessionSpeaker(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # Which model produced `voice_embedding`. Embeddings are NOT comparable across
     # models, so a later re-scan must know this even when no suggestion was made.
     voice_embedding_model: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    voice_embedding_revision: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    voice_embedding_provider: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    voice_embedding_seconds: Mapped[float | None] = mapped_column(Numeric(12, 3), nullable=True)
 
     session: Mapped["InvestigationSession"] = relationship(  # noqa: F821
         "InvestigationSession", back_populates="speakers"

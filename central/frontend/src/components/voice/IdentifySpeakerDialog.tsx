@@ -16,14 +16,16 @@ export function IdentifySpeakerDialog({
   speaker,
   onClose,
   onIdentified,
+  initialMode = "existing",
 }: {
   sessionId: string;
   speaker: Speaker;
   onClose: () => void;
   onIdentified: () => void;
+  initialMode?: Mode;
 }) {
   const toast = useToast();
-  const [mode, setMode] = useState<Mode>("existing");
+  const [mode, setMode] = useState<Mode>(initialMode);
   // Start from the name they just typed: if that person is already known, choosing them
   // is one click. It only seeds the search - selection is by UUID, never name.
   const [q, setQ] = useState(speaker.display_name ?? "");

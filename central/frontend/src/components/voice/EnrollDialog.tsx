@@ -55,9 +55,6 @@ export function EnrollDialog({
           // The name is shown for confirmation only. They are NOT sent:
           // the server reads the person from the speaker's identity, and letting a client
           // name the subject of a biometric record is exactly the wrong authority.
-          model: target.model || SPEAKER_ID_MODEL,
-          provider: "nemo_speakernet",
-          sample_seconds: target.sampleSeconds ?? null,
           consent_recorded: consent,
         },
       );

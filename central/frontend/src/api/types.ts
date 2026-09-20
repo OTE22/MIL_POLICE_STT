@@ -279,6 +279,8 @@ export interface Segment {
 export type IdentificationStatus = "NONE" | "SUGGESTED" | "CONFIRMED" | "REJECTED";
 
 export interface Speaker {
+  recording_id?: string | null;
+  recording_name?: string | null;
   id: string;
   session_id: string;
   speaker_label: string;
@@ -340,13 +342,33 @@ export interface BiometricPrintCheck {
   /** 1-based within the group. Two components = possibly two different voices. */
   component_id: number;
   status: BiometricPrintStatus;
+  updated_at: string;
+  review_status: "NONE" | "FLAGGED" | "RESOLVED";
 }
 
 export interface BiometricGroup {
   model: string;
   embedding_dim: number;
+  model_revision: string | null;
+  provider: string | null;
   component_count: number;
   prints: BiometricPrintCheck[];
+  pairs: { first_id: string; second_id: string; similarity: number }[];
+}
+
+export type VoiceReviewAction = "NOTE" | "FLAG" | "RESOLVE" | "DEACTIVATE";
+export interface VoiceReview {
+  id: string;
+  enrollment_id: string;
+  action: VoiceReviewAction;
+  reason: string;
+  reviewer_name: string | null;
+  created_at: string;
+}
+export interface VoiceSource {
+  recording_id: string;
+  transcript_id: string;
+  segments: { start_seconds: number; end_seconds: number }[];
 }
 
 /** Result of the manual فحص البصمات الصوتية. Read-only: the server changes nothing. */
@@ -359,6 +381,19 @@ export interface BiometricCheck {
   coherence_threshold: number;
   near_duplicate_threshold: number;
   groups: BiometricGroup[];
+  identity_confirmations: VoiceIdentityConfirmation[];
+}
+
+export interface VoiceIdentityConfirmation {
+  id: string;
+  enrollment_ids: string[];
+  reason: string;
+  reviewer_name: string | null;
+  created_at: string;
+  status: "ACTIVE" | "STALE" | "REOPENED";
+  reopened_reason: string | null;
+  reopened_by_name: string | null;
+  reopened_at: string | null;
 }
 
 export interface PersonSearchResult {

@@ -16,7 +16,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -24,6 +24,8 @@ from app.core.deps import accessible_sessions_stmt, client_ip, get_accessible_se
 from app.db.session import get_db
 from app.models import (
     AuditAction,
+    AuditLog,
+    AudioRecording,
     IdentificationStatus,
     InvestigationSession,
     PersonIdentity,
@@ -39,6 +41,7 @@ from app.config import get_settings
 from app.schemas.voice import (
     BiometricCheckOut,
     BiometricGroupOut,
+    BiometricPairOut,
     BiometricPrintCheckOut,
     EnrollmentCandidateOut,
     IdentityConsolidateIn,
@@ -47,6 +50,13 @@ from app.schemas.voice import (
     VoiceEnrollmentCreate,
     VoiceEnrollmentOut,
     VoiceEnrollmentUpdate,
+    VoiceReviewIn,
+    VoiceReviewOut,
+    VoiceSourceOut,
+    VoiceSourceSegmentOut,
+    VoiceIdentityConfirmationIn,
+    VoiceIdentityConfirmationOut,
+    VoiceConfirmationReopenIn,
 )
 from app.services.audit import record_audit
 from app.services.person_identity import (
@@ -56,10 +66,167 @@ from app.services.person_identity import (
     resolve_identity,
 )
 from app.services.voice_matching import rematch_speakers
+from app.services.voice_review import CONFIRMED, REOPENED, identity_confirmations
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["voice"])
+
+REVIEW_ACTION = "VOICE_PRINT_REVIEWED"
+
+
+@router.post("/voice-enrollments/people/{identity_id}/identity-confirmations", response_model=VoiceIdentityConfirmationOut)
+def confirm_voice_identity_set(
+    identity_id: uuid.UUID, body: VoiceIdentityConfirmationIn, request: Request,
+    user: User = Depends(require_permission("voice.enroll")), db: Session = Depends(get_db),
+) -> VoiceIdentityConfirmationOut:
+    reason = body.reason.strip()
+    if not reason:
+        raise HTTPException(422, detail="voice_review_reason_required")
+    expected = {p.enrollment_id: p.expected_updated_at for p in body.prints}
+    if len(expected) != len(body.prints):
+        raise HTTPException(422, detail="voice_confirmation_duplicate_prints")
+    # Deterministic lock order serializes overlapping selections and print edits.
+    prints = list(db.scalars(select(VoiceEnrollment).where(
+        VoiceEnrollment.id.in_(expected)).order_by(VoiceEnrollment.id).with_for_update()).all())
+    if len(prints) != len(expected) or any(
+        p.identity_id != identity_id or not p.is_active or p.updated_at != expected[p.id] for p in prints
+    ):
+        raise HTTPException(409, detail="voice_review_stale")
+    # Numeric component labels change with thresholds. Persist only explicit print IDs.
+    for previous in identity_confirmations(db, identity_id, prints):
+        if previous.status == "ACTIVE" and set(previous.enrollment_ids) == set(expected):
+            raise HTTPException(409, detail="voice_confirmation_exists")
+    entry = record_audit(db, action=CONFIRMED, user_id=user.id,
+        entity_type="person_identity", entity_id=identity_id,
+        metadata={"reason": reason, "print_versions": {str(p.id): p.updated_at.isoformat() for p in prints}},
+        ip_address=client_ip(request))
+    db.commit()
+    db.refresh(entry)
+    return next(c for c in identity_confirmations(db, identity_id, prints) if c.id == entry.id)
+
+
+@router.post("/voice-enrollments/people/{identity_id}/identity-confirmations/{confirmation_id}/reopen",
+             response_model=VoiceIdentityConfirmationOut)
+def reopen_voice_identity_set(
+    identity_id: uuid.UUID, confirmation_id: uuid.UUID, body: VoiceConfirmationReopenIn, request: Request,
+    user: User = Depends(require_permission("voice.enroll")), db: Session = Depends(get_db),
+) -> VoiceIdentityConfirmationOut:
+    reason = body.reason.strip()
+    if not reason:
+        raise HTTPException(422, detail="voice_review_reason_required")
+    entry = db.scalar(select(AuditLog).where(AuditLog.id == confirmation_id,
+        AuditLog.action == CONFIRMED, AuditLog.entity_type == "person_identity",
+        AuditLog.entity_id == str(identity_id)).with_for_update())
+    if entry is None:
+        raise HTTPException(404, detail="voice_confirmation_not_found")
+    existing = db.scalar(select(AuditLog.id).where(AuditLog.action == REOPENED,
+        AuditLog.entity_id == str(identity_id),
+        AuditLog.safe_metadata["confirmation_id"].astext == str(confirmation_id)))
+    if existing:
+        raise HTTPException(409, detail="voice_confirmation_reopened")
+    record_audit(db, action=REOPENED, user_id=user.id, entity_type="person_identity", entity_id=identity_id,
+        metadata={"confirmation_id": str(confirmation_id), "reason": reason}, ip_address=client_ip(request))
+    db.commit()
+    return next(c for c in identity_confirmations(db, identity_id, []) if c.id == confirmation_id)
+
+
+def _review_out(db: Session, entry: AuditLog) -> VoiceReviewOut:
+    reviewer = db.get(User, entry.user_id) if entry.user_id else None
+    meta = entry.safe_metadata or {}
+    return VoiceReviewOut(
+        id=entry.id, enrollment_id=entry.entity_id,
+        action=meta["review_action"], reason=meta["reason"],
+        reviewer_name=(reviewer.profile.full_name if reviewer.profile else reviewer.username) if reviewer else None,
+        created_at=entry.created_at,
+    )
+
+
+@router.get("/voice-enrollments/people/{identity_id}/reviews", response_model=list[VoiceReviewOut])
+def voice_review_history(
+    identity_id: uuid.UUID,
+    _: User = Depends(require_permission("voice.identify")),
+    db: Session = Depends(get_db),
+) -> list[VoiceReviewOut]:
+    identity = resolve_identity(db, db.get(PersonIdentity, identity_id))
+    if identity is None:
+        raise HTTPException(404, detail="person_not_found")
+    # Only dedicated review events are exposed, never unrelated audit metadata.
+    entries = db.scalars(select(AuditLog).where(
+        AuditLog.action == REVIEW_ACTION,
+        AuditLog.safe_metadata["identity_id"].astext == str(identity.id),
+    ).order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).limit(100)).all()
+    return [_review_out(db, entry) for entry in entries]
+
+
+@router.post("/voice-enrollments/{enrollment_id}/reviews", response_model=VoiceReviewOut)
+def review_voice_print(
+    enrollment_id: uuid.UUID, body: VoiceReviewIn, request: Request,
+    user: User = Depends(require_permission("voice.enroll")),
+    db: Session = Depends(get_db),
+) -> VoiceReviewOut:
+    enrollment = db.scalar(select(VoiceEnrollment).where(
+        VoiceEnrollment.id == enrollment_id).with_for_update())
+    if enrollment is None:
+        raise HTTPException(404, detail="enrollment_not_found")
+    if enrollment.updated_at != body.expected_updated_at or enrollment.identity_id != body.identity_id:
+        raise HTTPException(409, detail="voice_review_stale")
+    reason = body.reason.strip()
+    if not reason:
+        raise HTTPException(422, detail="voice_review_reason_required")
+    if body.action == "DEACTIVATE":
+        if not enrollment.is_active:
+            raise HTTPException(409, detail="voice_review_stale")
+        enrollment.is_active = False
+        _invalidate_pending(db, enrollment.id)
+    # Serialize review decisions as well as print edits; stale panels must refresh.
+    enrollment.updated_at = datetime.now(timezone.utc)
+    entry = record_audit(
+        db, action=REVIEW_ACTION, user_id=user.id,
+        entity_type="voice_enrollment", entity_id=enrollment.id,
+        metadata={"identity_id": str(enrollment.identity_id), "review_action": body.action,
+                  "reason": reason, "is_active": enrollment.is_active},
+        ip_address=client_ip(request),
+    )
+    db.commit()
+    db.refresh(entry)
+    return _review_out(db, entry)
+
+
+@router.get("/voice-enrollments/{enrollment_id}/source", response_model=VoiceSourceOut)
+def voice_print_source(
+    enrollment_id: uuid.UUID,
+    user: User = Depends(require_permission("voice.identify")),
+    db: Session = Depends(get_db),
+) -> VoiceSourceOut:
+    if "transcripts.read" not in user.permission_codes:
+        raise HTTPException(403, detail="forbidden")
+    enrollment = db.get(VoiceEnrollment, enrollment_id)
+    if enrollment is None or enrollment.source_session_id is None:
+        raise HTTPException(404, detail="voice_source_unavailable")
+    get_accessible_session(enrollment.source_session_id, user, db)
+    speaker = db.scalar(select(SessionSpeaker).where(
+        SessionSpeaker.session_id == enrollment.source_session_id,
+        SessionSpeaker.speaker_label == enrollment.source_speaker_label,
+    ))
+    if speaker is None or speaker.recording_id is None:
+        raise HTTPException(404, detail="voice_source_unavailable")
+    # Never substitute the latest session recording: labels are recording-local.
+    # Avoid later reprocessing transcripts, which may have different speaker turns.
+    transcript = db.scalar(select(Transcript).where(
+        Transcript.session_id == enrollment.source_session_id,
+        Transcript.recording_id == speaker.recording_id,
+        Transcript.created_at <= enrollment.created_at,
+    ).order_by(Transcript.created_at.desc(), Transcript.id.desc()).limit(1))
+    recording = db.get(AudioRecording, speaker.recording_id)
+    if transcript is None or recording is None or not recording.storage_path or recording.upload_status.value != "UPLOADED":
+        raise HTTPException(404, detail="voice_source_unavailable")
+    segments = [VoiceSourceSegmentOut(start_seconds=float(s.start_seconds), end_seconds=float(s.end_seconds))
+                for s in transcript.segments if s.speaker_label == enrollment.source_speaker_label
+                and s.end_seconds > s.start_seconds]
+    if not segments:
+        raise HTTPException(404, detail="voice_source_unavailable")
+    return VoiceSourceOut(recording_id=recording.id, transcript_id=transcript.id, segments=segments)
 
 
 def _out(db: Session, e: VoiceEnrollment) -> VoiceEnrollmentOut:
@@ -153,6 +320,8 @@ def enroll_from_speaker(
     if identity is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="speaker_identity_required")
     speaker.identity_id = identity.id
+    if not speaker.voice_embedding_model:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="voice_provenance_missing")
 
     # Several prints per person are intended - different recording conditions give better
     # coverage, and the matcher groups them by canonical identity so they reinforce each
@@ -170,7 +339,7 @@ def enroll_from_speaker(
         db,
         session_id=session.id,
         speaker_label=speaker.speaker_label,
-        model=body.model,
+        model=speaker.voice_embedding_model,
     )
     if existing is not None:
         raise HTTPException(
@@ -189,10 +358,10 @@ def enroll_from_speaker(
         notes=body.notes,
         embedding=list(speaker.voice_embedding),
         embedding_dim=len(speaker.voice_embedding),
-        model=body.model,
-        model_revision=body.model_revision or speaker.suggested_model_revision,
-        provider=body.provider,
-        sample_seconds=body.sample_seconds,
+        model=speaker.voice_embedding_model,
+        model_revision=speaker.voice_embedding_revision,
+        provider=speaker.voice_embedding_provider,
+        sample_seconds=speaker.voice_embedding_seconds,
         source_session_id=session.id,
         source_speaker_label=speaker.speaker_label,
         consent_recorded=True,
@@ -219,7 +388,7 @@ def enroll_from_speaker(
             "session_id": session.id,
             "speaker_label": speaker.speaker_label,
             "person_name": person_name,
-            "model": body.model,
+            "model": enrollment.model,
             "consent_recorded": True,
         },
         ip_address=client_ip(request),
@@ -237,7 +406,7 @@ def update_enrollment(
     user: User = Depends(require_permission("voice.enroll")),
     db: Session = Depends(get_db),
 ) -> VoiceEnrollmentOut:
-    enrollment = db.get(VoiceEnrollment, enrollment_id)
+    enrollment = db.scalar(select(VoiceEnrollment).where(VoiceEnrollment.id == enrollment_id).with_for_update())
     if enrollment is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="enrollment_not_found")
 
@@ -270,6 +439,9 @@ def update_enrollment(
         if field in data:
             setattr(enrollment, field, data[field])
 
+    if data.get("is_active") is False:
+        _invalidate_pending(db, enrollment.id)
+
     record_audit(
         db,
         action=AuditAction.VOICE_ENROLLMENT_UPDATED if wants_identity_change else AuditAction.VOICE_ENROLLED,
@@ -288,6 +460,16 @@ def update_enrollment(
     db.commit()
     db.refresh(enrollment)
     return _out(db, enrollment)
+
+
+def _invalidate_pending(db: Session, enrollment_id: uuid.UUID) -> None:
+    """Retire pending suggestions, preserving all completed human decisions and audits."""
+    db.execute(update(SessionSpeaker).where(
+        SessionSpeaker.suggested_enrollment_id == enrollment_id,
+        SessionSpeaker.identification_status == IdentificationStatus.SUGGESTED,
+    ).values(identification_status=IdentificationStatus.NONE, suggested_name=None,
+             suggested_enrollment_id=None, suggested_score=None, suggested_model=None,
+             suggested_model_revision=None, suggested_at=None))
 
 
 def _active_print_for_source(
@@ -338,7 +520,7 @@ def delete_enrollment(
     user: User = Depends(require_permission("voice.enroll")),
     db: Session = Depends(get_db),
 ) -> Response:
-    enrollment = db.get(VoiceEnrollment, enrollment_id)
+    enrollment = db.scalar(select(VoiceEnrollment).where(VoiceEnrollment.id == enrollment_id).with_for_update())
     if enrollment is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="enrollment_not_found")
     record_audit(
@@ -356,6 +538,7 @@ def delete_enrollment(
         },
         ip_address=client_ip(request),
     )
+    _invalidate_pending(db, enrollment.id)
     db.delete(enrollment)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -386,7 +569,22 @@ def decide_suggestion(
     if body.accept:
         if "speakers.assign" not in user.permission_codes:
             raise HTTPException(status.HTTP_403_FORBIDDEN, detail="forbidden")
-        speaker.display_name = speaker.suggested_name
+        # Lock the supporting print against concurrent deactivation/deletion, then reload
+        # the suggestion in case a retiring transaction invalidated it while we waited.
+        matched = db.scalar(select(VoiceEnrollment).where(
+            VoiceEnrollment.id == speaker.suggested_enrollment_id).with_for_update())
+        db.refresh(speaker, with_for_update=True)
+        identity = resolve_identity(db, db.get(PersonIdentity, matched.identity_id)) if matched and matched.identity_id else None
+        if (speaker.identification_status != IdentificationStatus.SUGGESTED
+                or speaker.identity_id is not None
+                or matched is None or not matched.is_active or identity is None
+                or speaker.suggested_enrollment_id != matched.id
+                or matched.model != speaker.voice_embedding_model
+                or matched.embedding_dim != len(speaker.voice_embedding or [])
+                or matched.model_revision != speaker.voice_embedding_revision
+                or matched.provider != speaker.voice_embedding_provider):
+            raise HTTPException(status.HTTP_409_CONFLICT, detail="voice_suggestion_stale")
+        speaker.display_name = identity.person_name
         if speaker.speaker_role == SpeakerRole.UNKNOWN:
             speaker.speaker_role = SpeakerRole.SUBJECT
         speaker.identification_status = IdentificationStatus.CONFIRMED
@@ -394,10 +592,7 @@ def decide_suggestion(
         # identity of the print that matched. Without this the speaker would carry a name but
         # no identity - it could never be enrolled, and the link back to the person would be
         # lost. No new identity is created: the matched one is reused.
-        matched = db.get(VoiceEnrollment, speaker.suggested_enrollment_id) if speaker.suggested_enrollment_id else None
-        identity = resolve_identity(db, db.get(PersonIdentity, matched.identity_id)) if matched and matched.identity_id else None
-        if identity is not None:
-            speaker.identity_id = identity.id
+        speaker.identity_id = identity.id
         action = AuditAction.VOICE_IDENTITY_CONFIRMED
     else:
         speaker.identification_status = IdentificationStatus.REJECTED
@@ -424,10 +619,14 @@ def decide_suggestion(
     )
     db.commit()
     db.refresh(speaker)
+    current_identity = resolve_identity(db, db.get(PersonIdentity, speaker.identity_id)) if speaker.identity_id else None
     return {
         "speaker_id": str(speaker.id),
         "identification_status": speaker.identification_status.value,
         "display_name": speaker.display_name,
+        "identity_id": str(current_identity.id) if current_identity else None,
+        "identity_name": current_identity.person_name if current_identity else None,
+        "speaker_role": speaker.speaker_role.value,
     }
 
 
@@ -601,7 +800,7 @@ def list_candidates(
                 person_name=identity.person_name,
                 speaker_role=speaker.speaker_role.value,
                 identity_id=identity.id,
-                sample_seconds=_speaker_seconds(db, speaker),
+                sample_seconds=float(speaker.voice_embedding_seconds) if speaker.voice_embedding_seconds is not None else None,
                 enrollment_state="enrolled_inactive" if inactive else "never_enrolled",
                 inactive_enrollment_id=inactive.id if inactive else None,
                 created_at=speaker.updated_at,
@@ -726,6 +925,8 @@ def biometric_check(
                JOIN voice_enrollments b
                  ON b.identity_id = a.identity_id
                 AND b.model = a.model AND b.embedding_dim = a.embedding_dim
+                AND b.model_revision IS NOT DISTINCT FROM a.model_revision
+                AND b.provider IS NOT DISTINCT FROM a.provider
                 AND a.is_active AND b.is_active AND a.id < b.id
                WHERE a.identity_id = :identity_id"""
         ),
@@ -739,11 +940,20 @@ def biometric_check(
 
     groups: list[BiometricGroupOut] = []
     total_components = 0
-    by_group: dict[tuple[str, int], list[VoiceEnrollment]] = {}
+    review_states: dict[str, str] = {}
+    review_entries = db.scalars(select(AuditLog).where(
+        AuditLog.action == REVIEW_ACTION,
+        AuditLog.entity_id.in_([str(e.id) for e in prints]),
+    ).order_by(AuditLog.created_at.desc(), AuditLog.id.desc())).all()
+    for entry in review_entries:
+        action = (entry.safe_metadata or {}).get("review_action")
+        if action in ("FLAG", "RESOLVE") and entry.entity_id not in review_states:
+            review_states[entry.entity_id] = "FLAGGED" if action == "FLAG" else "RESOLVED"
+    by_group: dict[tuple[str, int, str | None, str | None], list[VoiceEnrollment]] = {}
     for e in prints:
-        by_group.setdefault((e.model, e.embedding_dim), []).append(e)
+        by_group.setdefault((e.model, e.embedding_dim, e.model_revision, e.provider), []).append(e)
 
-    for (model, dim), members in by_group.items():
+    for (model, dim, revision, provider), members in by_group.items():
         ids = [e.id for e in members]
         # Connected components over "matches at the coherence threshold" edges: plain
         # union-find; galleries are deliberate enrolments, never large.
@@ -794,10 +1004,17 @@ def biometric_check(
                     coherent_peer_count=coherent_peers,
                     component_id=roots[find(e.id)],
                     status=status_,
+                    updated_at=e.updated_at,
+                    review_status=review_states.get(str(e.id), "NONE"),
                 )
             )
         groups.append(
-            BiometricGroupOut(model=model, embedding_dim=dim, component_count=component_count, prints=out_prints)
+            BiometricGroupOut(
+                model=model, embedding_dim=dim, model_revision=revision, provider=provider,
+                component_count=component_count, prints=out_prints,
+                pairs=[BiometricPairOut(first_id=a, second_id=b, similarity=sims[(a, b)])
+                       for a in ids for b in ids if a < b and (a, b) in sims],
+            )
         )
 
     if not prints:
@@ -827,4 +1044,5 @@ def biometric_check(
         coherence_threshold=coherence,
         near_duplicate_threshold=near_dup,
         groups=groups,
+        identity_confirmations=identity_confirmations(db, identity.id, prints),
     )

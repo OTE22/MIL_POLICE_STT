@@ -7,6 +7,7 @@ import { formatClock, formatDateTime, speakerColor } from "@/lib/format";
 import { T, errorMessage, t } from "@/lib/i18n";
 import { Alert, Badge, useToast } from "@/components/ui";
 import { IconEdit, IconPlay, IconSearch } from "@/components/Icons";
+import { transcriptSpeakerOptions } from "@/lib/transcript-speakers";
 
 function speakerName(label: string, speakers: Speaker[]): string {
   const s = speakers.find((x) => x.speaker_label === label);
@@ -145,18 +146,26 @@ export function TranscriptViewer({ transcript, onChange }: { transcript: Transcr
   const [audioError, setAudioError] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const speakerOptions = useMemo(() => transcriptSpeakerOptions(transcript.speakers, transcript.segments), [transcript.speakers, transcript.segments]);
+  useEffect(() => { if (!speakerOptions.some(o => o.key === speakerFilter)) setSpeakerFilter(""); }, [speakerOptions, speakerFilter]);
 
   useEffect(() => {
     let url: string | null = null;
+    let cancelled = false;
+    setAudioUrl(null);
+    setAudioError(false);
+    setCurrentTime(0);
     if (transcript.audio_available) {
       fetchBlobUrl(`/recordings/${transcript.recording_id}/audio`)
         .then((u) => {
+          if (cancelled) { URL.revokeObjectURL(u); return; }
           url = u;
           setAudioUrl(u);
         })
-        .catch(() => setAudioError(true));
+        .catch(() => { if (!cancelled) setAudioError(true); });
     }
     return () => {
+      cancelled = true;
       if (url) URL.revokeObjectURL(url);
     };
   }, [transcript.recording_id, transcript.audio_available]);
@@ -164,9 +173,9 @@ export function TranscriptViewer({ transcript, onChange }: { transcript: Transcr
   const visible = useMemo(
     () =>
       transcript.segments.filter(
-        (s) => (!speakerFilter || s.speaker_label === speakerFilter) && (!query || (s.edited_text ?? s.original_text).includes(query)),
+        (s) => (!speakerFilter || speakerOptions.find(o => o.key === speakerFilter)?.labels.includes(s.speaker_label)) && (!query || (s.edited_text ?? s.original_text).includes(query)),
       ),
-    [transcript.segments, speakerFilter, query],
+    [transcript.segments, speakerFilter, speakerOptions, query],
   );
 
   const activeId = useMemo(() => {
@@ -195,9 +204,9 @@ export function TranscriptViewer({ transcript, onChange }: { transcript: Transcr
           </div>
           <select className="select" value={speakerFilter} onChange={(e) => setSpeakerFilter(e.target.value)} aria-label={T.speakerFilter}>
             <option value="">{T.allSpeakers}</option>
-            {transcript.speakers.map((s) => (
-              <option key={s.id} value={s.speaker_label}>
-                {speakerName(s.speaker_label, transcript.speakers)}
+            {speakerOptions.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.name}
               </option>
             ))}
           </select>

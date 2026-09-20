@@ -176,39 +176,53 @@ POST /api/voice-enrollments/people/{identity_id}/biometric-check   (voice.identi
 
 The **فحص البصمات الصوتية** button on each person row of بصمات الأصوات calls it. In one
 pgvector statement the server computes every pairwise cosine between that person's **active**
-prints (per model/dimension group — incompatible prints are never compared), then links
+prints (per model/dimension/revision/provider group — incompatible prints are never compared), then links
 prints that reach **عتبة اقتراح الهوية** and reports the **connected components**:
 
 * **1 component** — every print reaches every other, directly or through siblings: coherent.
-* **2+ components** — internally-similar sets that do *not* match each other: probably two
-  different voices under one name → `REVIEW_REQUIRED`. The system never guesses which
+* **2+ components** — separate sets or incompatible model groups → `REVIEW_REQUIRED`.
+  This is not proof of different people: recording conditions also affect similarity.
+  The system never guesses which
   component is the real person; each print links to its source session so a human can listen
   and decide.
 
 Per print it reports the best/worst similarity to a sibling, how many siblings it reaches,
 its component number, and a status: `COHERENT`, `ISOLATED` (reaches none), `NEAR_DUPLICATE`
-(≥ عتبة البصمة شبه المكررة — same sample enrolled twice, adds no coverage), or
+(≥ عتبة البصمة شبه المكررة — possible redundancy, requiring source review), or
 `SINGLE_PRINT`. Components matter because max-similarity alone cannot see a split identity:
 in A↔B = 0.84, C↔D = 0.86, cross ≈ 0.40, every print has an excellent peer — and there are
-still two voices.
+still two computed components.
 
 The check is **advisory and read-only**: it runs only when pressed (never at enrolment,
 never on page load, never registry-wide), it deactivates/deletes/merges/re-assigns nothing,
-and no vector ever reaches the browser or the logs. Remediation is the existing manual
-تعطيل/حذف controls. Each run leaves one log line (see the table below).
+and no vector ever reaches the browser or the logs. Each run leaves one log line (see the
+table below). The result also provides source A/B playback and explicit, separately saved
+notes, flags, review resolution and deactivation with reasons.
+
+**Manual same-person sets:** select 2–100 active samples within one component or across
+components/model groups, then save **تأكيد وحدة الهوية** with a reason. The decision covers
+only those print IDs and their reviewed update timestamps. `ACTIVE`, `STALE` and `REOPENED`
+describe the human decision independently of `overall_status` and the numerical components.
+No vectors, scores, matching thresholds or canonical identities are changed. New samples
+do not inherit confirmation. Reopening appends a reasoned event and retains the original.
+Details and API contracts: [voice-review-panel.md](voice-review-panel.md).
 
 ## Permissions and privacy
 
 | Permission | Grants |
 |---|---|
-| `voice.identify` | see suggestions, confirm/reject, list enrolment metadata, run فحص البصمات الصوتية |
-| `voice.enroll` | create, update and delete voice templates |
+| `voice.identify` | see suggestions, confirm/reject, list enrollment metadata, run the check and read review/confirmation history |
+| `voice.enroll` | create, update and delete templates; save print reviews, confirm same-person sets and reopen them |
+
+Source listening additionally requires `transcripts.read` and access to the investigation.
 
 Both are granted to ADMIN and INVESTIGATOR; the read-only USER role has neither.
 **Embeddings are never returned to a browser** and never written to the audit log — the
 API exposes only metadata, scores and names. Audit events: `VOICE_ENROLLED`,
 `VOICE_ENROLLMENT_DELETED`, `VOICE_IDENTITY_SUGGESTED`, `VOICE_IDENTITY_CONFIRMED`,
-`VOICE_IDENTITY_REJECTED`, each carrying the score, model and revision.
+`VOICE_IDENTITY_REJECTED`, with action-specific metadata. Review actions use
+`VOICE_PRINT_REVIEWED`; set decisions use `VOICE_IDENTITY_SET_CONFIRMED` and
+`VOICE_IDENTITY_SET_REOPENED`, recording reasons and print references without vectors.
 
 A speaker's own embedding is stored on the speaker row so that enrolling someone later can
 re-match earlier sessions without reprocessing audio.
@@ -216,6 +230,12 @@ re-match earlier sessions without reprocessing audio.
 ## Using it in the application
 
 **Speakers tab (تبويب المتحدثون)**
+
+* One card represents each canonical person, with expandable recording observations.
+  Same-name people are not merged; unidentified observations remain separate. Source
+  filenames identify the observations, with `SPEAKER_*` codes in **تفاصيل المصدر**.
+* Session speaking totals use the latest transcript per recording, avoiding both missing
+  older recordings and double-counting reprocessing. Each observation retains its own controls.
 
 * A pending suggestion appears above the speaker as a highlighted banner:
   `اقتراح بناءً على بصمة الصوت: <name>` with `درجة التطابق: NN%`, the disclaimer

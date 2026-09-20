@@ -244,11 +244,9 @@ class JobPipeline:
 
         import soundfile as sf
 
-        from app.ai.speaker_id_service import SpeakerIdentificationError, collect_speaker_audio
+        from app.ai.speaker_id_service import SpeakerIdentificationError, collect_speaker_audio, clean_speaker_spans
 
-        spans: dict[str, list[tuple[float, float]]] = {}
-        for seg in segments:
-            spans.setdefault(seg.speaker_label, []).append((seg.start_seconds, seg.end_seconds))
+        spans = clean_speaker_spans(segments)
 
         audio, sr = sf.read(str(wav), dtype="float32", always_2d=False)
         if audio.ndim > 1:

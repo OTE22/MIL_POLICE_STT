@@ -232,6 +232,20 @@ def validate_template(data: bytes) -> TemplateValidation:
 
 def render(template_bytes: bytes, context: dict) -> bytes:
     """Produce the .docx. The context must already be complete - see build_context."""
+    from app.services.report_layout import read_layout
+    layout = read_layout(template_bytes)
+    if layout:
+        for page in layout.pages:
+            for box in page.boxes:
+                # Conservative capacity estimate: fail visibly rather than silently clip
+                # official text in a fixed-size Word text box. Review the Word preview too.
+                columns = max(1, int((box.width * page.width_pt - 4) / (box.font_size * .8)))
+                lines = max(1, int((box.height * page.height_pt - 2) / (box.font_size * 1.5)))
+                text = str(context.get(box.field) or '')
+                import math
+                needed = sum(max(1, math.ceil(len(line) / columns)) for line in text.split('\n'))
+                if needed > lines:
+                    raise RenderError('report_layout_text_overflow', box.field)
     # Previously approved layouts may still contain retired placeholders. They render
     # empty during the transition; no reference values are read, generated or stored.
     # New templates must use the current catalogue and omit these fields.

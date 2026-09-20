@@ -4,6 +4,39 @@
 
 ## Test suites
 
+### Voice review and same-person confirmation — 2026-09-20
+
+**32 targeted backend tests passed** across `test_voice_identity_confirmation.py`,
+`test_biometric_check.py` and `test_voice_review.py`. Coverage includes confirmation within
+a group, across groups and across incompatible model versions; no vector/score changes;
+new samples staying unconfirmed; stale/deleted samples; duplicate selections/decisions;
+permission gates; reasons; reopening with retained history; source access; and recording totals.
+
+Run from the repository root against the isolated test database:
+
+```sh
+docker compose run --rm --no-deps -e SKIP_MIGRATIONS=true -v "${PWD}/central/backend:/app" --entrypoint sh backend -c "pip install --user pytest==8.3.5 -q && python -m pytest tests/test_voice_identity_confirmation.py tests/test_biometric_check.py tests/test_voice_review.py -o addopts= -q --tb=short"
+```
+
+The command installs pytest only in the disposable container. A test-enabled image with
+pytest already installed can run the same test command directly.
+
+The frontend build and the synthetic Playwright check also passed. Build and start the
+preview in `central/frontend` using `npm run build`, then
+`npm run preview -- --host 127.0.0.1 --port 5174`. In a second terminal at the repository
+root, run `python central/frontend/tests/voice-review-ui.py` with Playwright and Chromium
+installed. The check intercepts API calls, uses silent test audio, and never edits real
+records. It covers confirmation/reopening, audio comparison, review history, grouped
+speakers, desktop/mobile overflow and browser errors. Screenshots are written under
+`storage/test-artifacts/voice-review/`.
+
+After deployment, both containers were healthy, public health returned 200 with database
+access, and the new mutation routes returned 401 without authentication. These checks do
+not establish recognition accuracy or real-audio enrollment acceptance. See
+[voice-review-panel.md](voice-review-panel.md) for the workflow and deployment details.
+
+### Other suites and historical coverage
+
 | Suite | Location | What it covers | How to run |
 |---|---|---|---|
 | Central server | `central/backend/tests/` | successful login, invalid login, disabled account, admin authorization, investigator authorization, user creation/validation, role change + password reset + audit, investigation creation, investigator assignment (multiple), unauthorized resource access, status transitions, list filters + dashboard, processing token generation + claims, audio metadata validation, expired token, invalid/mismatched/forged tokens, result synchronization (state reports → result → audio upload with SHA-256 check → transcript retrieval → workstation registry → audit), duplicate result submission (idempotent), failed processing, cancelled job, result validation, transcript edit (original preserved, restore, audit), transcript edit authorization, speaker rename + audit, workstation registration | `docker compose run --rm --no-deps -e SKIP_MIGRATIONS=true -v "$PWD/central/backend:/app" --entrypoint "" backend sh -c "cd /app && python -m pytest tests -q"` (uses the isolated `military_stt_test` database) |

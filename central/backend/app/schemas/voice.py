@@ -4,6 +4,7 @@ from app.schemas.person import PersonInput
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -12,7 +13,7 @@ class VoiceEnrollmentCreate(PersonInput):
     """Enroll an identified speaker. The server resolves their person UUID and name."""
 
     notes: str | None = Field(default=None, max_length=2000)
-    model: str = Field(max_length=200)
+    model: str | None = Field(default=None, max_length=200)
     model_revision: str | None = Field(default=None, max_length=100)
     provider: str | None = Field(default=None, max_length=100)
     sample_seconds: float | None = Field(default=None, ge=0)
@@ -125,6 +126,14 @@ class BiometricPrintCheckOut(BaseModel):
     # person's prints fall into internally-coherent sets that do NOT match each other.
     component_id: int
     status: str  # SINGLE_PRINT | NEAR_DUPLICATE | COHERENT | ISOLATED
+    updated_at: datetime
+    review_status: str = "NONE"
+
+
+class BiometricPairOut(BaseModel):
+    first_id: uuid.UUID
+    second_id: uuid.UUID
+    similarity: float
 
 
 class BiometricGroupOut(BaseModel):
@@ -133,8 +142,37 @@ class BiometricGroupOut(BaseModel):
 
     model: str
     embedding_dim: int
+    model_revision: str | None = None
+    provider: str | None = None
     component_count: int
     prints: list[BiometricPrintCheckOut]
+    pairs: list[BiometricPairOut] = Field(default_factory=list)
+
+
+class VoiceIdentityConfirmationOut(BaseModel):
+    id: uuid.UUID
+    enrollment_ids: list[uuid.UUID]
+    reason: str
+    reviewer_name: str | None
+    created_at: datetime
+    status: Literal["ACTIVE", "STALE", "REOPENED"]
+    reopened_reason: str | None = None
+    reopened_by_name: str | None = None
+    reopened_at: datetime | None = None
+
+
+class VoiceConfirmationPrintIn(BaseModel):
+    enrollment_id: uuid.UUID
+    expected_updated_at: datetime
+
+
+class VoiceIdentityConfirmationIn(BaseModel):
+    prints: list[VoiceConfirmationPrintIn] = Field(min_length=2, max_length=100)
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+class VoiceConfirmationReopenIn(BaseModel):
+    reason: str = Field(min_length=1, max_length=2000)
 
 
 class BiometricCheckOut(BaseModel):
@@ -146,3 +184,31 @@ class BiometricCheckOut(BaseModel):
     coherence_threshold: float
     near_duplicate_threshold: float
     groups: list[BiometricGroupOut]
+    identity_confirmations: list[VoiceIdentityConfirmationOut] = Field(default_factory=list)
+
+
+class VoiceReviewIn(BaseModel):
+    action: Literal["NOTE", "FLAG", "RESOLVE", "DEACTIVATE"]
+    reason: str = Field(min_length=1, max_length=2000)
+    expected_updated_at: datetime
+    identity_id: uuid.UUID
+
+
+class VoiceReviewOut(BaseModel):
+    id: uuid.UUID
+    enrollment_id: uuid.UUID
+    action: str
+    reason: str
+    reviewer_name: str | None
+    created_at: datetime
+
+
+class VoiceSourceSegmentOut(BaseModel):
+    start_seconds: float
+    end_seconds: float
+
+
+class VoiceSourceOut(BaseModel):
+    recording_id: uuid.UUID
+    transcript_id: uuid.UUID
+    segments: list[VoiceSourceSegmentOut]
