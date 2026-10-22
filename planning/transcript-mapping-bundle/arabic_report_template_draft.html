@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>قالب عربي تجريبي لتدوين إفادات جلسة تحقيق</title>
+<style>
+:root{color-scheme:light;font-family:Tahoma,Arial,sans-serif;color:#17202c;background:#e9edf2;font-size:16px}
+*{box-sizing:border-box}
+body{margin:0;padding:24px;line-height:1.85}
+.page{max-width:900px;margin:auto;background:white;padding:32px;border:1px solid #b4bcc8;box-shadow:0 5px 22px #10182812}
+.notice{border:2px solid #9b4b00;background:#fff6e9;padding:12px 16px;margin:0 0 20px;color:#713600}
+h1{font-size:1.45rem;text-align:center;margin:0 0 16px}
+h2{font-size:1.1rem;margin:0}
+p{margin:4px 0 10px}
+.label{font-weight:bold;background:#edf2f7;width:24%;vertical-align:top}
+table{border-collapse:collapse;table-layout:fixed;width:100%;margin:16px 0}
+th,td{border:1px solid #6b7280;padding:10px 12px;text-align:right;vertical-align:top}
+thead th{background:#f7f4ee;font-size:.88rem;color:#713600}
+.placeholder{color:#475569;font-family:Arial,sans-serif;font-size:.92em;overflow-wrap:anywhere}
+bdi{unicode-bidi:isolate;display:inline}
+.help{font-size:.86rem;color:#465366}
+.blank{min-height:66px}
+.turn{border-right:3px solid #64748b;padding:6px 12px;margin:8px 0;white-space:pre-wrap;overflow-wrap:anywhere}
+.human{background:#f5f6f8}
+.signatures{display:flex;gap:20px;justify-content:space-between;margin:26px 0 12px}
+.signatures div{flex:1;text-align:center}
+.signature-line{height:52px;border-bottom:1px solid #334155;margin-bottom:8px}
+footer{margin-top:24px;padding-top:12px;border-top:1px solid #9ca3af;font-size:.8rem;color:#475569}
+@page{size:A4;margin:15mm}
+@media print{body{padding:0;background:#fff;font-size:11pt}.page{max-width:none;border:0;box-shadow:none;padding:0}.notice{background:#fff}thead{display:table-header-group}h1,h2{break-after:avoid}tr{break-inside:auto}.signatures{break-inside:avoid}a{color:inherit}}
+</style>
+</head>
+<body>
+<main class="page">
+<div class="notice"><strong>مسودة تنظيمية غير معتمدة — للاختبار والمراجعة فقط</strong><br>بنية جديدة مستوحاة من مثال ممسوح ضوئياً يعود إلى ٢٠١٢. ليست نسخة حرفية أو نموذجاً رسمياً حالياً معتمداً. لا تحتوي بيانات قضية حقيقية.</div>
+<h1>محضر تدوين إفادات جلسة تحقيق — مسودة</h1>
+<p class="help">هذا ملف مرجعي ثابت بلا JavaScript أو اتصال شبكي. مواضع التعبئة ظاهرة للتوضيح، وليست بيانات حقيقية. ليس بديلاً عن نموذج Word المعتمد لدى الجهة المعنية.</p>
+<table aria-label="حقول المسودة">
+<thead><tr><th colspan="2">مسودة غير معتمدة — يجب إبقاء هذا التنبيه عند طباعة القالب التجريبي</th></tr></thead>
+<tbody>
+<tr><th scope="row" class="label">الجهة والوحدة</th><td><div data-field="fields.organization.value">الجهة: <bdi dir="ltr" class="placeholder">[[organization]]</bdi></div><div data-field="fields.office.value">الوحدة / المكتب: <bdi dir="ltr" class="placeholder">[[office]]</bdi></div></td></tr>
+<tr><th scope="row" class="label">بيانات المحضر</th><td><div data-field="fields.report_reference.value">الرقم: <bdi dir="ltr" class="placeholder">[[report_reference]]</bdi></div><div data-field="fields.subject.value">الموضوع: <bdi dir="ltr" class="placeholder">[[subject]]</bdi></div><div data-field="fields.referral_reference.value">المرجع / الإحالة: <bdi dir="ltr" class="placeholder">[[referral_reference]]</bdi></div></td></tr>
+<tr><th scope="row" class="label">افتتاح الجلسة</th><td><div data-field="fields.session_date.value">التاريخ: <bdi dir="ltr" class="placeholder">[[session_date]]</bdi></div><div data-field="fields.opening_time.value">الوقت: <bdi dir="ltr" class="placeholder">[[opening_time]]</bdi></div><div data-field="fields.location.value">المكان: <bdi dir="ltr" class="placeholder">[[location]]</bdi></div></td></tr>
+<tr><th scope="row" class="label">الأشخاص والصفات</th><td><div>المحقق / مدير الجلسة: <bdi dir="ltr" class="placeholder">[[investigator_name]]</bdi></div><div>الكاتب: <bdi dir="ltr" class="placeholder">[[clerk_name]]</bdi></div><div>صاحب الإفادة / أصحاب الإفادات: <bdi dir="ltr" class="placeholder">[[statement_giver_names]]</bdi></div><div>أشخاص آخرون وصفاتهم: <bdi dir="ltr" class="placeholder">[[other_participants]]</bdi></div><p class="help">تؤكَّد الأسماء والصفات وربطها بمعرّفات المتحدثين يدوياً. معرّف المتحدث وحده ليس إثبات هوية.</p></td></tr>
+<tr><th scope="row" class="label">المداخلات بحسب التسلسل</th><td data-field="turns"><div class="turn">المتحدث: <bdi dir="ltr" class="placeholder">[[reviewed_speaker_label]]</bdi><br>الصفة: <bdi dir="ltr" class="placeholder">[[confirmed_role]]</bdi><br>نوع المداخلة: <bdi dir="ltr" class="placeholder">[[reviewed_turn_kind]]</bdi><br><bdi dir="auto" class="placeholder">[[original_or_human_corrected_text]]</bdi></div><p class="help">يتكرر هذا الجزء بحسب ترتيب المداخلات. لا تُنشأ أسئلة أو أجوبة غير موجودة. تحفظ المعرّفات والأوقات وأصل كل معلومة في شاشة المراجعة وسجلها، لا كإضافات مفروضة على النموذج الرسمي.</p></td></tr>
+<tr><th scope="row" class="label">ملاحظات إجرائية مثبتة</th><td class="blank" data-field="fields.procedural_notes.value"><bdi dir="ltr" class="placeholder">[[procedural_notes]]</bdi></td></tr>
+<tr class="human"><th scope="row" class="label">الاستنتاج</th><td class="blank" data-field="human_only.conclusion.value">إدخال بشري فقط. لا يولّد النظام استنتاجاً أو تقييماً للمصداقية أو الذنب.<br><bdi dir="ltr" class="placeholder">[[human_conclusion]]</bdi></td></tr>
+<tr class="human"><th scope="row" class="label">المسؤوليات</th><td class="blank" data-field="human_only.responsibilities.value">إدخال بشري فقط. تبقى فارغة افتراضياً.<br><bdi dir="ltr" class="placeholder">[[human_responsibilities]]</bdi></td></tr>
+<tr class="human"><th scope="row" class="label">الاقتراحات</th><td class="blank" data-field="human_only.proposals.value">إدخال بشري فقط. لا يقترح النظام عقوبات أو توصيات قانونية.<br><bdi dir="ltr" class="placeholder">[[human_proposals]]</bdi></td></tr>
+<tr class="human"><th scope="row" class="label">التلاوة والتصديق والإقفال</th><td class="blank" data-field="human_only.closing_record.value"><bdi dir="ltr" class="placeholder">[[human_closing_record]]</bdi><p class="help">لا يُثبت آلياً حلف يمين أو تلاوة أو تصديق أو توقيع.</p><div>تاريخ الإقفال: <bdi dir="ltr" class="placeholder">[[closing_date]]</bdi></div><div>وقت الإقفال: <bdi dir="ltr" class="placeholder">[[closing_time]]</bdi></div></td></tr>
+</tbody>
+</table>
+<h2>التوقيعات</h2>
+<div class="signatures"><div><div class="signature-line"></div>صاحب الإفادة</div><div><div class="signature-line"></div>الكاتب</div><div><div class="signature-line"></div>المحقق / مدير الجلسة</div></div>
+<p class="help">مساحات توقيع فارغة. لا تُنسخ توقيعات أو أختام، ولا يعني عرض الأسماء أن التوقيع تم.</p>
+<footer>مرجع التصميم فقط: «جميع ملفات التحقيق.pdf»، الصفحات ١٨–٢٠ من PDF، المطبوعة ١٣–١٥. المثال مؤرخ في ٢٠١٢. هذا القالب جديد ومبسّط، ولا ينقل أسماء المثال أو وقائعه أو توقيعاته أو استنتاجاته.</footer>
+</main>
+</body>
+</html>

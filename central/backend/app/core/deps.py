@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.logging_setup import bind_user
 from app.core.security import TokenError, decode_access_token
+from app.config import get_settings
 from app.db.session import get_db
 from app.models import InvestigationSession, InvestigatorProfile, SessionInvestigator, User
 
@@ -32,6 +33,8 @@ def get_current_user(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=ERR_UNAUTHENTICATED)
     try:
         payload = decode_access_token(credentials.credentials)
+        if payload.get('auth_mode', 'local') != get_settings().auth_mode:
+            raise TokenError('invalid')
     except TokenError as exc:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=f"token_{exc}") from exc
     try:

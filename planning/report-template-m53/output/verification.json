@@ -1,0 +1,29 @@
+[
+  {
+    "file": "m53-blank-review.pdf",
+    "pages": 1,
+    "docx_body_character_inventory_matches": true,
+    "safe_page_bounds": true,
+    "review_notice_each_page": true,
+    "page_counters": true,
+    "native_word_visual_review": "pending"
+  },
+  {
+    "file": "m53-long-example.pdf",
+    "pages": 4,
+    "docx_body_character_inventory_matches": true,
+    "safe_page_bounds": true,
+    "review_notice_each_page": true,
+    "page_counters": true,
+    "native_word_visual_review": "pending"
+  },
+  {
+    "file": "m53-short-example.pdf",
+    "pages": 1,
+    "docx_body_character_inventory_matches": true,
+    "safe_page_bounds": true,
+    "review_notice_each_page": true,
+    "page_counters": true,
+    "native_word_visual_review": "pending"
+  }
+]

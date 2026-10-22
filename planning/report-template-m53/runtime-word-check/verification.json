@@ -1,0 +1,17 @@
+[
+  {
+    "file": "m53-runtime-blank.pdf",
+    "pages": 3,
+    "body_characters_preserved": true
+  },
+  {
+    "file": "m53-runtime-filled.pdf",
+    "pages": 3,
+    "body_characters_preserved": true
+  },
+  {
+    "file": "m53-runtime-long.pdf",
+    "pages": 4,
+    "body_characters_preserved": true
+  }
+]

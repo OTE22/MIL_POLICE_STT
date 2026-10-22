@@ -28,7 +28,7 @@ import numpy as np
 
 from app.ai.device import resolve_device
 from app.ai.model_files import model_files_status
-from app.ai.types import ModelInfo
+from app.ai.types import ModelInfo, SpeakerTurn
 from app.config import SPEAKER_EMBEDDING_DIM, Settings
 
 log = logging.getLogger(__name__)
@@ -208,6 +208,46 @@ def clean_speaker_spans(segments) -> dict[str, list[tuple[float, float]]]:
                 merged.append((start, end))
         result[label] = merged
     return result
+
+
+def clean_diarized_speaker_spans(turns, speech) -> dict[str, list[tuple[float, float]]]:
+    """Recover clean parts of *complete, unmerged* diarization turns, within VAD.
+
+    The diarizer marks a whole turn when only part of it overlaps. Its complete
+    turn list lets us locate that competing voice precisely. A flagged turn with
+    no known competitor remains excluded: its safe boundaries are unknown.
+    Never use merged transcript segments here; they can omit a competing turn
+    when STT returned no text, or extend a coarse overlap flag across a merge.
+    """
+    resolved = []
+    for turn in turns:
+        has_competitor = any(
+            other.speaker_label != turn.speaker_label
+            and other.start_seconds < turn.end_seconds
+            and other.end_seconds > turn.start_seconds
+            for other in turns
+        )
+        resolved.append(SpeakerTurn(
+            turn.speaker_label, turn.start_seconds, turn.end_seconds,
+            is_overlap=turn.is_overlap and not has_competitor,
+        ))
+    spans = clean_speaker_spans(resolved)
+    # Intersect after subtraction, so a competing turn outside VAD still explains
+    # the original coarse flag. Merge VAD intersections to count each sample once.
+    for label, windows in spans.items():
+        intersections = sorted(
+            (max(start, region.start_seconds), min(end, region.end_seconds))
+            for start, end in windows for region in speech
+            if region.start_seconds < end and region.end_seconds > start
+        )
+        merged = []
+        for start, end in intersections:
+            if merged and start <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(end, merged[-1][1]))
+            else:
+                merged.append((start, end))
+        spans[label] = merged
+    return spans
 
 
 def collect_speaker_audio(

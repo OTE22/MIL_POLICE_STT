@@ -83,8 +83,8 @@ class JobPipeline:
             audio_meta, processing_path, duration = self._stage_preprocess(job)
             turns, speech = self._stage_diarize(job, processing_path, duration)
             segments, timings = self._stage_transcribe(job, processing_path, turns, speech, duration)
-            voice = self._stage_identify_speakers(job, processing_path, segments)
-            self._stage_finalize(job, audio_meta, duration, turns, segments, timings, started, voice)
+            voice, voice_diagnostics = self._stage_identify_speakers(job, processing_path, segments, turns, speech)
+            self._stage_finalize(job, audio_meta, duration, turns, segments, timings, started, voice, voice_diagnostics)
             self._stage_sync(job)
         except JobCancelled:
             job.state = "CANCELLED"
@@ -227,45 +227,72 @@ class JobPipeline:
             raise PipelineFailure("transcription_empty", "the STT model returned no text for any segment", "TRANSCRIBING")
         return segments, timings
 
-    def _stage_identify_speakers(self, job: JobRecord, wav: Path, segments: list[TranscriptSegment]) -> dict:
+    def _stage_identify_speakers(self, job: JobRecord, wav: Path, segments: list[TranscriptSegment], turns, speech) -> tuple[dict, dict]:
         """One voice embedding per anonymous speaker (optional, never fatal).
 
         The embedding is sent to the central server, which compares it against the
         enrolled voices and records a *suggestion*. No name is decided here.
         """
+        labels = sorted({segment.speaker_label for segment in segments})
+        diagnostics = {
+            "enabled": self._settings.speaker_id_enabled,
+            "min_seconds": self._settings.speaker_id_min_seconds,
+            "status": "disabled",
+            "speakers": {},
+        }
         if not self._settings.speaker_id_enabled:
-            return {}
+            diagnostics["reason"] = "speaker_id_disabled"
+            return {}, diagnostics
         self._check_cancel(job)
         try:
             self._runtime.speaker_id.load()
         except Exception as exc:  # noqa: BLE001
             log.warning("job %s: speaker identification unavailable: %s", job.job_id, exc)
-            return {}
+            diagnostics.update(status="unavailable", reason=getattr(exc, "code", "speaker_id_model_load_failed"))
+            return {}, diagnostics
 
         import soundfile as sf
 
-        from app.ai.speaker_id_service import SpeakerIdentificationError, collect_speaker_audio, clean_speaker_spans
+        from app.ai.speaker_id_service import SpeakerIdentificationError, collect_speaker_audio, clean_diarized_speaker_spans
 
-        spans = clean_speaker_spans(segments)
+        # Identity audio comes from all original turns, including turns dropped by
+        # STT. Only the labels with a transcript need an embedding in the result.
+        spans = clean_diarized_speaker_spans(turns, speech)
 
-        audio, sr = sf.read(str(wav), dtype="float32", always_2d=False)
+        try:
+            audio, sr = sf.read(str(wav), dtype="float32", always_2d=False)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("job %s: voice audio unavailable: %s", job.job_id, exc)
+            diagnostics.update(status="unavailable", reason="speaker_id_audio_unavailable")
+            return {}, diagnostics
         if audio.ndim > 1:
             audio = audio.mean(axis=1)
         embeddings: dict[str, dict] = {}
-        for label, label_spans in sorted(spans.items()):
+        for label in labels:
+            self._check_cancel(job)
+            label_spans = spans.get(label, [])
             raw_seconds = sum(end - start for start, end in label_spans)
             clip = collect_speaker_audio(audio, sr, label_spans, self._settings.speaker_id_max_seconds)
             seconds = len(clip) / float(sr)
+            diagnostic = {"status": "skipped", "clean_seconds": round(seconds, 2)}
+            diagnostics["speakers"][label] = diagnostic
+            if seconds < self._settings.speaker_id_min_seconds:
+                diagnostic["reason"] = "speaker_id_no_clean_speech" if seconds == 0 else "speaker_id_audio_too_short"
+                log.info("job %s: no embedding for %s (%s) - %.2fs clean speech",
+                         job.job_id, label, diagnostic["reason"], seconds)
+                continue
             embed_started = time.perf_counter()
             try:
                 vec = self._runtime.speaker_id.embed(clip, sr)
             except SpeakerIdentificationError as exc:
+                diagnostic["reason"] = exc.code
                 log.info(
                     "job %s: no embedding for %s (%s) - %d span(s), %.1fs of speech",
                     job.job_id, label, exc.code, len(label_spans), raw_seconds,
                 )
                 continue
             except Exception as exc:  # noqa: BLE001
+                diagnostic["reason"] = "speaker_id_failed"
                 log.warning("job %s: embedding failed for %s: %s", job.job_id, label, exc)
                 continue
             # The full story of this voiceprint, WITHOUT the vector itself: how much speech
@@ -280,6 +307,8 @@ class JobPipeline:
                 int((time.perf_counter() - embed_started) * 1000),
             )
             embeddings[label] = {"embedding": [round(float(x), 6) for x in vec], "seconds": round(seconds, 2)}
+            diagnostic["status"] = "embedded"
+        diagnostics["status"] = "complete" if len(embeddings) == len(labels) else "partial" if embeddings else "no_embeddings"
         if embeddings:
             info = self._runtime.speaker_id.info()
             log.info("job %s: %d speaker embedding(s) computed", job.job_id, len(embeddings))
@@ -290,13 +319,40 @@ class JobPipeline:
                 "embedding_dim": self._runtime.speaker_id.embedding_dim,
                 "device": self._runtime.speaker_id.device,
                 "speakers": embeddings,
-            }
-        return {}
+            }, diagnostics
+        return {}, diagnostics
 
-    def _stage_finalize(self, job: JobRecord, audio_meta, duration: float, turns, segments: list[TranscriptSegment], timings: dict, started: float, voice: dict | None = None) -> None:
+    def _stage_finalize(self, job: JobRecord, audio_meta, duration: float, turns, segments: list[TranscriptSegment], timings: dict, started: float, voice: dict | None = None, voice_diagnostics: dict | None = None) -> None:
         self._set_state(job, "FINALIZING", 0.92, "building structured transcript")
         labels = sorted({seg.speaker_label for seg in segments})
         warnings: list[str] = []
+        if voice_diagnostics:
+            reason = voice_diagnostics.get("reason")
+            if reason == "speaker_id_disabled":
+                warnings.append("Voice identification is disabled. Enable it to identify recorded speakers.")
+            elif reason == "speaker_id_audio_unavailable":
+                warnings.append("Voice identification could not read the audio. Retry processing this recording.")
+            elif reason:
+                warnings.append("Voice identification is unavailable. Check that the voice model is installed and ready.")
+            for label, diagnostic in voice_diagnostics.get("speakers", {}).items():
+                if diagnostic.get("status") == "skipped":
+                    reason = diagnostic.get("reason")
+                    if reason == "speaker_id_no_clean_speech":
+                        warnings.append(
+                            f"No isolated speech was available to identify {label}. "
+                            "Record speakers separately, without talking over each other."
+                        )
+                    elif reason == "speaker_id_audio_too_short":
+                        warnings.append(
+                            f"Only {diagnostic.get('clean_seconds', 0):.2f}s of clean speech was available for {label}; "
+                            f"at least {voice_diagnostics['min_seconds']:.2f}s is required. "
+                            "Record a longer sample without other speakers talking."
+                        )
+                    else:
+                        warnings.append(
+                            f"Voice identification failed for {label}. "
+                            "Check the voice model and retry processing this recording."
+                        )
         if len(labels) >= self._runtime.max_speakers:
             warnings.append(
                 f"The diarization model supports at most {self._runtime.max_speakers} speakers; "
@@ -344,6 +400,7 @@ class JobPipeline:
                 },
                 "diarization_streaming": dia_info.extra.get("streaming"),
                 "speaker_identification": {
+                    **(voice_diagnostics or {}),
                     "enabled": self._settings.speaker_id_enabled,
                     "embeddings": len((voice or {}).get("speakers", {})),
                     "model": (voice or {}).get("model"),

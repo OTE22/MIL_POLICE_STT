@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -57,8 +57,11 @@ from app.services.report_finalize import (
     check_ready,
     finalize,
     verify,
+    build_context,
 )
-from app.services.report_storage import absolute_path as report_file_path
+from app.services import report_m53 as m53
+from app.schemas.report_m53 import M53Update
+from app.services.report_storage import absolute_path as report_file_path, remove_file
 from app.services.report_renderer import RenderError
 from app.services.report_context import completed_recordings, speaker_map
 from app.services.report_draft import (
@@ -91,6 +94,8 @@ REQUIRED_FIELD_LABELS = {
 
 
 def _missing_fields(draft: ReportDraft) -> list[str]:
+    if (draft.official_form or {}).get("enabled"):
+        return []  # The structured form reports its own field-specific gaps.
     return [
         label
         for field, label in REQUIRED_FIELD_LABELS.items()
@@ -199,6 +204,7 @@ def _draft_out(db: Session, session: InvestigationSession, draft: ReportDraft) -
         id=draft.id,
         session_id=draft.session_id,
         status=draft.status,
+        official_form=_m53_state(db, session, draft),
         report_number=draft.report_number,
         case_subject=draft.case_subject,
         report_date=draft.report_date,
@@ -256,6 +262,82 @@ def _guard_editable(draft: ReportDraft) -> None:
 
 
 # --------------------------------------------------------------------------- draft
+
+
+def _m53_state(db, session, draft):
+    context = build_context(db, session, draft, None, version=0, generated_by=None)
+    token = m53.review_token(draft, context)
+    flags = m53.confirmed(draft, token)
+    values = m53.values_for(draft)
+    return {"enabled": bool((draft.official_form or {}).get("enabled")),
+            "values": {key: value for key, value in values.items() if key not in m53.AUTOMATIC},
+            "confirmations": flags, "token": token, "suggestions": m53.suggestions(context),
+            "missing_fields": m53.missing_fields(values, flags)}
+
+
+@router.get("/report-forms/m53")
+def m53_catalogue(_: User = Depends(require_permission("reports.read", "reports.generate", "reports.templates.manage"))):
+    return m53.catalogue()
+
+
+@router.get("/report-forms/m53/blank")
+def m53_blank(format: str = "pdf", _: User = Depends(require_permission("reports.read", "reports.generate", "reports.templates.manage"))):
+    if format not in {"pdf", "docx"}:
+        raise HTTPException(422, detail="report_m53_invalid_format")
+    values = {key: "[" + m53.LABELS[key] + "]" for key in m53.FIELDS}
+    docx, pdf, _ = m53.render_documents(values, [{"answer": "[نص الإفادة المراجع]"}], {}, preview=True, blank=True)
+    return Response(pdf if format == "pdf" else docx,
+        media_type="application/pdf" if format == "pdf" else "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Cache-Control": "no-store", "Content-Disposition": f'attachment; filename="m53-blank.{format}"'})
+
+
+@router.put("/investigations/{session_id}/report/m53", response_model=ReportDraftOut)
+def update_m53(body: M53Update, request: Request,
+               session: InvestigationSession = Depends(get_accessible_session),
+               user: User = Depends(require_permission("reports.generate")), db: Session = Depends(get_db)):
+    draft = _require_draft(db, session)
+    _guard_editable(draft)
+    state = _m53_state(db, session, draft)
+    if body.expected_token != state["token"]:
+        raise HTTPException(409, detail="report_m53_changed")
+    # Data and approval are separate saves. This prevents accepting confirmations
+    # against values the operator has not seen rendered from persisted storage.
+    old = draft.official_form or {}
+    changed = old.get("values", {}) != body.values or bool(old.get("enabled")) != body.enabled
+    if changed and body.confirmations:
+        raise HTTPException(409, detail="report_m53_save_before_review")
+    draft.official_form = {"enabled": body.enabled, "values": dict(body.values), "revision": m53.REVISION,
+                          "confirmations": {} if changed else dict(old.get("confirmations", {}))}
+    token = _m53_state(db, session, draft)["token"]
+    events = {key: {"by": str(user.id), "at": datetime.now(timezone.utc).isoformat(), "content_sha256": token}
+              for key in body.confirmations}
+    draft.official_form = {**draft.official_form, "confirmations": events}
+    draft.updated_by = user.id
+    record_audit(db, action=AuditAction.REPORT_DRAFT_UPDATED, user_id=user.id,
+        entity_type="report_draft", entity_id=draft.id,
+        metadata={"form": m53.REVISION, "changed": changed, "confirmations": sorted(events),
+                  "content_sha256": token, "session_id": session.id}, ip_address=client_ip(request))
+    db.commit()
+    db.refresh(draft)
+    return _draft_out(db, session, draft)
+
+
+@router.get("/investigations/{session_id}/report/m53/preview")
+def preview_m53(format: str = "pdf", session: InvestigationSession = Depends(get_accessible_session),
+                _: User = Depends(require_permission("reports.read", "reports.generate")), db: Session = Depends(get_db)):
+    if format not in {"pdf", "docx"}:
+        raise HTTPException(422, detail="report_m53_invalid_format")
+    draft = _require_draft(db, session)
+    context = build_context(db, session, draft, None, version=0, generated_by=None)
+    token = m53.review_token(draft, context)
+    values = {key: value or "[" + m53.LABELS[key] + "]" for key, value in m53.values_for(draft).items()}
+    try:
+        docx, pdf, _ = m53.render_documents(values, context["qa_blocks"], m53.confirmed(draft, token), preview=True)
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
+    return Response(pdf if format == "pdf" else docx,
+        media_type="application/pdf" if format == "pdf" else "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Cache-Control": "no-store", "Content-Disposition": f'attachment; filename="m53-preview.{format}"'})
 
 
 @router.get("/investigations/{session_id}/report", response_model=ReportDraftOut)
@@ -755,6 +837,8 @@ def _report_out(db: Session, report: GeneratedReport) -> GeneratedReportOut:
         template_version=template.version if template else None,
         template_is_development=bool(template and template.is_development),
         docx_sha256=report.docx_sha256,
+        pdf_sha256=report.pdf_sha256,
+        format_key=report.format_key,
         context_sha256=report.context_sha256,
         template_sha256=report.template_sha256,
         size_bytes=report.size_bytes,
@@ -828,24 +912,35 @@ def finalize_report(
     except RenderError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=exc.code) from exc
 
-    record_audit(
-        db,
-        action=AuditAction.REPORT_GENERATED,
-        user_id=user.id,
-        entity_type="generated_report",
-        entity_id=report.id,
-        metadata={
-            "session_id": session.id,
-            "version": report.report_version,
-            "template_version_id": report.template_version_id,
-            "docx_sha256": report.docx_sha256,
-            "context_sha256": report.context_sha256,
-            "qa_blocks": report.qa_block_count,
-            "source_mode": report.transcript_source_mode,
-        },
-        ip_address=client_ip(request),
-    )
-    db.commit()
+    owned_paths = [report.storage_path, report.context_path, report.pdf_path]
+    try:
+        record_audit(
+            db, action=AuditAction.REPORT_GENERATED, user_id=user.id,
+            entity_type="generated_report", entity_id=report.id,
+            metadata={
+                "session_id": session.id, "version": report.report_version,
+                "template_version_id": report.template_version_id,
+                "docx_sha256": report.docx_sha256, "pdf_sha256": report.pdf_sha256,
+                "context_sha256": report.context_sha256,
+                "qa_blocks": report.qa_block_count, "source_mode": report.transcript_source_mode,
+                "format_key": report.format_key,
+            }, ip_address=client_ip(request),
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        # A lost COMMIT response does not prove the transaction was rolled back.
+        # Confirm absence before deleting; preserving an orphan during a database
+        # outage is safer than removing files belonging to an issued report.
+        try:
+            persisted = db.get(GeneratedReport, report.id)
+        except Exception:
+            persisted = True
+        if persisted is None:
+            for path in owned_paths:
+                if path:
+                    remove_file(path)
+        raise
     return _archive_out(db, session)
 
 
@@ -860,12 +955,16 @@ def _require_report(db: Session, session: InvestigationSession, report_id: uuid.
 def download_report(
     report_id: uuid.UUID,
     request: Request,
+    format: str = "docx",
     session: InvestigationSession = Depends(get_accessible_session),
     user: User = Depends(require_permission("reports.read", "reports.generate")),
     db: Session = Depends(get_db),
 ) -> FileResponse:
     report = _require_report(db, session, report_id)
-    path = report_file_path(report.storage_path)
+    if format not in {"pdf", "docx"}:
+        raise HTTPException(422, detail="report_m53_invalid_format")
+    relative = report.pdf_path if format == "pdf" else report.storage_path
+    path = report_file_path(relative) if relative else None
     if path is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="report_file_missing")
 
@@ -877,7 +976,7 @@ def download_report(
         user_id=user.id,
         entity_type="generated_report",
         entity_id=report.id,
-        metadata={"session_id": session.id, "version": report.report_version},
+        metadata={"session_id": session.id, "version": report.report_version, "format": format},
         ip_address=client_ip(request),
     )
     db.commit()
@@ -885,14 +984,14 @@ def download_report(
     number = (report.report_number or str(report.report_version)).replace("/", "-")
     return FileResponse(
         path,
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        filename=f"mahdar-{number}-v{report.report_version}.docx",
+        media_type="application/pdf" if format == "pdf" else "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename=f"mahdar-{number}-v{report.report_version}.{format}",
         content_disposition_type="attachment",
         headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
     )
 
 
-@router.get("/investigations/{session_id}/reports/{report_id}/verify", response_model=ReportVerificationOut)
+@router.get("/investigations/{session_id}/reports/{report_id}/verify", response_model=ReportVerificationOut, response_model_exclude_none=True)
 def verify_report(
     report_id: uuid.UUID,
     request: Request,
@@ -920,4 +1019,5 @@ def verify_report(
         context_ok=result.context_ok,
         template_ok=result.template_ok,
         detail=result.detail,
+        pdf_ok=result.pdf_ok,
     )

@@ -1,0 +1,61 @@
+{
+  "classification": "reconstructed_m53_v1",
+  "reference": "جميع ملفات التحقيق.pdf — PDF 18–20",
+  "fixed_labels": {
+    "title": "محضر تحقيق عدلي",
+    "model": "الجيش نموذج م ٥٣",
+    "country": "الجمهورية اللبنانية",
+    "ministry": "وزارة الدفاع الوطني",
+    "service": "الشرطة العسكرية",
+    "duty": "خفر",
+    "subject": "موضوع القضية",
+    "margin": "هامش",
+    "statement_marker": "س.ج",
+    "note": "ملاحظة:",
+    "conclusion": "الإستنتاج:",
+    "responsibilities": "المسؤوليات:",
+    "proposals": "الإقتراحات:"
+  },
+  "clauses": {
+    "opening_datetime": "في الساعة {opening_time_words} من يوم {weekday} الواقع في {day_words} من شهر {month_words} سنة {year_words}",
+    "investigator": "نحن {investigator_rank} {investigator_name} ({investigator_identifier}) الضابط العدلي العسكري في {investigator_unit}",
+    "clerk": "والمصحوبون بـ{clerk_rank} {clerk_name} رقم {clerk_service_number} من {clerk_unit} والذي اتخذناه كاتباً عدلياً",
+    "oath": "بعد أن قمنا بتحليفه اليمين القانونية لمرة واحدة فقط على الشكل التالي: «والله العظيم أني أقوم بواجبي بكل أمانة وإخلاص وأحفظ سر التحقيق»",
+    "military_attire": "والمرتدون اللباس العسكري",
+    "opening_record": "نثبت أنه في الساعة والتاريخ المذكورين أعلاه اجتمعنا في {opening_location} واستناداً للإحالة رقم {referral_number} تاريخ {referral_date} والمتعلقة بإجراء تحقيق عدلي حول {subject} باشرنا التحقيق على الشكل التالي:",
+    "statement_heading": "إفادة {statement_rank} {statement_name} رقم {statement_service_number}",
+    "identity": "اسمي {statement_name} بن {father_name} ووالدتي {mother_name} مولود عام {birth_year} في بلدة {birth_place} قضاء {district} رقم سجل النفوس {civil_register} ومقيم حالياً في {residence} رقم الهاتف {phone} {family_status} {children_statement} متعلم {education} {occupation_statement} {prior_record_statement}",
+    "identity_check": "تأكدنا من {identity_documents} وأعيدت إليه",
+    "attestation": "تليت عليه إفادته فصدقها ووقعها بحضورنا نحن والكاتب العدلي",
+    "signature_place": "{statement_signature_role} __________ كاتب عدلي __________ {closing_location} في {closing_date}",
+    "investigator_signature": "{investigator_rank} محقق __________",
+    "note": "بتاريخ {note_date} الساعة {note_time} وبمراجعة قيادة {consulted_unit} بشخص {consulted_rank} {consulted_name} واطلاعه على تفاصيل التحقيق {procedural_decision} ولأجله سطرت.",
+    "interim_closing": "نظم وختم هذا التحقيق على {copy_count_words} في {interim_page_count_words} ووقع من قبلنا نحن والكاتب العدلي يقدم مع {attachments} للتفضل بالإطلاع",
+    "conclusion": "يستنتج من سياق التحقيق أنه {human_conclusion}",
+    "responsibilities": "تترتب على {responsible_rank} {responsible_name} رقم {responsible_service_number} من عداد {responsible_unit} المسؤولية التالية: {human_responsibilities}",
+    "proposals": "{human_proposals}",
+    "final_closing": "نظم وختم هذا الملف على {copy_count_words} في {rendered_page_count_words} ووقع من قبلنا ويقدم مع {attachments} للتفضل بالإطلاع"
+  },
+  "confirmation_requirements": {
+    "clerk": ["clerk_appointment_confirmed"],
+    "oath": ["oath_administered_confirmed"],
+    "military_attire": ["military_attire_confirmed"],
+    "identity_check": ["identity_check_confirmed"],
+    "attestation": ["read_back_confirmed", "attestation_confirmed", "signature_recorded_confirmed"],
+    "note": ["procedural_note_confirmed"],
+    "interim_closing": ["interim_closing_confirmed", "signature_recorded_confirmed"],
+    "conclusion": ["human_conclusion_confirmed"],
+    "responsibilities": ["human_responsibilities_confirmed"],
+    "proposals": ["human_proposals_confirmed"],
+    "final_closing": ["final_closing_confirmed", "signature_recorded_confirmed"]
+  },
+  "rules": [
+    "Names, ranks, service identifiers, units, dates, times, years, places, case facts, decisions and copy counts are variables, never inherited from the historical case.",
+    "Institution labels are fixed for this configured model; another institution requires its own explicitly configured template version.",
+    "Service identifiers are explicit user data, not the removed generated person reference-number system.",
+    "Testimony is inserted as reviewed source text without rewriting it to imitate the sample case.",
+    "No fixed denial of previous convictions, family status, oath, attestation, signature, conclusion or responsibility is assumed.",
+    "The blank working form can display unfilled clause patterns. Completed output must omit unconfirmed factual clauses and report the omission in its review interface.",
+    "In the application, confirmations are authenticated server-owned events bound to the exact content digest. They are not certificate-based digital signatures."
+  ]
+}

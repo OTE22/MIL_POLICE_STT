@@ -14,6 +14,7 @@ import type {
   BiometricCheck,
   EnrollmentCandidate,
   VoiceEnrollment,
+  VoiceRematchOutcome,
 } from "@/api/types";
 import { useAuth } from "@/lib/auth";
 import { formatDateTime, formatDuration } from "@/lib/format";
@@ -21,6 +22,7 @@ import { T, errorMessage } from "@/lib/i18n";
 import { Alert, Badge, Field, Loading, Modal, useToast } from "@/components/ui";
 import { IconMic, IconRefresh, IconSearch } from "@/components/Icons";
 import { EnrollDialog, type EnrollTarget } from "@/components/voice/EnrollDialog";
+import { VoiceRematchResult } from "@/components/voice/VoiceRematchResult";
 
 import { BiometricCheckModal } from "@/components/voice/BiometricCheckModal";
 
@@ -304,6 +306,7 @@ export function VoiceEnrollmentsPage() {
   const [q, setQ] = useState("");
   const [includeInactive, setIncludeInactive] = useState(true);
   const [rematching, setRematching] = useState(false);
+  const [rematchResult, setRematchResult] = useState<VoiceRematchOutcome | null>(null);
   const [enrolling, setEnrolling] = useState<EnrollTarget | null>(null);
   const manage = can("voice.enroll");
   const generation = useRef(0);
@@ -341,11 +344,13 @@ export function VoiceEnrollmentsPage() {
 
   const rematchAll = async () => {
     setRematching(true);
+    setRematchResult(null);
     try {
-      const res = await http.post<{ sessions: number; scanned: number; suggested: number }>(
+      const res = await http.post<VoiceRematchOutcome>(
         "/voice-enrollments/rematch",
         {},
       );
+      setRematchResult(res);
       toast.success(
         res.suggested > 0 ? T.voiceRematchDone.replace("{n}", String(res.suggested)) : T.voiceRematchNone,
       );
@@ -393,6 +398,8 @@ export function VoiceEnrollmentsPage() {
           </button>
         )}
       </div>
+
+      {rematchResult && <VoiceRematchResult result={rematchResult} />}
 
       <div className="audit-filters">
         <button

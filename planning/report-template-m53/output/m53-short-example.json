@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "sample_kind": "short",
+  "fictional": true,
+  "template_status": "reconstructed_for_review",
+  "institution_lines": [
+    "الجمهورية اللبنانية",
+    "وزارة الدفاع الوطني",
+    "الشرطة العسكرية",
+    "خفر: ................"
+  ],
+  "subject": "اختبار تنسيق محضر — بيانات افتراضية",
+  "session_date": "٢١ / ١٠ / ٢٠٢٦",
+  "opening_time": "09:30",
+  "location": "قاعة افتراضية للاختبار",
+  "investigator": "المحقق التجريبي",
+  "clerk": "الكاتب التجريبي",
+  "referral": "",
+  "statements": [
+    {
+      "id": "short-question",
+      "kind": "question",
+      "speaker": "المحقق التجريبي",
+      "text": "يرجى وصف ترتيب المواد المستخدمة في الاجتماع التجريبي؟"
+    },
+    {
+      "id": "short-answer",
+      "kind": "answer",
+      "speaker": "المشارك التجريبي الأول",
+      "text": "وضعت الملفات التجريبية على الطاولة بحسب ألوانها، ثم راجعت ترتيبها مع المشاركين. تحمل الحافظة الرمز DEMO-42. هذه بيانات افتراضية أعدت لمراجعة تنسيق المستند ولا تصف واقعة حقيقية."
+    },
+    {
+      "id": "short-statement",
+      "kind": "statement",
+      "speaker": "المشارك التجريبي الثاني",
+      "text": "أضيف أن الأوراق المستخدمة خالية من البيانات الشخصية. وهذه إفادة مستقلة لا يسبقها سؤال ضمن هذا المثال."
+    }
+  ],
+  "notes": "",
+  "conclusion": "",
+  "responsibilities": "",
+  "proposals": "",
+  "closing": ""
+}

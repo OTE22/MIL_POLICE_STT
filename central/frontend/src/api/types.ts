@@ -34,6 +34,7 @@ export interface Profile {
 }
 
 export interface CurrentUser {
+  auth_mode?: "local" | "ldap";
   id: string;
   username: string;
   is_active: boolean;
@@ -277,6 +278,18 @@ export interface Segment {
 }
 
 export type IdentificationStatus = "NONE" | "SUGGESTED" | "CONFIRMED" | "REJECTED";
+
+export interface VoiceRematchOutcome {
+  scanned: number;
+  suggested: number;
+  sessions?: number;
+  /** Optional for compatibility with servers deployed before detailed matching results. */
+  no_sample?: number;
+  no_compatible_enrollment?: number;
+  below_threshold?: number;
+  ambiguous?: number;
+  skipped_decided?: number;
+}
 
 export interface Speaker {
   recording_id?: string | null;
@@ -614,6 +627,7 @@ export interface ReportDraft {
   id: string;
   session_id: string;
   status: ReportStatus;
+  official_form: OfficialReportForm;
   report_number: string | null;
   case_subject: string | null;
   report_date: string | null;
@@ -675,6 +689,8 @@ export interface GeneratedReport {
   template_version: number | null;
   template_is_development: boolean;
   docx_sha256: string;
+  pdf_sha256: string | null;
+  format_key: string | null;
   context_sha256: string | null;
   template_sha256: string | null;
   size_bytes: number | null;
@@ -704,4 +720,23 @@ export interface ReportVerification {
   context_ok: boolean;
   template_ok: boolean;
   detail: string;
+  pdf_ok: boolean | null;
+}
+
+export interface OfficialReportForm {
+  enabled: boolean;
+  values: Record<string, string>;
+  confirmations: Record<string, boolean>;
+  token: string;
+  suggestions: Record<string, string>;
+  missing_fields: string[];
+}
+
+export interface M53Catalogue {
+  revision: string;
+  fields: { key: string; label_ar: string; required: boolean; automatic: boolean }[];
+  groups: { title: string; fields: string[] }[];
+  clauses: Record<string, string>;
+  confirmations: Record<string, string>;
+  requirements: Record<string, string[]>;
 }

@@ -1,0 +1,58 @@
+{
+  "classification": "reconstructed_for_review",
+  "fictional": true,
+  "source": "Supplied PDF pages 18-20; no historical personal data copied",
+  "font": "Arial",
+  "artifacts": [
+    {
+      "file": "m53-blank-review.json",
+      "sha256": "b6bce4a45391e7b44c174d5f801eaf0f73fe59d5e61f9243e1feebd32fbf4919",
+      "bytes": 671
+    },
+    {
+      "file": "m53-blank-review.docx",
+      "sha256": "2d62279a5677d2ddd891e0c16386517d300435156f3c88cf81d970efb76c4f46",
+      "bytes": 41071
+    },
+    {
+      "file": "m53-short-example.json",
+      "sha256": "313f26444010f27cf8470e203dd8dd8ee946f79f12aa4439fdef5e952f9560a9",
+      "bytes": 1788
+    },
+    {
+      "file": "m53-short-example.docx",
+      "sha256": "6d1f87883c3646c1c33729faab1a5ea22daaf02a1965edc71b37a0a996a9975c",
+      "bytes": 41567
+    },
+    {
+      "file": "m53-long-example.json",
+      "sha256": "20bd70abca502211ecc37d49af4936c9c239b18a0d6aac9401126214907cedb2",
+      "bytes": 17169
+    },
+    {
+      "file": "m53-long-example.docx",
+      "sha256": "c5c8296d0b4e2ec32dc3aa7b5cbedfccee53f8d514386a15e4dbe44e24e52580",
+      "bytes": 42714
+    },
+    {
+      "file": "m53-blank-review.pdf",
+      "sha256": "213f1724eef82e9d147fcf90bbb4918380d24f28248da9a509ff678956be385e",
+      "bytes": 62128,
+      "pages": 1
+    },
+    {
+      "file": "m53-long-example.pdf",
+      "sha256": "09ca1b53e4156f58451918a6fa6ee7e7a80f5afd6aa7292a8356b52f2d01812a",
+      "bytes": 102764,
+      "pages": 4
+    },
+    {
+      "file": "m53-short-example.pdf",
+      "sha256": "d277d651c97c45a56d9602d209e9ae31d85b23adcfa4c791181ae33ae5d702ac",
+      "bytes": 75531,
+      "pages": 1
+    }
+  ],
+  "native_word_visual_review": "pending",
+  "converter": "Microsoft Word 16.0 - local desktop export"
+}

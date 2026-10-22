@@ -212,6 +212,16 @@ export function ProcessingPanel({
                 </Alert>
               </div>
             )}
+            {job?.state === "COMPLETED" && job.warnings.length > 0 && (
+              <div className="mt-16" data-testid="processing-warnings">
+                <Alert kind="warning">
+                  <strong>{T.warnings}</strong>
+                  <ul style={{ margin: "4px 0 0", paddingInlineStart: 18 }}>
+                    {job.warnings.map((warning, index) => <li key={index}>{warning}</li>)}
+                  </ul>
+                </Alert>
+              </div>
+            )}
             {job && (job.state === "COMPLETED" || job.state === "FAILED" || job.state === "CANCELLED") && (
               <button className="btn mt-16" type="button" onClick={() => setJob(null)}>
                 {T.processRecording}

@@ -36,6 +36,8 @@ export function ChangePasswordPage() {
     }
   };
 
+  if (user?.auth_mode === 'ldap') return <><div className="page-header"><h1>{T.changePassword}</h1></div><Alert kind="info">كلمة المرور تُدار بواسطة Active Directory. غيّرها من خلال خدمات المؤسسة أو تواصل مع مسؤول النظام.</Alert></>;
+
   return (
     <>
       <div className="page-header">

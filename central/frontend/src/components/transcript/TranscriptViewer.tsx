@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { ApiError, fetchBlobUrl, http } from "@/api/client";
 import type { Segment, Speaker, Transcript } from "@/api/types";
@@ -146,6 +147,7 @@ export function TranscriptViewer({ transcript, onChange }: { transcript: Transcr
   const [audioError, setAudioError] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const pendingSuggestions = transcript.speakers.filter(s => s.identification_status === "SUGGESTED" && s.suggested_name && !s.identity_id).length;
   const speakerOptions = useMemo(() => transcriptSpeakerOptions(transcript.speakers, transcript.segments), [transcript.speakers, transcript.segments]);
   useEffect(() => { if (!speakerOptions.some(o => o.key === speakerFilter)) setSpeakerFilter(""); }, [speakerOptions, speakerFilter]);
 
@@ -197,6 +199,12 @@ export function TranscriptViewer({ transcript, onChange }: { transcript: Transcr
   return (
     <div className="transcript-layout">
       <div className="card" data-testid="transcript">
+        {can("voice.identify") && pendingSuggestions > 0 && <div className="card-body" data-testid="transcript-voice-suggestions">
+          <Alert kind="info">
+            <p>{T.voicePendingSuggestions.replace("{n}", String(pendingSuggestions))}</p>
+            <Link to={`/investigations/${transcript.session_id}?tab=speakers`} className="btn btn-sm">{T.voiceReviewSuggestions}</Link>
+          </Alert>
+        </div>}
         <div className="transcript-toolbar">
           <div className="flex" style={{ position: "relative", flex: 1 }}>
             <input className="input" placeholder={T.searchTranscript} value={query} onChange={(e) => setQuery(e.target.value)} aria-label={T.searchTranscript} />

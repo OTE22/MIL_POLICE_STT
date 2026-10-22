@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { ApiError, http } from "@/api/client";
-import type { Speaker, SpeakerRole } from "@/api/types";
+import type { Speaker, SpeakerRole, VoiceRematchOutcome } from "@/api/types";
 import { useAuth } from "@/lib/auth";
 import { formatDuration, speakerColor } from "@/lib/format";
 import { T, errorMessage, t } from "@/lib/i18n";
-import { Badge, Field, useToast } from "@/components/ui";
+import { Alert, Badge, Field, useToast } from "@/components/ui";
 import { groupSpeakerObservations } from "@/lib/transcript-speakers";
 import { VoiceEnrollButton, VoiceSuggestion } from "./VoiceSuggestion";
 import { IdentifySpeakerDialog } from "@/components/voice/IdentifySpeakerDialog";
+import { VoiceRematchResult } from "@/components/voice/VoiceRematchResult";
 import { SpeakerPicker } from "./SpeakerPicker";
 
 const ROLES: SpeakerRole[] = ["INVESTIGATOR", "SUBJECT", "WITNESS", "OTHER", "UNKNOWN"];
@@ -126,6 +128,14 @@ function SpeakerForm({
           {T.speakerNeedsIdentity}
         </div>
       )}
+      {!speaker.has_voice_embedding && (can("voice.identify") || can("voice.enroll")) && (
+        <div className="mb-16" data-testid="speaker-voice-sample-missing">
+          <Alert kind="info">
+            <p>{T.voiceSampleMissing}</p>
+            <Link to={`/investigations/${sessionId}?tab=recording`}>{T.voiceCheckRecording}</Link>
+          </Alert>
+        </div>
+      )}
       {editable && (
         <div className="flex wrap">
           <button
@@ -137,7 +147,7 @@ function SpeakerForm({
           >
             {T.save}
           </button>
-          <VoiceEnrollButton sessionId={sessionId} speaker={speaker} onEnrolled={() => onSaved({ ...speaker })} />
+          <VoiceEnrollButton sessionId={sessionId} speaker={speaker} onEnrolled={onReloadRequested} />
         </div>
       )}
     </div>
@@ -158,17 +168,21 @@ export function SpeakersPanel({
   const toast = useToast();
   const { can } = useAuth();
   const [rematching, setRematching] = useState(false);
+  const [rematchResult, setRematchResult] = useState<VoiceRematchOutcome | null>(null);
+  useEffect(() => setRematchResult(null), [sessionId]);
 
   /* Voice matching runs once, when the agent submits its result. A voice enrolled after
      that would never reach this session, so the investigator can ask for a re-check.
      Confirmed and rejected speakers are left alone by the server. */
   const rematch = async () => {
     setRematching(true);
+    setRematchResult(null);
     try {
-      const res = await http.post<{ scanned: number; suggested: number }>(
+      const res = await http.post<VoiceRematchOutcome>(
         `/investigations/${sessionId}/voice-rematch`,
         {},
       );
+      setRematchResult(res);
       toast.success(
         res.suggested > 0 ? T.voiceRematchDone.replace("{n}", String(res.suggested)) : T.voiceRematchNone,
       );
@@ -180,7 +194,7 @@ export function SpeakersPanel({
     }
   };
 
-  const canRematch = can("voice.identify") && speakers.some((s) => s.has_voice_embedding);
+  const canRematch = can("voice.identify") && speakers.length > 0;
   const groups = groupSpeakerObservations(speakers);
 
   return (
@@ -204,6 +218,7 @@ export function SpeakersPanel({
         </div>
       </div>
       <div className="card-body">
+        {rematchResult && <VoiceRematchResult result={rematchResult} />}
         {speakers.length === 0 && <div className="muted center">{T.noTranscript}</div>}
         {speakers.length > 0 && <p className="muted small">تُجمع العينات تحت اسم واحد بعد ربطها بالشخص نفسه. يبقى كل متحدث غير محدد مستقلاً حتى مراجعة هويته.</p>}
         {groups.map((group, index) => <section className="card card-body mb-16" key={group.key} data-testid="speaker-person-group">

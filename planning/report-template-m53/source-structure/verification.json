@@ -1,0 +1,72 @@
+{
+  "classification": "reconstructed_for_review",
+  "variables": 56,
+  "converter": "Microsoft Word 16.0, local desktop SaveAs2 PDF",
+  "checks": [
+    {
+      "file": "m53-source-blank.pdf",
+      "pages": 3,
+      "planned_page_count_matches": true,
+      "per_page_character_inventory_matches": true,
+      "review_notices": true,
+      "page_numbers": true,
+      "page_bounds": true
+    },
+    {
+      "file": "m53-source-filled.pdf",
+      "pages": 3,
+      "planned_page_count_matches": true,
+      "per_page_character_inventory_matches": true,
+      "review_notices": true,
+      "page_numbers": true,
+      "page_bounds": true
+    },
+    {
+      "file": "m53-source-long.pdf",
+      "pages": 4,
+      "planned_page_count_matches": true,
+      "per_page_character_inventory_matches": true,
+      "review_notices": true,
+      "page_numbers": true,
+      "page_bounds": true
+    }
+  ],
+  "artifacts": [
+    {
+      "file": "m53-source-blank.docx",
+      "bytes": 44963,
+      "sha256": "eacb2c0677c01f4ff2edaafa66fb073e431a82a2c4b92259efdf83d974c6dd20"
+    },
+    {
+      "file": "m53-source-blank.pdf",
+      "bytes": 127886,
+      "sha256": "cd6ce90cc3de7b24df2e4fe6094b03380533a5d6547cb4a3b001669ea2532811"
+    },
+    {
+      "file": "m53-source-filled.docx",
+      "bytes": 45268,
+      "sha256": "184401a34a611e26ae78a1531691c3b68e92d3b91eb9f184be96d6b95e5d499b"
+    },
+    {
+      "file": "m53-source-filled.pdf",
+      "bytes": 131302,
+      "sha256": "6f9e49993e238d54b05fb08ec3cfbfe87037ed343095a4a1687c67aca9d11dad"
+    },
+    {
+      "file": "m53-source-long.docx",
+      "bytes": 46016,
+      "sha256": "297eeaececac0731c0975c0d5133174237e91430d07e23ba1c768ad5d0b4a21f"
+    },
+    {
+      "file": "m53-source-long.pdf",
+      "bytes": 144339,
+      "sha256": "248b7dde463fb72274b3a748d06b2da05fff8eb45ff92368d0d31f0c5d6d1566"
+    }
+  ],
+  "limitations": [
+    "Not a deployed application template",
+    "Scan-based reconstruction, not verified pixel-identical",
+    "Arabic PDF extraction order differs from logical source order; character inventories are compared",
+    "Institutional acceptance and interactive Word editing/printing review remain pending"
+  ]
+}

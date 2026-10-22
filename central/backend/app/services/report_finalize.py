@@ -41,6 +41,7 @@ from app.models import (
 )
 from app.services.report_context import compose_name, speaker_map
 from app.services.report_draft import included_blocks
+from app.services import report_m53 as m53
 from app.services.report_renderer import ALLOWED_PLACEHOLDERS, render
 from app.services.report_storage import (
     atomic_write,
@@ -140,6 +141,26 @@ def check_ready(db: Session, session: InvestigationSession, draft: ReportDraft, 
         blocked.append("report_unresolved_speakers")
     if len(included_blocks(draft)) > get_settings().report_max_qa_blocks:
         blocked.append("report_too_large")
+
+    if (draft.official_form or {}).get("enabled"):
+        from app.services.report_draft import draft_is_stale
+        # The built-in renderer owns this form; uploaded Word templates continue
+        # to follow their existing validation/activation path.
+        blocked = [reason for reason in blocked if reason not in {
+            "report_no_active_template", "report_template_invalid", "report_template_not_official"}]
+        context = build_context(db, session, draft, None, version=0, generated_by=None)
+        flags = m53.confirmed(draft, m53.review_token(draft, context))
+        values = m53.values_for(draft)
+        missing = m53.missing_fields(values, flags)
+        if not flags["content_reviewed"]:
+            blocked.append("report_m53_review_required")
+        if draft_is_stale(db, draft):
+            blocked.append("report_m53_stale_source")
+        names = {qa["answer_speaker"] for qa in context["qa_blocks"] if qa["answer"]}
+        if len(names) != 1 or "" in names or unresolved:
+            blocked.append("report_m53_one_subject_required")
+        elif values["statement_name"] not in names:
+            blocked.append("report_m53_subject_mismatch")
 
     return Preflight(missing_fields=missing, unresolved_labels=unresolved, blocked=blocked)
 
@@ -338,37 +359,53 @@ def finalize(
     ) + 1
 
     report_id = uuid.uuid4()
+    structured = bool((draft.official_form or {}).get("enabled"))
+    if structured:
+        template = None
     context = build_context(db, session, draft, template, version=version, generated_by=user)
-
-    template_bytes = read_file(template.storage_path)
-    if template_bytes is None:
-        raise FinalizationRefused("report_template_file_missing")
-
-    docx_bytes = render(template_bytes, context)
+    pdf_bytes = None
+    if structured:
+        token = m53.review_token(draft, context)
+        try:
+            docx_bytes, pdf_bytes, layout = m53.render_documents(m53.values_for(draft), context["qa_blocks"], m53.confirmed(draft, token))
+        except ValueError as exc:
+            raise FinalizationRefused(str(exc)) from exc
+        context["official_form"] = {**draft.official_form, "content_sha256": token, "layout": layout,
+                                    "definition": m53.SPEC, "definition_sha256": m53.format_digest()}
+    else:
+        template_bytes = read_file(template.storage_path)
+        if template_bytes is None:
+            raise FinalizationRefused("report_template_file_missing")
+        docx_bytes = render(template_bytes, context)
 
     # Sidecar: the exact rendering input, so a document can be re-derived and explained.
     context_json = json.dumps(context, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
 
     docx_rel = report_relative_path(session.id, report_id, version)
     context_rel = context_relative_path(session.id, report_id, version)
+    pdf_rel = docx_rel.removesuffix(".docx") + ".pdf" if pdf_bytes else None
 
     # File first, row second - a crash leaves at worst an unreferenced file, never a row
     # pointing at a document that does not exist.
-    _, size, docx_sha = atomic_write(docx_rel, docx_bytes)
-    atomic_write(context_rel, context_json)
-
     try:
+        _, size, docx_sha = atomic_write(docx_rel, docx_bytes)
+        atomic_write(context_rel, context_json)
+        if pdf_rel:
+            atomic_write(pdf_rel, pdf_bytes)
         report = GeneratedReport(
             id=report_id,
             session_id=session.id,
             draft_id=draft.id,
             report_version=version,
-            template_version_id=template.id,
+            template_version_id=template.id if template else None,
             storage_path=docx_rel,
             context_path=context_rel,
+            pdf_path=pdf_rel,
+            pdf_sha256=sha256_bytes(pdf_bytes) if pdf_bytes else None,
+            format_key=m53.REVISION if structured else None,
             docx_sha256=docx_sha,
             context_sha256=sha256_bytes(context_json),
-            template_sha256=template.sha256,
+            template_sha256=template.sha256 if template else m53.format_digest(),
             size_bytes=size,
             report_number=draft.report_number,
             transcript_source_mode=draft.transcript_source_mode,
@@ -384,11 +421,13 @@ def finalize(
         # No orphan official document may survive a failed insert.
         remove_file(docx_rel)
         remove_file(context_rel)
+        if pdf_rel:
+            remove_file(pdf_rel)
         raise
 
     log.info(
         "report issued session=%s version=%d template=v%d blocks=%d sha256=%s",
-        session.session_number, version, template.version, len(context["qa_blocks"]), docx_sha[:12],
+        session.session_number, version, template.version if template else 0, len(context["qa_blocks"]), docx_sha[:12],
     )
     return report
 
@@ -400,6 +439,7 @@ class Verification:
     context_ok: bool
     template_ok: bool
     detail: str
+    pdf_ok: bool | None = None
 
 
 def verify(db: Session, report: GeneratedReport) -> Verification:
@@ -419,11 +459,22 @@ def verify(db: Session, report: GeneratedReport) -> Verification:
         template = db.get(ReportTemplateVersion, report.template_version_id)
         template_ok = template is not None and template.sha256 == report.template_sha256
 
-    ok = bool(docx_ok and context_ok and template_ok)
+    pdf_ok = None
+    if report.pdf_path:
+        pdf = read_file(report.pdf_path)
+        pdf_ok = pdf is not None and sha256_bytes(pdf) == report.pdf_sha256
+    if report.format_key:
+        blob = read_file(report.context_path) if report.context_path else None
+        try:
+            archived = json.loads(blob or b"{}").get("official_form", {})
+            template_ok = archived.get("definition_sha256") == report.template_sha256
+        except (ValueError, TypeError):
+            template_ok = False
+    ok = bool(docx_ok and context_ok and template_ok and pdf_ok is not False)
     if ok:
         detail = "سليم"
     elif docx is None:
         detail = "الملف مفقود"
     else:
         detail = "غير مطابق"
-    return Verification(ok=ok, docx_ok=bool(docx_ok), context_ok=context_ok, template_ok=template_ok, detail=detail)
+    return Verification(ok=ok, docx_ok=bool(docx_ok), context_ok=context_ok, template_ok=template_ok, detail=detail, pdf_ok=pdf_ok)

@@ -1,0 +1,490 @@
+{
+  "revision": "m53-1",
+  "values": {
+    "attachments": "[المرفقات الفعلية]",
+    "birth_place": "البلدة الافتراضية",
+    "birth_year": "١٩٩٠",
+    "children_statement": "وله ولدان",
+    "civil_register": "تجريبي",
+    "clerk_name": "الكاتب التجريبي",
+    "clerk_rank": "رقيب",
+    "clerk_service_number": "تجريبي",
+    "clerk_unit": "الوحدة الافتراضية",
+    "closing_date": "٢١/١٠/٢٠٢٦",
+    "closing_location": "مكان افتراضي",
+    "consulted_name": "المسؤول التجريبي",
+    "consulted_rank": "رتبة افتراضية",
+    "consulted_unit": "الوحدة الافتراضية",
+    "copy_count_words": "نسخة واحدة",
+    "day_words": "الحادي والعشرين",
+    "district": "القضاء الافتراضي",
+    "duty_unit": "افتراضي",
+    "education": "تعليماً افتراضياً",
+    "family_status": "متأهل",
+    "father_name": "الأب التجريبي",
+    "human_conclusion": "[استنتاج يكتبه المراجع]",
+    "human_proposals": "[اقتراحات يكتبها المراجع]",
+    "human_responsibilities": "[مسؤوليات يحددها المراجع]",
+    "identity_documents": "[وثائق راجعها المحقق]",
+    "interim_page_count_words": "[عدد صفحات هذا الجزء]",
+    "investigator_identifier": "تجريبي",
+    "investigator_name": "المحقق التجريبي",
+    "investigator_rank": "نقيب",
+    "investigator_unit": "وحدة افتراضية",
+    "month_words": "تشرين الأول",
+    "mother_name": "الأم التجريبية",
+    "note_date": "٢١/١٠/٢٠٢٦",
+    "note_time": "١٢:٠٠",
+    "occupation_statement": "أعمل بوظيفة افتراضية في وحدة تدريبية",
+    "opening_location": "مكتب افتراضي",
+    "opening_time_words": "التاسعة والنصف",
+    "phone": "غير مدخل",
+    "prior_record_statement": "[إفادة السوابق يراجعها المحقق]",
+    "procedural_decision": "[قرار إجرائي يؤكده المراجع]",
+    "referral_date": "٢١/١٠/٢٠٢٦",
+    "referral_number": "تجريبي",
+    "rendered_page_count_words": "3 صفحة",
+    "residence": "عنوان افتراضي",
+    "responsible_name": "[الاسم]",
+    "responsible_rank": "[الرتبة]",
+    "responsible_service_number": "[الرقم]",
+    "responsible_unit": "[الوحدة]",
+    "statement_name": "المشارك التجريبي",
+    "statement_rank": "رقيب أول",
+    "statement_service_number": "تجريبي",
+    "statement_signature_role": "رقيب أول مستجوب",
+    "subject": "واقعة افتراضية لاختبار القالب",
+    "weekday": "الأربعاء",
+    "year": "٢٠٢٦",
+    "year_words": "ألفين وست وعشرين"
+  },
+  "pages": [
+    [
+      {
+        "text": "محضر تحقيق عدلي",
+        "margin": "الجمهورية اللبنانية",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "وزارة الدفاع الوطني",
+        "bold": false
+      },
+      {
+        "text": "في الساعة التاسعة والنصف من يوم الأربعاء الواقع في الحادي والعشرين من شهر",
+        "margin": "الشرطة العسكرية",
+        "bold": false
+      },
+      {
+        "text": "تشرين الأول سنة ألفين وست وعشرين",
+        "margin": "خفر افتراضي",
+        "bold": false
+      },
+      {
+        "text": "نحن نقيب المحقق التجريبي (تجريبي) الضابط العدلي العسكري في وحدة افتراضية",
+        "margin": "موضوع القضية",
+        "bold": false
+      },
+      {
+        "text": "والمصحوبون بـرقيب الكاتب التجريبي رقم تجريبي من الوحدة الافتراضية والذي",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "اتخذناه كاتباً عدلياً",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "بعد أن قمنا بتحليفه اليمين القانونية لمرة واحدة فقط على الشكل التالي: «والله العظيم",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "أني أقوم بواجبي بكل أمانة وإخلاص وأحفظ سر التحقيق»",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "والمرتدون اللباس العسكري",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "نثبت أنه في الساعة والتاريخ المذكورين أعلاه اجتمعنا في مكتب افتراضي واستناداً",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "للإحالة رقم تجريبي تاريخ ٢١/١٠/٢٠٢٦ والمتعلقة بإجراء تحقيق عدلي حول واقعة",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "افتراضية لاختبار القالب باشرنا التحقيق على الشكل التالي:",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "إفادة رقيب أول المشارك التجريبي رقم تجريبي",
+        "margin": "",
+        "bold": true
+      },
+      {
+        "text": "اسمي المشارك التجريبي بن الأب التجريبي ووالدتي الأم التجريبية مولود عام ١٩٩٠ في",
+        "margin": "س.ج",
+        "bold": false
+      },
+      {
+        "text": "بلدة البلدة الافتراضية قضاء القضاء الافتراضي رقم سجل النفوس تجريبي ومقيم حالياً",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "في عنوان افتراضي رقم الهاتف غير مدخل متأهل وله ولدان متعلم تعليماً افتراضياً",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "أعمل بوظيفة افتراضية في وحدة تدريبية [إفادة السوابق يراجعها المحقق]",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "تأكدنا من [وثائق راجعها المحقق] وأعيدت إليه",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "أفيد أنني حضرت إلى المكتب الافتراضي في الموعد المحدد، وقد رتبت المواد",
+        "margin": "ج",
+        "bold": false
+      },
+      {
+        "text": "التجريبية وراجعت عناوينها. هذه بيانات افتراضية لا تصف واقعة حقيقية.",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "نعم قمت بمراجعة ترتيب الملفات التجريبية ولم أضف أي معلومات شخصية إليها.",
+        "margin": "ج",
+        "bold": false
+      },
+      {
+        "text": "كلا ليس لدي ما أضيفه على إفادتي التجريبية هذه.",
+        "margin": "ج",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      }
+    ],
+    [
+      {
+        "text": "",
+        "margin": "هامش",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "تليت عليه إفادته فصدقها ووقعها بحضورنا نحن والكاتب العدلي",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "رقيب أول مستجوب __________ كاتب عدلي __________ مكان افتراضي في",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "٢١/١٠/٢٠٢٦",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "نقيب محقق __________",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "بتاريخ ٢١/١٠/٢٠٢٦ الساعة ١٢:٠٠ وبمراجعة قيادة الوحدة الافتراضية بشخص رتبة",
+        "margin": "ملاحظة:",
+        "bold": false
+      },
+      {
+        "text": "افتراضية المسؤول التجريبي واطلاعه على تفاصيل التحقيق [قرار إجرائي يؤكده",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "المراجع] ولأجله سطرت.",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "رقيب أول مستجوب __________ كاتب عدلي __________ مكان افتراضي في",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "٢١/١٠/٢٠٢٦",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "نقيب محقق __________",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "نظم وختم هذا التحقيق على نسخة واحدة في [عدد صفحات هذا الجزء] ووقع من",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "قبلنا نحن والكاتب العدلي يقدم مع [المرفقات الفعلية] للتفضل بالإطلاع",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "رقيب أول مستجوب __________ كاتب عدلي __________ مكان افتراضي في",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "٢١/١٠/٢٠٢٦",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "نقيب محقق __________",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "يستنتج من سياق التحقيق أنه [استنتاج يكتبه المراجع]",
+        "margin": "الإستنتاج:",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "تترتب على [الرتبة] [الاسم] رقم [الرقم] من عداد [الوحدة] المسؤولية التالية:",
+        "margin": "المسؤوليات:",
+        "bold": false
+      },
+      {
+        "text": "[مسؤوليات يحددها المراجع]",
+        "margin": "",
+        "bold": false
+      }
+    ],
+    [
+      {
+        "text": "",
+        "margin": "هامش",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "[اقتراحات يكتبها المراجع]",
+        "margin": "الإقتراحات:",
+        "bold": false
+      },
+      {
+        "text": "نظم وختم هذا الملف على نسخة واحدة في 3 صفحة ووقع من قبلنا ويقدم مع",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "[المرفقات الفعلية] للتفضل بالإطلاع",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "مكان افتراضي في ٢١/١٠/٢٠٢٦",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "نقيب محقق __________",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      },
+      {
+        "text": "",
+        "margin": "",
+        "bold": false
+      }
+    ]
+  ],
+  "omitted_clauses": []
+}

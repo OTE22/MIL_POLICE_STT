@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -41,6 +42,7 @@ class InvestigatorProfileOut(BaseModel):
 
 
 class CurrentUserOut(BaseModel):
+    auth_mode: Literal['local', 'ldap'] = 'local'
     id: uuid.UUID
     username: str
     is_active: bool

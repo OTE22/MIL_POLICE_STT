@@ -643,18 +643,21 @@ def rematch_session(
     enrolled afterwards is never applied to an existing session. This closes that gap
     without reprocessing any audio. Confirmed and rejected speakers are left untouched.
     """
-    _, scanned, suggested = rematch_speakers(db, session_ids=[session.id], user_id=user.id)
+    diagnostics: dict[str, int] = {}
+    _, scanned, suggested = rematch_speakers(
+        db, session_ids=[session.id], user_id=user.id, diagnostics=diagnostics
+    )
     record_audit(
         db,
         action=AuditAction.VOICE_REMATCH_RUN,
         user_id=user.id,
         entity_type="investigation_session",
         entity_id=session.id,
-        metadata={"scope": "session", "scanned": scanned, "suggested": suggested},
+        metadata={"scope": "session", "scanned": scanned, "suggested": suggested, **diagnostics},
         ip_address=client_ip(request),
     )
     db.commit()
-    return {"scanned": scanned, "suggested": suggested}
+    return {"scanned": scanned, "suggested": suggested, **diagnostics}
 
 
 @router.post("/voice-enrollments/rematch")
@@ -668,8 +671,9 @@ def rematch_all(
     Restricted to speakers currently at NONE: a re-scan must never disturb a session an
     investigator has already decided.
     """
+    diagnostics: dict[str, int] = {}
     sessions, scanned, suggested = rematch_speakers(
-        db, session_ids=None, user_id=user.id, only_undecided=True
+        db, session_ids=None, user_id=user.id, only_undecided=True, diagnostics=diagnostics
     )
     record_audit(
         db,
@@ -677,11 +681,11 @@ def rematch_all(
         user_id=user.id,
         entity_type="voice_enrollment",
         entity_id=None,
-        metadata={"scope": "all", "sessions": sessions, "scanned": scanned, "suggested": suggested},
+        metadata={"scope": "all", "sessions": sessions, "scanned": scanned, "suggested": suggested, **diagnostics},
         ip_address=client_ip(request),
     )
     db.commit()
-    return {"sessions": sessions, "scanned": scanned, "suggested": suggested}
+    return {"sessions": sessions, "scanned": scanned, "suggested": suggested, **diagnostics}
 
 
 def _speaker_seconds(db: Session, speaker: SessionSpeaker) -> float | None:

@@ -19,6 +19,8 @@ from app.db.session import get_db
 from app.models import AuditAction, User
 from app.schemas.auth import ChangePasswordRequest, CurrentUserOut, LoginRequest, TokenResponse
 from app.services.audit import record_audit
+from app.config import get_settings
+from app.services.ldap_auth import authenticate_directory, DirectoryUnavailable
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -32,7 +34,8 @@ def _serialize_user(user: User) -> CurrentUserOut:
         id=user.id,
         username=user.username,
         is_active=user.is_active,
-        must_change_password=user.must_change_password,
+        must_change_password=user.must_change_password if get_settings().auth_mode == 'local' else False,
+        auth_mode=get_settings().auth_mode,
         roles=user.role_names,
         permissions=sorted(user.permission_codes),
         last_login_at=user.last_login_at,
@@ -42,6 +45,7 @@ def _serialize_user(user: User) -> CurrentUserOut:
 
 @router.post("/login", response_model=TokenResponse)
 def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)) -> TokenResponse:
+    settings = get_settings()
     user = db.scalar(select(User).where(User.username == body.username.lower()))
     ip = client_ip(request)
     if user is None:
@@ -49,7 +53,22 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)) -
         record_audit(db, action=AuditAction.LOGIN_FAILED, user_id=None, metadata={"username": body.username[:64]}, ip_address=ip)
         db.commit()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid_credentials")
-    if not verify_password(body.password, user.password_hash):
+    if settings.auth_mode == 'ldap':
+        # Application-disabled accounts cannot be restored by directory authentication.
+        if not user.is_active:
+            record_audit(db, action=AuditAction.LOGIN_FAILED, user_id=user.id, metadata={"reason": "disabled"}, ip_address=ip)
+            db.commit()
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="account_disabled")
+        try:
+            authenticated = authenticate_directory(user.username, body.password, settings)
+        except DirectoryUnavailable:
+            record_audit(db, action=AuditAction.LOGIN_FAILED, user_id=user.id,
+                         metadata={"reason": "directory_unavailable"}, ip_address=ip)
+            db.commit()
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="directory_unavailable") from None
+    else:
+        authenticated = verify_password(body.password, user.password_hash)
+    if not authenticated:
         record_audit(db, action=AuditAction.LOGIN_FAILED, user_id=user.id, metadata={"username": user.username}, ip_address=ip)
         db.commit()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid_credentials")
@@ -57,10 +76,10 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)) -
         record_audit(db, action=AuditAction.LOGIN_FAILED, user_id=user.id, metadata={"reason": "disabled"}, ip_address=ip)
         db.commit()
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="account_disabled")
-    if password_needs_rehash(user.password_hash):
+    if settings.auth_mode == 'local' and password_needs_rehash(user.password_hash):
         user.password_hash = hash_password(body.password)
     user.last_login_at = datetime.now(timezone.utc)
-    token, expires_at = create_access_token(user.id, user.username)
+    token, expires_at = create_access_token(user.id, user.username, {"auth_mode": settings.auth_mode})
     record_audit(db, action=AuditAction.LOGIN, user_id=user.id, entity_type="user", entity_id=user.id, ip_address=ip)
     db.commit()
     return TokenResponse(access_token=token, expires_at=expires_at)
@@ -85,6 +104,8 @@ def change_password(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Response:
+    if get_settings().auth_mode == 'ldap':
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="directory_password_managed")
     if not verify_password(body.current_password, user.password_hash):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="invalid_credentials")
     user.password_hash = hash_password(body.new_password)

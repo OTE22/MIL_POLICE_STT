@@ -101,6 +101,7 @@ class ReportDraftOut(BaseModel):
     # Whether الصياغة بالفصحى can be offered on this machine. Absent AI is a normal state:
     # the composer simply shows a note and the investigator writes the wording themselves.
     llm: "LLMCapabilitiesBrief"
+    official_form: dict = Field(default_factory=dict)
 
 
 class ReportDraftUpdateIn(BaseModel):
@@ -190,6 +191,8 @@ class GeneratedReportOut(BaseModel):
     generated_by: uuid.UUID | None
     generated_by_name: str | None
     created_at: datetime
+    pdf_sha256: str | None = None
+    format_key: str | None = None
 
 
 class ReportArchiveOut(BaseModel):
@@ -212,3 +215,4 @@ class ReportVerificationOut(BaseModel):
     context_ok: bool
     template_ok: bool
     detail: str
+    pdf_ok: bool | None = None

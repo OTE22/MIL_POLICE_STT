@@ -513,6 +513,7 @@ def rematch_speakers(
     session_ids: list[uuid.UUID] | None,
     user_id: uuid.UUID | None,
     only_undecided: bool = False,
+    diagnostics: dict[str, int] | None = None,
 ) -> tuple[int, int, int]:
     """Re-run matching from embeddings already stored. Returns (sessions, scanned, suggested).
 
@@ -523,12 +524,14 @@ def rematch_speakers(
     pgvector statement as submission, so the two paths cannot drift.
 
     CONFIRMED and REJECTED rows are never touched: a human decision stands.
+    When requested, diagnostics explain why speakers received no suggestion without
+    exposing candidate identities or changing the existing tuple return contract.
     """
-    stmt = select(SessionSpeaker).where(SessionSpeaker.voice_embedding.is_not(None))
+    counts = dict(no_sample=0, no_compatible_enrollment=0, below_threshold=0,
+                  ambiguous=0, skipped_decided=0)
+    stmt = select(SessionSpeaker)
     if session_ids is not None:
         stmt = stmt.where(SessionSpeaker.session_id.in_(session_ids))
-    if only_undecided:
-        stmt = stmt.where(SessionSpeaker.identification_status == IdentificationStatus.NONE)
 
     rows = list(db.scalars(stmt).all())
     now = datetime.now(timezone.utc)
@@ -540,14 +543,19 @@ def rematch_speakers(
 
     for row in rows:
         if row.identity_id is not None or row.identification_status in (IdentificationStatus.CONFIRMED, IdentificationStatus.REJECTED):
+            counts["skipped_decided"] += 1
+            continue
+        if only_undecided and row.identification_status != IdentificationStatus.NONE:
             continue
         if not list(row.voice_embedding or []):
+            counts["no_sample"] += 1
             continue
         # An embedding is only comparable within the model that produced it, so a row
         # whose producing model was never recorded is skipped rather than guessed at.
         model = row.voice_embedding_model or row.suggested_model
         if not model:
             skipped_unknown_model += 1
+            counts["no_compatible_enrollment"] += 1
             continue
         scanned += 1
         touched.add(row.session_id)
@@ -568,7 +576,20 @@ def rematch_speakers(
                 now=now,
             ):
                 suggested += 1
+            elif row.identity_id is not None or row.identification_status in (
+                IdentificationStatus.CONFIRMED, IdentificationStatus.REJECTED
+            ):
+                # A human may have decided while the gallery query was running.
+                counts["skipped_decided"] += 1
+            elif result.score is None or result.decision == DECISION_SUGGESTED:
+                counts["no_compatible_enrollment"] += 1
+            elif result.decision == DECISION_AMBIGUOUS:
+                counts["ambiguous"] += 1
+            else:
+                counts["below_threshold"] += 1
 
     if skipped_unknown_model:
         log.info("re-scan skipped %d speaker(s) with no recorded embedding model", skipped_unknown_model)
+    if diagnostics is not None:
+        diagnostics.update(counts)
     return len(touched), scanned, suggested

@@ -1,0 +1,17 @@
+services:
+  backend:
+    image: military-stt/m53-tests:local
+    entrypoint: ["sh", "/app/docker-entrypoint.sh"]
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      CENTRAL_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-stt}:${POSTGRES_PASSWORD:-stt}@postgres:5432/${POSTGRES_DB:-military_stt}_test
+      CENTRAL_AUTH_MODE: local
+      CENTRAL_ENVIRONMENT: development
+      CENTRAL_JWT_SECRET: m53-ui-test-only-secret-01234567890123456789
+      CENTRAL_BOOTSTRAP_ADMIN_PASSWORD: AdminBootstrap!1
+      CENTRAL_STORAGE_ROOT: /tmp/mstt-tests/storage
+      CENTRAL_LOG_DIR: ""
+      CENTRAL_PROCESSING_TOKEN_PRIVATE_KEY_PATH: /tmp/mstt-tests/priv.pem
+      CENTRAL_PROCESSING_TOKEN_PUBLIC_KEY_PATH: /tmp/mstt-tests/pub.pem
+  frontend:
+    image: military-stt/central-frontend:m53-candidate

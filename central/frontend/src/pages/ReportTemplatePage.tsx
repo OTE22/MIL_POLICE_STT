@@ -114,6 +114,18 @@ export function ReportTemplatePage() {
 
       {designing && <ReportLayoutDesigner key={editId ?? 'new'} editId={editId} deletedTemplateId={deletedTemplateId} onDirtyChange={setDesignerDirty} onSaved={() => void load().catch(() => setError(T.err_generic))} />}
 
+      <section className="card" dir="rtl">
+        <div className="card-head">م ٥٣ — نموذج بصياغة ثابتة وحقول متغيرة</div>
+        <div className="card-body">
+          <p>نموذج مسطّر مبني على الصفحات ١٨–٢٠ من ملف النماذج: نفس ترتيب الافتتاح والإفادة والملاحظة والاستنتاج والمسؤوليات والاقتراحات. الأسماء والسنوات والأوقات وسائر وقائع الجلسة حقول مستقلة، وتُضاف صفحات عند امتداد النص.</p>
+          <p className="muted">اختر «م ٥٣» من صفحة إنشاء محضر الجلسة لملئه كاستمارة وحفظه بصيغتي PDF وWord. عاين النسخة الفارغة للتحقق من التصميم. النموذج إعادة بناء من ملف ممسوح، وليس نسخة أصلية صادرة عن الجهة.</p>
+          <div className="flex gap wrap">
+            <button className="btn btn-primary" disabled={busy} onClick={() => void run(() => downloadFile('/report-forms/m53/blank', 'm53-blank.pdf'))}>معاينة النموذج PDF</button>
+            <button className="btn" disabled={busy} onClick={() => void run(() => downloadFile('/report-forms/m53/blank?format=docx', 'm53-blank.docx'))}>تنزيل النموذج Word</button>
+          </div>
+        </div>
+      </section>
+
       {error && (
         <div className="mb-16">
           <Alert kind="danger">{error}</Alert>
@@ -123,8 +135,8 @@ export function ReportTemplatePage() {
       {!data.production_ready && (
         <div className="mb-16">
           <Alert kind="warning">
-            <div data-testid="template-not-official">⚠ {T.templateNotOfficial}</div>
-            <div className="muted small mt-8">{T.templateNotOfficialHint}</div>
+            <div data-testid="template-not-official">قالب Word: {T.templateNotOfficial}</div>
+            <div className="muted small mt-8">{T.templateNotOfficialHint} ينطبق هذا التنبيه على قالب Word المرفوع؛ نموذج م ٥٣ متاح من استمارة الجلسة.</div>
           </Alert>
         </div>
       )}

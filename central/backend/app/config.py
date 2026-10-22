@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
+import re
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,6 +24,26 @@ class Settings(BaseSettings):
     jwt_secret: str = Field(default="CHANGE_ME_IN_PRODUCTION_min_32_chars____")
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 480
+
+    # Optional AD password verification; application roles remain local.
+    auth_mode: Literal['local', 'ldap'] = 'local'
+    ldap_host: str = ''
+    ldap_port: int = Field(default=636, ge=1, le=65535)
+    ldap_tls_mode: Literal['ldaps', 'starttls'] = 'ldaps'
+    ldap_domain: str = ''  # User principal name suffix, e.g. corp.example.org.
+    ldap_ca_cert_file: str = ''  # Empty uses the operating system trust store.
+    ldap_timeout_seconds: int = Field(default=5, ge=1, le=30)
+
+    @model_validator(mode='after')
+    def validate_ldap(self):
+        if self.auth_mode == 'ldap':
+            if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9.-]*', self.ldap_host):
+                raise ValueError('CENTRAL_LDAP_HOST must be a DNS hostname, without a URL or port')
+            if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9.-]*', self.ldap_domain):
+                raise ValueError('CENTRAL_LDAP_DOMAIN must be the AD UPN suffix')
+            if self.ldap_ca_cert_file and not Path(self.ldap_ca_cert_file).is_file():
+                raise ValueError('CENTRAL_LDAP_CA_CERT_FILE must refer to a readable CA certificate file')
+        return self
 
     # Processing tokens (asymmetric, ES256). Private key stays on the central server;
     # workstations only receive the public key.

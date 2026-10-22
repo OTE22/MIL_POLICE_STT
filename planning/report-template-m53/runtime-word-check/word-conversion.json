@@ -1,0 +1,16 @@
+﻿{
+    "converter":  "Microsoft Word 16.0 - local desktop export",
+    "files":  [
+                  {
+                      "file":  "m53-runtime-blank.pdf"
+                  },
+                  {
+                      "file":  "m53-runtime-filled.pdf"
+                  },
+                  {
+                      "file":  "m53-runtime-long.pdf"
+                  }
+              ],
+    "desktop_visual_review":  "pending; exported pages reviewed separately",
+    "production_server_converter":  "not installed or deployed"
+}

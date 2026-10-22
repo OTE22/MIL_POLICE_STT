@@ -39,7 +39,8 @@ def _now() -> datetime:
 
 
 def get_draft(db: Session, session_id: uuid.UUID) -> ReportDraft | None:
-    return db.scalar(select(ReportDraft).where(ReportDraft.session_id == session_id))
+    # Serialize edits/finalization for a session, including structured-form review.
+    return db.scalar(select(ReportDraft).where(ReportDraft.session_id == session_id).with_for_update())
 
 
 def require_editable(draft: ReportDraft) -> None:

@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "sample_kind": "blank",
+  "fictional": true,
+  "template_status": "reconstructed_for_review",
+  "institution_lines": [
+    "الجمهورية اللبنانية",
+    "وزارة الدفاع الوطني",
+    "الشرطة العسكرية",
+    "خفر: ................"
+  ],
+  "subject": "",
+  "session_date": "",
+  "opening_time": "",
+  "location": "",
+  "investigator": "",
+  "clerk": "",
+  "referral": "",
+  "statements": [
+    {
+      "id": "blank-statement",
+      "kind": "statement",
+      "speaker": "",
+      "text": ""
+    }
+  ],
+  "notes": "",
+  "conclusion": "",
+  "responsibilities": "",
+  "proposals": "",
+  "closing": ""
+}

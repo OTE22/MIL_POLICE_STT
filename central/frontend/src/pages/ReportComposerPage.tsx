@@ -25,6 +25,7 @@ import { useAuth } from "@/lib/auth";
 import { formatDateTime, formatDuration } from "@/lib/format";
 import { T, errorMessage } from "@/lib/i18n";
 import { Alert, Badge, Field, Loading, useToast } from "@/components/ui";
+import { M53ReportForm } from "@/components/M53ReportForm";
 
 function seconds(value: number | null): string {
   if (value == null) return "";
@@ -447,12 +448,15 @@ export function ReportComposerPage() {
           <button
             className="btn"
             type="button"
-            onClick={() => setShowPreview((v) => !v)}
+            disabled={draft.official_form.enabled && (busy || metaDirty || dirtyBlocks.size > 0)}
+            onClick={() => draft.official_form.enabled
+              ? void downloadFile(`/investigations/${sessionId}/report/m53/preview`, 'm53-preview.pdf').catch(fail)
+              : setShowPreview((v) => !v)}
             data-testid="report-preview-toggle"
           >
-            {T.reportPreview}
+            {draft.official_form.enabled ? "معاينة PDF" : T.reportPreview}
           </button>
-          {mayEdit && (
+          {mayEdit && !draft.official_form.enabled && (
             <button
               className="btn btn-primary"
               type="button"
@@ -508,6 +512,9 @@ export function ReportComposerPage() {
       )}
 
       {/* ---- بيانات المحضر ------------------------------------------------ */}
+      <M53ReportForm sessionId={sessionId!} form={draft.official_form} editable={!!mayEdit} blocked={busy || metaDirty || [...dirtyBlocks].some(id => id !== 'm53-form')}
+        onDirtyChange={markBlockDirty} onSaved={async updated => { setDraft(updated); await loadArchive(); }} />
+      {!draft.official_form.enabled && <>
       <div className="card">
         <div className="card-head">{T.reportSectionMeta}</div>
         <div className="card-body form-grid">
@@ -577,6 +584,7 @@ export function ReportComposerPage() {
         </div>
       </div>
 
+      </>}
       {/* ---- التسجيلات + مصدر النص ---------------------------------------- */}
       <div className="card">
         <div className="card-head">{T.reportSectionRecordings}</div>
@@ -770,7 +778,7 @@ export function ReportComposerPage() {
           <div className="muted small mb-16">{T.reportFinalNote}</div>
           {error && <Alert kind="danger">{error}<button className="btn" onClick={() => void loadArchive().then(() => setError(null)).catch(fail)}>إعادة تحميل حالة المحضر</button></Alert>}
           {metaDirty && <Alert kind="info">احفظ بيانات المحضر قبل إصدار النسخة النهائية.</Alert>}
-          {dirtyBlocks.size > 0 && <Alert kind="info">توجد تعديلات غير محفوظة في الأسئلة والأجوبة. احفظها قبل إصدار المحضر.</Alert>}
+          {dirtyBlocks.size > 0 && <Alert kind="info">توجد تعديلات غير محفوظة في النموذج أو الأسئلة والأجوبة. احفظها قبل إصدار المحضر.</Alert>}
 
           {archive && !archive.can_finalize && (
             <Alert kind="warning">
@@ -866,6 +874,10 @@ export function ReportComposerPage() {
                     >
                       {T.reportDownload}
                     </button>
+                    {r.pdf_sha256 && <button className="btn btn-sm btn-primary" onClick={() => void downloadFile(
+                      `/investigations/${sessionId}/reports/${r.id}/file?format=pdf`, `mahdar-v${r.report_version}.pdf`).catch(fail)}>
+                      تنزيل PDF
+                    </button>}
                     <button
                       className="btn btn-sm"
                       type="button"
@@ -893,7 +905,7 @@ export function ReportComposerPage() {
       </div>
 
       {/* ---- معاينة تقريبية: content only, never a Word renderer ---------- */}
-      {showPreview && (
+      {showPreview && !draft.official_form.enabled && (
         <div className="card" data-testid="report-preview">
           <div className="card-head">{T.reportPreview}</div>
           <div className="card-body">

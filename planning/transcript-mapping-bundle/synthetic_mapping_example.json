@@ -1,0 +1,368 @@
+{
+  "synthetic_demo": true,
+  "notice": "Synthetic fixture only. No real people, case facts, approvals, or signatures. This is deliberately NOT export-ready.",
+  "schema_version": "1.0",
+  "source_transcript": {
+    "transcript_id": "demo-transcript-001",
+    "session_id": "demo-session-001",
+    "source_sha256": null,
+    "segments": [
+      {
+        "segment_id": "seg-001",
+        "speaker_id": "SPEAKER_00",
+        "start_ms": 0,
+        "end_ms": 2400,
+        "text": "ما الرمز المكتوب في المثال التجريبي؟",
+        "asr_confidence": null
+      },
+      {
+        "segment_id": "seg-002",
+        "speaker_id": "SPEAKER_01",
+        "start_ms": 2600,
+        "end_ms": 5200,
+        "text": "الرمز التجريبي هو TEST-42.",
+        "asr_confidence": null
+      },
+      {
+        "segment_id": "seg-003",
+        "speaker_id": "SPEAKER_01",
+        "start_ms": 5400,
+        "end_ms": 7600,
+        "text": "وهذا مثال للاختبار فقط.",
+        "asr_confidence": null
+      }
+    ]
+  },
+  "reviewed_record": {
+    "record_id": "demo-record-001",
+    "revision": 1,
+    "session_id": "demo-session-001",
+    "source_transcript_id": "demo-transcript-001",
+    "source_sha256": null,
+    "template": {
+      "template_id": "arabic-draft-v1",
+      "template_version": 1,
+      "classification": "illustrative_draft",
+      "content_approval_does_not_remove_draft_label": true
+    },
+    "overall_status": "draft",
+    "fields": {
+      "organization": {
+        "value": null,
+        "source_type": "unknown",
+        "source_refs": [],
+        "review_status": "missing",
+        "reviewed_by": null,
+        "reviewed_at": null
+      },
+      "office": {
+        "value": null,
+        "source_type": "unknown",
+        "source_refs": [],
+        "review_status": "missing",
+        "reviewed_by": null,
+        "reviewed_at": null
+      },
+      "report_reference": {
+        "value": null,
+        "source_type": "unknown",
+        "source_refs": [],
+        "review_status": "missing",
+        "reviewed_by": null,
+        "reviewed_at": null
+      },
+      "subject": {
+        "value": null,
+        "source_type": "unknown",
+        "source_refs": [],
+        "review_status": "missing",
+        "reviewed_by": null,
+        "reviewed_at": null
+      },
+      "session_date": {
+        "value": null,
+        "source_type": "unknown",
+        "source_refs": [],
+        "review_status": "missing",
+        "reviewed_by": null,
+        "reviewed_at": null
+      },
+      "opening_time": {
+        "value": null,
+        "source_type": "unknown",
+        "source_refs": [],
+        "review_status": "missing",
+        "reviewed_by": null,
+        "reviewed_at": null
+      },
+      "location": {
+        "value": null,
+        "source_type": "unknown",
+        "source_refs": [],
+        "review_status": "missing",
+        "reviewed_by": null,
+        "reviewed_at": null
+      },
+      "referral_reference": {
+        "value": null,
+        "source_type": "unknown",
+        "source_refs": [],
+        "review_status": "missing",
+        "reviewed_by": null,
+        "reviewed_at": null
+      },
+      "procedural_notes": {
+        "value": null,
+        "source_type": "unknown",
+        "source_refs": [],
+        "review_status": "missing",
+        "reviewed_by": null,
+        "reviewed_at": null
+      },
+      "closing_date": {
+        "value": null,
+        "source_type": "unknown",
+        "source_refs": [],
+        "review_status": "missing",
+        "reviewed_by": null,
+        "reviewed_at": null
+      },
+      "closing_time": {
+        "value": null,
+        "source_type": "unknown",
+        "source_refs": [],
+        "review_status": "missing",
+        "reviewed_by": null,
+        "reviewed_at": null
+      }
+    },
+    "participants": [
+      {
+        "person_id": "person-demo-01",
+        "name": {
+          "value": null,
+          "source_type": "unknown",
+          "source_refs": [],
+          "review_status": "missing",
+          "reviewed_by": null,
+          "reviewed_at": null
+        },
+        "role": {
+          "value": "investigator",
+          "source_type": "manual",
+          "source_refs": [],
+          "review_status": "proposed",
+          "reviewed_by": null,
+          "reviewed_at": null
+        }
+      },
+      {
+        "person_id": "person-demo-02",
+        "name": {
+          "value": null,
+          "source_type": "unknown",
+          "source_refs": [],
+          "review_status": "missing",
+          "reviewed_by": null,
+          "reviewed_at": null
+        },
+        "role": {
+          "value": "witness",
+          "source_type": "manual",
+          "source_refs": [],
+          "review_status": "proposed",
+          "reviewed_by": null,
+          "reviewed_at": null
+        }
+      }
+    ],
+    "speaker_bindings": [
+      {
+        "speaker_id": "SPEAKER_00",
+        "person_id": "person-demo-01",
+        "scope": {
+          "kind": "whole_session",
+          "segment_ids": []
+        },
+        "confirmation_status": "needs_confirmation",
+        "confirmed_by": null,
+        "confirmed_at": null
+      },
+      {
+        "speaker_id": "SPEAKER_01",
+        "person_id": "person-demo-02",
+        "scope": {
+          "kind": "whole_session",
+          "segment_ids": []
+        },
+        "confirmation_status": "needs_confirmation",
+        "confirmed_by": null,
+        "confirmed_at": null
+      }
+    ],
+    "turns": [
+      {
+        "turn_id": "turn-001",
+        "segment_ids": [
+          "seg-001"
+        ],
+        "speaker_id": "SPEAKER_00",
+        "kind": {
+          "value": "question",
+          "source_type": "manual",
+          "source_refs": [],
+          "review_status": "proposed",
+          "reviewed_by": null,
+          "reviewed_at": null
+        },
+        "original_text": "ما الرمز المكتوب في المثال التجريبي؟",
+        "reviewed_text": null,
+        "source_refs": [
+          {
+            "segment_id": "seg-001",
+            "speaker_id": "SPEAKER_00",
+            "start_ms": 0,
+            "end_ms": 2400,
+            "quote": "ما الرمز المكتوب في المثال التجريبي؟"
+          }
+        ],
+        "review_status": "proposed"
+      },
+      {
+        "turn_id": "turn-002",
+        "segment_ids": [
+          "seg-002"
+        ],
+        "speaker_id": "SPEAKER_01",
+        "kind": {
+          "value": "answer",
+          "source_type": "manual",
+          "source_refs": [],
+          "review_status": "proposed",
+          "reviewed_by": null,
+          "reviewed_at": null
+        },
+        "original_text": "الرمز التجريبي هو TEST-42.",
+        "reviewed_text": null,
+        "source_refs": [
+          {
+            "segment_id": "seg-002",
+            "speaker_id": "SPEAKER_01",
+            "start_ms": 2600,
+            "end_ms": 5200,
+            "quote": "الرمز التجريبي هو TEST-42."
+          }
+        ],
+        "review_status": "proposed"
+      },
+      {
+        "turn_id": "turn-003",
+        "segment_ids": [
+          "seg-003"
+        ],
+        "speaker_id": "SPEAKER_01",
+        "kind": {
+          "value": "answer",
+          "source_type": "manual",
+          "source_refs": [],
+          "review_status": "proposed",
+          "reviewed_by": null,
+          "reviewed_at": null
+        },
+        "original_text": "وهذا مثال للاختبار فقط.",
+        "reviewed_text": null,
+        "source_refs": [
+          {
+            "segment_id": "seg-003",
+            "speaker_id": "SPEAKER_01",
+            "start_ms": 5400,
+            "end_ms": 7600,
+            "quote": "وهذا مثال للاختبار فقط."
+          }
+        ],
+        "review_status": "proposed"
+      }
+    ],
+    "qa_links": [
+      {
+        "question_turn_ids": [
+          "turn-001"
+        ],
+        "answer_turn_ids": [
+          "turn-002",
+          "turn-003"
+        ],
+        "status": "proposed",
+        "confirmed_by": null,
+        "confirmed_at": null
+      }
+    ],
+    "human_only": {
+      "conclusion": {
+        "value": null,
+        "source_type": "unknown",
+        "source_refs": [],
+        "review_status": "missing",
+        "reviewed_by": null,
+        "reviewed_at": null
+      },
+      "responsibilities": {
+        "value": null,
+        "source_type": "unknown",
+        "source_refs": [],
+        "review_status": "missing",
+        "reviewed_by": null,
+        "reviewed_at": null
+      },
+      "proposals": {
+        "value": null,
+        "source_type": "unknown",
+        "source_refs": [],
+        "review_status": "missing",
+        "reviewed_by": null,
+        "reviewed_at": null
+      },
+      "closing_record": {
+        "value": null,
+        "source_type": "unknown",
+        "source_refs": [],
+        "review_status": "missing",
+        "reviewed_by": null,
+        "reviewed_at": null
+      }
+    },
+    "issues": [
+      {
+        "code": "MISSING_REQUIRED_FIELD",
+        "path": "fields.subject",
+        "status": "open"
+      },
+      {
+        "code": "UNCONFIRMED_SPEAKER_BINDINGS",
+        "path": "speaker_bindings",
+        "status": "open"
+      },
+      {
+        "code": "UNREVIEWED_QA_LINK",
+        "path": "qa_links[0]",
+        "status": "open"
+      },
+      {
+        "code": "MISSING_PARTICIPANT_NAMES",
+        "path": "participants",
+        "status": "open"
+      }
+    ],
+    "audit_log": [],
+    "approval": {
+      "approved_by": null,
+      "approved_at": null,
+      "approved_revision": null,
+      "approved_content_sha256": null
+    },
+    "export_eligibility": {
+      "reviewed_export": false,
+      "reason": "Incomplete synthetic draft; review and required information are missing."
+    }
+  }
+}

@@ -130,6 +130,9 @@ class ReportDraft(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     location: Mapped[str | None] = mapped_column(String(300), nullable=True)
     intro_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     closing_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Versioned structured form values; confirmation events are written by the
+    # authenticated server and bound to an exact content digest.
+    official_form: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # ---- content selection --------------------------------------------------
     transcript_source_mode: Mapped[TranscriptSourceMode] = mapped_column(
@@ -265,6 +268,9 @@ class GeneratedReport(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # Files under CENTRAL_STORAGE_ROOT: reports/{session_id}/...
     storage_path: Mapped[str] = mapped_column(String(500), nullable=False)
     context_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    pdf_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    pdf_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    format_key: Mapped[str | None] = mapped_column(String(30), nullable=True)
     # Integrity, not signature: three hashes let a submitted copy be checked later.
     docx_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     context_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
