@@ -88,6 +88,20 @@ def test_real_diarization_speaker_a_b_a(processing_wav):
 
 
 @needs_ffmpeg
+@needs_diar
+def test_real_diarization_single_speaker_is_not_split():
+    """Automatic speaker counting must also keep a one-person clip together."""
+    from app.ai.diarization_service import build_diarization_service
+
+    with tempfile.TemporaryDirectory() as tmp:
+        wav = Path(tmp) / "single.wav"
+        make_processing_copy(SINGLE, wav)
+        turns = build_diarization_service(settings).diarize(wav)
+    assert turns, "no speech detected in the single-speaker fixture"
+    assert {turn.speaker_label for turn in turns} == {"SPEAKER_00"}
+
+
+@needs_ffmpeg
 @needs_stt
 def test_real_arabic_transcription():
     import soundfile as sf

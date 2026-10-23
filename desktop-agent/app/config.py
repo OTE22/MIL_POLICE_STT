@@ -5,10 +5,12 @@ from __future__ import annotations
 import os
 import platform
 import socket
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Pinned, approved model revisions. Do not auto-upgrade production models.
@@ -16,7 +18,30 @@ COHERE_STT_MODEL = "CohereLabs/cohere-transcribe-arabic-07-2026"
 COHERE_STT_REVISION = "c3e911b42149bf7a1e53d5cef9878aee87515a23"
 NVIDIA_DIARIZATION_MODEL = "nvidia/diar_streaming_sortformer_4spk-v2.1"
 NVIDIA_DIARIZATION_REVISION = "fafaab5faa1617a0ca52d38dd3dc4bd636800d3d"
+NEMOTRON_DIARIZATION_MODEL = "nvidia/Nemotron-3-Diarization"
+NEMOTRON_DIARIZATION_REVISION = "f667ed73aee57d40cc39428eb768b4fd87a0a29e"
+NEMOTRON_DIARIZATION_SHA256 = "867c53f552998f772e5b5e5c082962ae85ee7ca5669c2bc17d7f615133d4e96d"
 SILERO_VAD_MODEL = "snakers4/silero-vad"
+
+
+@dataclass(frozen=True)
+class DiarizationModelSpec:
+    revision: str
+    max_speakers: int
+    speaker_cache_len: int
+    checkpoint_sha256: str
+
+
+# Model selection is explicit. The existing four-speaker model remains the default.
+DIARIZATION_MODELS = {
+    NVIDIA_DIARIZATION_MODEL: DiarizationModelSpec(
+        NVIDIA_DIARIZATION_REVISION, 4, 188,
+        "8abd32832159c6ac1148c926b7276f35ba34582c444e559dce1f1253fea42ef8",
+    ),
+    NEMOTRON_DIARIZATION_MODEL: DiarizationModelSpec(
+        NEMOTRON_DIARIZATION_REVISION, 8, 264, NEMOTRON_DIARIZATION_SHA256,
+    ),
+}
 
 # Speaker identification (voice embeddings). NVIDIA SpeakerNet-M, distributed through NGC.
 # It answers "does this voice match an enrolled person?" - it NEVER assigns a name by
@@ -30,7 +55,7 @@ SPEAKERNET_URL = (
 )
 SPEAKER_EMBEDDING_DIM = 256
 
-# The Sortformer 4spk model supports at most four speakers.
+# Backward-compatible default; runtime capacity comes from the selected model.
 MAX_SUPPORTED_SPEAKERS = 4
 
 
@@ -78,7 +103,7 @@ class Settings(BaseSettings):
     # ---- diarization (NVIDIA Sortformer, local) -----------------------------
     diarization_provider: str = "nvidia_sortformer"
     diarization_model: str = NVIDIA_DIARIZATION_MODEL
-    diarization_model_revision: str = NVIDIA_DIARIZATION_REVISION
+    diarization_model_revision: str = Field(default=NVIDIA_DIARIZATION_REVISION, pattern=r"^[0-9a-f]{40}$")
     diarization_device: str = "auto"
     # Streaming configuration (80 ms frames). Defaults = "very high latency" preset,
     # the most accurate offline setting from the model card.
@@ -86,7 +111,7 @@ class Settings(BaseSettings):
     diarization_right_context: int = 40
     diarization_fifo_len: int = 40
     diarization_update_period: int = 300
-    diarization_speaker_cache_len: int = 188
+    diarization_speaker_cache_len: int = Field(default=188, gt=0)
     diarization_min_overlap_seconds: float = 0.2
 
     # ---- speaker identification (SpeakerNet-M, local, suggestion only) ------
@@ -132,6 +157,27 @@ class Settings(BaseSettings):
     token_issuer: str = "military-stt-central"
     token_audience: str = "military-stt-agent"
     clock_skew_seconds: int = 60
+
+    @model_validator(mode="before")
+    @classmethod
+    def resolve_diarization_defaults(cls, values: Any) -> Any:
+        if not isinstance(values, dict):
+            return values
+        values = dict(values)
+        model = values.get("diarization_model", NVIDIA_DIARIZATION_MODEL)
+        spec = DIARIZATION_MODELS.get(model)
+        if spec is None:
+            raise ValueError(f"unsupported diarization model: {model}")
+        # Empty Compose overrides mean use the selected model's pinned defaults.
+        if not values.get("diarization_model_revision"):
+            values["diarization_model_revision"] = spec.revision
+        if values.get("diarization_speaker_cache_len") in (None, ""):
+            values["diarization_speaker_cache_len"] = spec.speaker_cache_len
+        return values
+
+    @property
+    def diarization_max_speakers(self) -> int:
+        return DIARIZATION_MODELS[self.diarization_model].max_speakers
 
     @property
     def jobs_dir(self) -> Path:

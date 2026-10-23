@@ -5,6 +5,7 @@ SHA-256 of every file. Afterwards the workstation never needs Internet access.
 
 Usage:
     python scripts/provision_models.py --model-dir /models [--only stt|diarization|vad]
+    python scripts/provision_models.py --only diarization --diarization-model nvidia/Nemotron-3-Diarization
     HF_TOKEN=hf_xxx python scripts/provision_models.py   # Cohere model is gated -> accept the license on HF first
 
 The HF token is used only for this download; it is never stored by the agent.
@@ -20,12 +21,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.ai.model_files import read_manifest, write_manifest  # noqa: E402
+from app.ai.model_files import MANIFEST_NAME, model_files_status, read_manifest, sha256_file, write_manifest  # noqa: E402
 from app.config import (  # noqa: E402
     COHERE_STT_MODEL,
     COHERE_STT_REVISION,
-    NVIDIA_DIARIZATION_MODEL,
-    NVIDIA_DIARIZATION_REVISION,
+    DIARIZATION_MODELS,
     SPEAKERNET_MODEL,
     SPEAKERNET_REVISION,
     SPEAKERNET_SHA256,
@@ -47,10 +47,21 @@ STT_FILES = [
 ]
 
 
-def provision_hf(repo: str, revision: str, target: Path, allow_patterns: list[str] | None, token: str | None) -> None:
+def verify_checkpoint(target: Path, repo: str, expected_sha256: str) -> None:
+    checkpoint = target / f"{repo.split('/')[-1]}.nemo"
+    if not checkpoint.is_file() or sha256_file(checkpoint) != expected_sha256:
+        raise RuntimeError(f"{repo} checkpoint SHA-256 mismatch; do not use these model files")
+
+
+def provision_hf(
+    repo: str, revision: str, target: Path, allow_patterns: list[str] | None, token: str | None,
+    *, checkpoint_sha256: str | None = None, force_download: bool = False,
+) -> None:
     from huggingface_hub import snapshot_download
 
     target.mkdir(parents=True, exist_ok=True)
+    # A failed/partial re-provision must not retain a manifest claiming readiness.
+    (target / MANIFEST_NAME).unlink(missing_ok=True)
     print(f"-> downloading {repo}@{revision} into {target}")
     snapshot_download(
         repo_id=repo,
@@ -58,9 +69,12 @@ def provision_hf(repo: str, revision: str, target: Path, allow_patterns: list[st
         local_dir=str(target),
         allow_patterns=allow_patterns,
         token=token,
+        force_download=force_download,
     )
     # Remove the HF cache bookkeeping so the directory is a plain file set.
     shutil.rmtree(target / ".cache", ignore_errors=True)
+    if checkpoint_sha256 is not None:
+        verify_checkpoint(target, repo, checkpoint_sha256)
     manifest = write_manifest(target, model=repo, revision=revision, source="huggingface")
     print(f"   {len(manifest['files'])} files, manifest written")
 
@@ -106,17 +120,28 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-dir", default=str(settings.model_dir))
     parser.add_argument("--only", choices=["stt", "diarization", "speaker_id", "vad"], default=None)
+    parser.add_argument(
+        "--diarization-model", choices=sorted(DIARIZATION_MODELS), default=None,
+        help="Explicit model selection; otherwise use AGENT_DIARIZATION_MODEL (default: Sortformer 4spk)",
+    )
     parser.add_argument("--force", action="store_true", help="re-download even if a manifest exists")
     args = parser.parse_args()
     model_dir = Path(args.model_dir)
     token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    diarization_model = args.diarization_model or settings.diarization_model
+    diarization_spec = DIARIZATION_MODELS[diarization_model]
+    # Selecting a model on the CLI selects its pinned revision, avoiding an
+    # unrelated revision inherited from the environment for the previous model.
+    diarization_revision = (
+        diarization_spec.revision if args.diarization_model else settings.diarization_model_revision
+    )
 
     targets = {
         "stt": (COHERE_STT_MODEL, COHERE_STT_REVISION, model_dir / COHERE_STT_MODEL.split("/")[-1], STT_FILES),
         "diarization": (
-            NVIDIA_DIARIZATION_MODEL,
-            NVIDIA_DIARIZATION_REVISION,
-            model_dir / NVIDIA_DIARIZATION_MODEL.split("/")[-1],
+            diarization_model,
+            diarization_revision,
+            model_dir / diarization_model.split("/")[-1],
             ["*.nemo", "README.md"],
         ),
     }
@@ -124,11 +149,24 @@ def main() -> int:
     for key, (repo, rev, target, patterns) in targets.items():
         if args.only and args.only != key:
             continue
-        if not args.force and read_manifest(target):
-            print(f"-> {repo} already provisioned in {target} (use --force to re-download)")
-            continue
         try:
-            provision_hf(repo, rev, target, patterns, token)
+            expected_sha256 = (
+                diarization_spec.checkpoint_sha256
+                if key == "diarization" and rev == diarization_spec.revision else None
+            )
+            manifest = read_manifest(target)
+            if (
+                not args.force and manifest and manifest.get("model") == repo
+                and manifest.get("revision") == rev and model_files_status(target)[0]
+            ):
+                if expected_sha256 is not None:
+                    verify_checkpoint(target, repo, expected_sha256)
+                print(f"-> {repo} already provisioned in {target} (use --force to re-download)")
+                continue
+            provision_hf(
+                repo, rev, target, patterns, token,
+                checkpoint_sha256=expected_sha256, force_download=args.force,
+            )
         except Exception as exc:  # noqa: BLE001
             ok = False
             msg = str(exc)

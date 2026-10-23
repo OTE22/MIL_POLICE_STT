@@ -1,0 +1,5 @@
+services:
+  backend:
+    image: military-stt/central-backend:rollback-20261022
+  frontend:
+    image: military-stt/central-frontend:rollback-20261022

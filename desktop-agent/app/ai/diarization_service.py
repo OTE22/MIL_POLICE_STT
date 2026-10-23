@@ -1,7 +1,7 @@
 """Speaker diarization: WHO SPOKE WHEN.
 
-Provider abstraction + the default NVIDIA Streaming Sortformer adapter
-(nvidia/diar_streaming_sortformer_4spk-v2.1 through NVIDIA NeMo).
+Provider abstraction + NVIDIA Streaming Sortformer adapter, supporting the
+default four-speaker model and an explicitly selected Nemotron 3 model.
 
 The diarization model is used ONLY for speaker activity / speaker change
 detection, grouping of repeated anonymous speakers and timestamps. It never
@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.ai.device import resolve_device
-from app.ai.model_files import model_files_status
+from app.ai.model_files import model_files_status, read_manifest
 from app.ai.types import ModelInfo, SpeakerTurn
 from app.config import MAX_SUPPORTED_SPEAKERS, Settings
 
@@ -119,6 +119,7 @@ class NvidiaSortformerDiarizationService(DiarizationService):
 
     def __init__(self, settings: Settings):
         self._settings = settings
+        self.max_speakers = settings.diarization_max_speakers
         self._model = None
         self._lock = threading.Lock()
         self._state = "PROVISIONED" if self._files_present() else "NOT_PROVISIONED"
@@ -173,6 +174,14 @@ class NvidiaSortformerDiarizationService(DiarizationService):
                 self._state = "ERROR"
                 self._error = f"integrity check failed: {problem}"
                 raise DiarizationError("diarization_model_integrity", self._error)
+            manifest = read_manifest(self._settings.diarization_model_dir)
+            if manifest is not None and (
+                manifest.get("model") != self._settings.diarization_model
+                or manifest.get("revision") != self._settings.diarization_model_revision
+            ):
+                self._state = "ERROR"
+                self._error = "provisioned diarization model/revision does not match configuration"
+                raise DiarizationError("diarization_model_integrity", self._error)
             self._state = "LOADING"
             try:
                 import torch
@@ -180,9 +189,15 @@ class NvidiaSortformerDiarizationService(DiarizationService):
 
                 self._device = resolve_device(self._settings.diarization_device)
                 model = SortformerEncLabelModel.restore_from(
-                    restore_path=str(path), map_location=torch.device(self._device), strict=False
+                    restore_path=str(path), map_location=torch.device(self._device), strict=True
                 )
                 model.eval()
+                configured_capacity = getattr(model.cfg, "max_num_of_spks", None)
+                if configured_capacity != self.max_speakers:
+                    raise ValueError(
+                        f"checkpoint supports {configured_capacity} speakers; "
+                        f"selected model requires {self.max_speakers}"
+                    )
                 s = self._settings
                 mods = model.sortformer_modules
                 mods.chunk_len = s.diarization_chunk_len
@@ -190,7 +205,9 @@ class NvidiaSortformerDiarizationService(DiarizationService):
                 mods.fifo_len = s.diarization_fifo_len
                 mods.spkcache_update_period = s.diarization_update_period
                 mods.spkcache_len = s.diarization_speaker_cache_len
-                if hasattr(mods, "_check_streaming_parameters"):
+                if hasattr(model, "_check_streaming_parameters"):
+                    model._check_streaming_parameters()
+                elif hasattr(mods, "_check_streaming_parameters"):
                     mods._check_streaming_parameters()
                 self._model = model
                 self._state = "READY"

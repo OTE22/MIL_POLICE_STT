@@ -14,7 +14,7 @@ from app.ai.diarization_service import DiarizationService, build_diarization_ser
 from app.ai.speaker_id_service import SpeakerIdentificationService, build_speaker_id_service
 from app.ai.transcription_service import TranscriptionService, build_transcription_service
 from app.ai.vad_service import VadService
-from app.config import MAX_SUPPORTED_SPEAKERS, Settings
+from app.config import Settings
 
 log = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class ModelRuntime:
         self.speaker_id: SpeakerIdentificationService = build_speaker_id_service(settings)
         self._load_lock = threading.Lock()
         self._loading = False
-        self.max_speakers = MAX_SUPPORTED_SPEAKERS
+        self.max_speakers = self.diarization.max_speakers
 
     @property
     def processing_device(self) -> str:

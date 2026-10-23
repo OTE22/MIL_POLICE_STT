@@ -23,6 +23,7 @@ desktop-agent/secrets/*
 
 # Runtime data
 storage/backups/
+storage/model-evaluation/
 storage/recordings/
 desktop-agent/data/
 desktop-agent/models/
