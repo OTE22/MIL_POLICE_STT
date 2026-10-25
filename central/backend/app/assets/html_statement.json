@@ -1,0 +1,34 @@
+{
+  "revision": "statement-html-1",
+  "title": "إفادة",
+  "fields": [
+    {"key":"statement_rank","label":"رتبة صاحب الإفادة","group":"صاحب الإفادة"},
+    {"key":"statement_name","label":"اسم صاحب الإفادة","group":"صاحب الإفادة"},
+    {"key":"statement_service_number","label":"الرقم العسكري / الوظيفي","group":"صاحب الإفادة"},
+    {"key":"father_name","label":"اسم الأب","group":"الهوية"},
+    {"key":"mother_name","label":"اسم الأم وشهرتها","group":"الهوية"},
+    {"key":"birth_year","label":"سنة الولادة","group":"الهوية"},
+    {"key":"birth_place","label":"بلدة الولادة","group":"الهوية"},
+    {"key":"district","label":"قضاء الولادة","group":"الهوية"},
+    {"key":"civil_register","label":"رقم ومكان سجل النفوس","group":"الهوية"},
+    {"key":"residence","label":"عنوان الإقامة بالتفصيل","group":"الهوية"},
+    {"key":"phone","label":"رقم الهاتف","group":"الهوية"},
+    {"key":"family_status","label":"الحالة العائلية والأولاد","group":"الهوية"},
+    {"key":"education","label":"المستوى التعليمي","group":"الخدمة والسوابق"},
+    {"key":"occupation_statement","label":"المهنة أو الرتبة والوحدة والمهمة","group":"الخدمة والسوابق","multiline":true},
+    {"key":"prior_record_statement","label":"التصريح عن السوابق","group":"الخدمة والسوابق"},
+    {"key":"identity_documents","label":"وثائق الهوية التي جرى التحقق منها","group":"التحقق والإقفال"},
+    {"key":"closing_location","label":"مكان تنظيم الإفادة","group":"التحقق والإقفال"},
+    {"key":"closing_date","label":"تاريخ تنظيم الإفادة","group":"التحقق والإقفال"},
+    {"key":"statement_signature_role","label":"صفة صاحب الإفادة عند التوقيع","group":"التواقيع"},
+    {"key":"clerk_name","label":"اسم الكاتب العدلي ورتبته","group":"التواقيع"},
+    {"key":"investigator_name","label":"اسم المحقق ورتبته","group":"التواقيع"}
+  ],
+  "clauses": {
+    "heading":"إفادة {statement_rank} {statement_name} رقم {statement_service_number}",
+    "identity":"اسمي {statement_name} بن {father_name} ووالدتي {mother_name} مولود عام {birth_year} في بلدة {birth_place} قضاء {district} رقم سجل النفوس {civil_register} ومقيم حالياً في {residence} رقم الهاتف {phone}، {family_status}، متعلم {education}، {occupation_statement}، {prior_record_statement}.",
+    "identity_check":"تأكدنا من {identity_documents} وأعيدت إليه.",
+    "attestation":"تليت عليه إفادته فصدقها ووقعها بحضورنا نحن والكاتب العدلي.",
+    "place_date":"{closing_location} في {closing_date}"
+  }
+}

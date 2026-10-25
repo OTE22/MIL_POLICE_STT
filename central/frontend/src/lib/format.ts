@@ -7,6 +7,13 @@ export function formatClock(seconds: number | null | undefined): string {
   return `${pad(s / 3600)}:${pad((s % 3600) / 60)}:${pad(s % 60)}`;
 }
 
+/** Preserve the stored segment boundary's millisecond precision in the transcript. */
+export function formatTimestamp(seconds: number): string {
+  if (!Number.isFinite(seconds)) return "—";
+  const milliseconds = Math.round(Math.max(0, seconds) * 1000);
+  return `${formatClock(Math.floor(milliseconds / 1000))}.${String(milliseconds % 1000).padStart(3, "0")}`;
+}
+
 export function formatDuration(seconds: number | null | undefined): string {
   if (seconds == null) return "—";
   const s = Math.round(seconds);

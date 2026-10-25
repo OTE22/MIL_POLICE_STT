@@ -327,16 +327,11 @@ export function InvestigationDetailPage() {
           {can("investigations.update") && session.status === "DRAFT" && (
             <button className="btn" onClick={() => void changeStatus("RECORDING")} type="button">{T.startRecording}</button>
           )}
-          {/* The محضر needs something to quote: at least one recording has been transcribed. */}
+          {/* HTML statements can also be filled manually before a recording exists. */}
           {can("reports.generate") && (
             <Link
-              className={`btn ${session.has_transcript ? "" : "disabled"}`}
-              to={session.has_transcript ? `/investigations/${session.id}/report` : "#"}
-              title={session.has_transcript ? undefined : T.reportNoTranscripts}
-              aria-disabled={!session.has_transcript}
-              onClick={(e) => {
-                if (!session.has_transcript) e.preventDefault();
-              }}
+              className="btn"
+              to={`/investigations/${session.id}/report`}
               data-testid="open-report-composer"
             >
               {T.reportCreate}

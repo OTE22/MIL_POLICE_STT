@@ -26,6 +26,7 @@ import { formatDateTime, formatDuration } from "@/lib/format";
 import { T, errorMessage } from "@/lib/i18n";
 import { Alert, Badge, Field, Loading, useToast } from "@/components/ui";
 import { M53ReportForm } from "@/components/M53ReportForm";
+import { HtmlReportEditor } from "@/components/HtmlReportEditor";
 
 function seconds(value: number | null): string {
   if (value == null) return "";
@@ -284,6 +285,7 @@ function QABlockCard({
 }
 
 export function ReportComposerPage() {
+  const [editorMode, setEditorMode] = useState<"html" | "legacy">("html");
   const { id } = useParams<{ id: string }>();
   const sessionId = id as string;
   const navigate = useNavigate();
@@ -350,7 +352,9 @@ export function ReportComposerPage() {
         } catch (err) {
           // No draft yet: build one on first open, which is the zero-config path.
           if (err instanceof ApiError && err.status === 404 && mayGenerate) {
-            const created = await http.post<ReportDraft>(`/investigations/${sessionId}/report`, {});
+            // HTML statements also support manual entry before a recording exists.
+            await http.post(`/investigations/${sessionId}/report/html`, {});
+            const created = await http.get<ReportDraft>(`/investigations/${sessionId}/report`);
             if (!cancelled) adopt(created);
           } else if (!cancelled) {
             setError(err instanceof ApiError ? errorMessage(err.code) : T.err_generic);
@@ -426,6 +430,9 @@ export function ReportComposerPage() {
     );
   if (!draft) return null;
 
+  if (editorMode === "html" && session) return <HtmlReportEditor key={session.id} session={session} draft={draft}
+    editable={!!mayEdit} onLegacy={() => setEditorMode("legacy")} onDirtyChange={markBlockDirty} />;
+
   const blockPath = (blockId: string) => `/investigations/${sessionId}/report/blocks/${blockId}`;
 
   return (
@@ -444,6 +451,7 @@ export function ReportComposerPage() {
           </p>
         </div>
         <div className="actions">
+          <button className="btn btn-primary" disabled={busy || metaDirty || dirtyBlocks.size > 0} onClick={() => setEditorMode("html")}>محضر HTML — إفادات وملاحظات</button>
           {can("reports.templates.manage") && <Link className="btn" to="/report-template">تصميم قالب المحضر</Link>}
           <button
             className="btn"

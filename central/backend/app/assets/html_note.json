@@ -1,0 +1,16 @@
+{
+  "title": "ملاحظة",
+  "fields": [
+    {"key":"note_date","label":"تاريخ الملاحظة","group":"الملاحظة"},
+    {"key":"note_time","label":"ساعة الملاحظة","group":"الملاحظة"},
+    {"key":"note_text","label":"نص الملاحظة والإجراء المتخذ","group":"الملاحظة","multiline":true},
+    {"key":"closing_location","label":"مكان تنظيم الملاحظة","group":"الإقفال والتواقيع"},
+    {"key":"closing_date","label":"تاريخ تنظيم الملاحظة","group":"الإقفال والتواقيع"},
+    {"key":"clerk_name","label":"اسم الكاتب العدلي ورتبته","group":"الإقفال والتواقيع"},
+    {"key":"investigator_name","label":"اسم المحقق ورتبته","group":"الإقفال والتواقيع"}
+  ],
+  "clauses": {
+    "body":"بتاريخ {note_date} الساعة {note_time}، {note_text}",
+    "place_date":"{closing_location} في {closing_date}"
+  }
+}

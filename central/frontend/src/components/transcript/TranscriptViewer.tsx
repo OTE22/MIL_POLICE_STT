@@ -4,11 +4,12 @@ import { Link } from "react-router-dom";
 import { ApiError, fetchBlobUrl, http } from "@/api/client";
 import type { Segment, Speaker, Transcript } from "@/api/types";
 import { useAuth } from "@/lib/auth";
-import { formatClock, formatDateTime, speakerColor } from "@/lib/format";
+import { formatClock, formatDateTime, formatTimestamp, speakerColor } from "@/lib/format";
 import { T, errorMessage, t } from "@/lib/i18n";
 import { Alert, Badge, useToast } from "@/components/ui";
 import { IconEdit, IconPlay, IconSearch } from "@/components/Icons";
 import { transcriptSpeakerOptions } from "@/lib/transcript-speakers";
+import { groupTranscriptTurns, type TranscriptTurn } from "@/lib/transcript-turns";
 
 function speakerName(label: string, speakers: Speaker[]): string {
   const s = speakers.find((x) => x.speaker_label === label);
@@ -29,7 +30,6 @@ function Highlight({ text, query }: { text: string; query: string }) {
 
 function SegmentRow({
   seg,
-  speakers,
   active,
   query,
   canEdit,
@@ -37,7 +37,6 @@ function SegmentRow({
   onSaved,
 }: {
   seg: Segment;
-  speakers: Speaker[];
   active: boolean;
   query: string;
   canEdit: boolean;
@@ -67,16 +66,11 @@ function SegmentRow({
   return (
     <div className={`segment ${active ? "active" : ""}`} onClick={() => !editing && onSeek(seg.start_seconds)} data-testid="segment" data-sequence={seg.sequence}>
       <div className="who">
-        <span className="speaker">
-          <span className="sw" style={{ background: speakerColor(seg.speaker_label) }} />
-          {speakerName(seg.speaker_label, speakers)}
-        </span>
         <span className="time num">
-          {formatClock(seg.start_seconds)} - {formatClock(seg.end_seconds)}
+          {formatTimestamp(seg.start_seconds)} - {formatTimestamp(seg.end_seconds)}
         </span>
-        <span className="small muted ltr">{seg.speaker_label}</span>
       </div>
-      <div>
+      <div className="segment-content">
         {editing ? (
           <div className="edit-area" onClick={(e) => e.stopPropagation()}>
             <textarea className="textarea" value={draft} onChange={(e) => setDraft(e.target.value)} autoFocus />
@@ -139,6 +133,33 @@ function SegmentRow({
   );
 }
 
+function SpeakerTurnRow({ turn, speakers, activeId, query, canEdit, onSeek, onSaved }: {
+  turn: TranscriptTurn;
+  speakers: Speaker[];
+  activeId: string | null;
+  query: string;
+  canEdit: boolean;
+  onSeek: (seconds: number) => void;
+  onSaved: (segment: Segment) => void;
+}) {
+  const name = speakerName(turn.speaker_label, speakers);
+  return (
+    <section className="speaker-turn" aria-labelledby={`turn-speaker-${turn.id}`} data-testid="speaker-turn" data-speaker={turn.speaker_label}>
+      <div className="speaker-turn-heading">
+        <h4 className="speaker" id={`turn-speaker-${turn.id}`}>
+          <span className="sw" style={{ background: speakerColor(turn.speaker_label) }} />
+          {name}
+        </h4>
+        {name !== turn.speaker_label && <span className="small muted ltr">{turn.speaker_label}</span>}
+      </div>
+      <div className="speaker-turn-parts">
+        {turn.segments.map(seg => <SegmentRow key={seg.id} seg={seg}
+          active={seg.id === activeId} query={query} canEdit={canEdit} onSeek={onSeek} onSaved={onSaved} />)}
+      </div>
+    </section>
+  );
+}
+
 export function TranscriptViewer({ transcript, onChange }: { transcript: Transcript; onChange: (tr: Transcript) => void }) {
   const { can } = useAuth();
   const [query, setQuery] = useState("");
@@ -172,12 +193,14 @@ export function TranscriptViewer({ transcript, onChange }: { transcript: Transcr
     };
   }, [transcript.recording_id, transcript.audio_available]);
 
+  // Group before filtering so hiding another speaker never joins separate turns.
+  const turns = useMemo(() => groupTranscriptTurns(transcript.segments), [transcript.segments]);
   const visible = useMemo(
     () =>
-      transcript.segments.filter(
-        (s) => (!speakerFilter || speakerOptions.find(o => o.key === speakerFilter)?.labels.includes(s.speaker_label)) && (!query || (s.edited_text ?? s.original_text).includes(query)),
+      turns.filter(
+        (turn) => (!speakerFilter || speakerOptions.find(o => o.key === speakerFilter)?.labels.includes(turn.speaker_label)) && (!query || turn.text.includes(query)),
       ),
-    [transcript.segments, speakerFilter, speakerOptions, query],
+    [turns, speakerFilter, speakerOptions, query],
   );
 
   const activeId = useMemo(() => {
@@ -219,7 +242,7 @@ export function TranscriptViewer({ transcript, onChange }: { transcript: Transcr
             ))}
           </select>
           <span className="muted small">
-            {T.segments}: <span className="num">{visible.length}</span> / <span className="num">{transcript.segments.length}</span>
+            {T.segments}: <span className="num">{visible.reduce((count, turn) => count + turn.segments.length, 0)}</span> / <span className="num">{transcript.segments.length}</span>
           </span>
         </div>
         <div className="player">
@@ -236,8 +259,8 @@ export function TranscriptViewer({ transcript, onChange }: { transcript: Transcr
         </div>
         <div className="segments">
           {visible.length === 0 && <div className="center muted" style={{ padding: 30 }}>{T.noData}</div>}
-          {visible.map((seg) => (
-            <SegmentRow key={seg.id} seg={seg} speakers={transcript.speakers} active={seg.id === activeId} query={query} canEdit={can("transcripts.edit")} onSeek={seek} onSaved={onSaved} />
+          {visible.map((turn) => (
+            <SpeakerTurnRow key={turn.id} turn={turn} speakers={transcript.speakers} activeId={activeId} query={query} canEdit={can("transcripts.edit")} onSeek={seek} onSaved={onSaved} />
           ))}
         </div>
       </div>

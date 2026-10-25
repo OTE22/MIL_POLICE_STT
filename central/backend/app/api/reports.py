@@ -61,6 +61,8 @@ from app.services.report_finalize import (
 )
 from app.services import report_m53 as m53
 from app.schemas.report_m53 import M53Update
+from app.schemas.report_html import HtmlReportUpdate
+from app.services import report_html
 from app.services.report_storage import absolute_path as report_file_path, remove_file
 from app.services.report_renderer import RenderError
 from app.services.report_context import completed_recordings, speaker_map
@@ -306,7 +308,7 @@ def update_m53(body: M53Update, request: Request,
     changed = old.get("values", {}) != body.values or bool(old.get("enabled")) != body.enabled
     if changed and body.confirmations:
         raise HTTPException(409, detail="report_m53_save_before_review")
-    draft.official_form = {"enabled": body.enabled, "values": dict(body.values), "revision": m53.REVISION,
+    draft.official_form = {**old, "enabled": body.enabled, "values": dict(body.values), "revision": m53.REVISION,
                           "confirmations": {} if changed else dict(old.get("confirmations", {}))}
     token = _m53_state(db, session, draft)["token"]
     events = {key: {"by": str(user.id), "at": datetime.now(timezone.utc).isoformat(), "content_sha256": token}
@@ -320,6 +322,57 @@ def update_m53(body: M53Update, request: Request,
     db.commit()
     db.refresh(draft)
     return _draft_out(db, session, draft)
+
+
+@router.get("/report-forms/html-statement")
+def html_statement_catalogue(_: User = Depends(require_permission("reports.read", "reports.generate"))):
+    return report_html.CATALOGUE
+
+
+@router.get("/investigations/{session_id}/report/html")
+def get_html_report(session: InvestigationSession = Depends(get_accessible_session),
+                    _: User = Depends(require_permission("reports.read", "reports.generate")), db: Session = Depends(get_db)):
+    return report_html.state_for(_require_draft(db, session))
+
+
+@router.post("/investigations/{session_id}/report/html")
+def create_html_report(request: Request,
+                       session: InvestigationSession = Depends(get_accessible_session),
+                       user: User = Depends(require_permission("reports.generate")), db: Session = Depends(get_db)):
+    # A manually filled statement can be started before a recording is transcribed.
+    db.scalar(select(InvestigationSession).where(InvestigationSession.id == session.id).with_for_update())
+    draft = get_draft(db, session.id)
+    if draft is None:
+        draft = create_draft(db, session.id, user.id)
+        record_audit(db, action=AuditAction.REPORT_DRAFT_CREATED, user_id=user.id,
+                     entity_type="report_draft", entity_id=draft.id,
+                     metadata={"form": report_html.CATALOGUE["revision"], "session_id": session.id}, ip_address=client_ip(request))
+        db.commit()
+    return report_html.state_for(draft)
+
+
+@router.put("/investigations/{session_id}/report/html")
+def save_html_report(body: HtmlReportUpdate, request: Request,
+                     session: InvestigationSession = Depends(get_accessible_session),
+                     user: User = Depends(require_permission("reports.generate")), db: Session = Depends(get_db)):
+    draft = db.scalar(select(ReportDraft).where(ReportDraft.session_id == session.id).with_for_update().execution_options(populate_existing=True))
+    if draft is None:
+        raise HTTPException(404, detail="report_draft_not_found")
+    _guard_editable(draft)
+    if body.expected_token != report_html.token_for(draft):
+        raise HTTPException(409, detail="html_report_changed")
+    try:
+        document = report_html.prepare_document(body, draft, session)
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
+    draft.official_form = {**(draft.official_form or {}), "html_report": document}
+    draft.updated_by = user.id
+    record_audit(db, action=AuditAction.REPORT_DRAFT_UPDATED, user_id=user.id,
+                 entity_type="report_draft", entity_id=draft.id,
+                 metadata={"form": report_html.CATALOGUE["revision"], "blocks": len(document["blocks"]), "session_id": session.id},
+                 ip_address=client_ip(request))
+    db.commit()
+    return report_html.state_for(draft)
 
 
 @router.get("/investigations/{session_id}/report/m53/preview")
