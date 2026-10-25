@@ -79,7 +79,8 @@ results = []
 try:
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
-        context = browser.new_context(viewport=dict(width=1440, height=1050), reduced_motion="reduce")
+        # Inspector-only bypass allows axe injection; deployed CSP is never modified.
+        context = browser.new_context(viewport=dict(width=1440, height=1050), reduced_motion="reduce", bypass_csp=True)
         context.add_init_script("sessionStorage.setItem('mstt.access_token', 'synthetic-test-only')")
         context.route("**/api/**", api)
         context.route("http://127.0.0.1:8765/**", lambda r: r.abort())
@@ -187,7 +188,7 @@ try:
         page.set_viewport_size(dict(width=390, height=844))
         audit("template-designer-mobile")
 
-        login_context = browser.new_context(viewport=dict(width=1440, height=1050), reduced_motion="reduce")
+        login_context = browser.new_context(viewport=dict(width=1440, height=1050), reduced_motion="reduce", bypass_csp=True)
         page = login_context.new_page()
         page.goto(base + "/login")
         audit("login-desktop")

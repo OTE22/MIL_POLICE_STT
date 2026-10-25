@@ -180,6 +180,51 @@
     "violations": []
   },
   {
+    "screen": "speaker-picker-desktop",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "speaker-picker-mobile",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "identify-new-mobile",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "identify-existing-mobile",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "enrollment-mobile",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "legacy-report-desktop",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "m53-form-desktop",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "m53-form-mobile",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "note-template-mobile",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
     "screen": "voice-modal-desktop",
     "tiny_text": [],
     "violations": []

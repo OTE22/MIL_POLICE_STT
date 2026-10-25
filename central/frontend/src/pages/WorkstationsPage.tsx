@@ -27,7 +27,7 @@ export function WorkstationsPage() {
           {!rows ? (
             <Loading />
           ) : (
-            <div className="table-wrap" tabIndex={0} role="region" aria-label="جدول البيانات — مرّر أفقياً لعرض جميع الأعمدة>
+            <div className="table-wrap" tabIndex={0} role="region" aria-label="جدول البيانات — مرّر أفقياً لعرض جميع الأعمدة">
               <table className="table">
                 <thead>
                   <tr>
