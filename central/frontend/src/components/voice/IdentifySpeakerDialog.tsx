@@ -113,12 +113,13 @@ export function IdentifySpeakerDialog({
         <span className="ltr">{speaker.speaker_label}</span>
         {speaker.display_name ? ` — ${T.identifyLabelledAs}: ${speaker.display_name}` : ""}
       </div>
-      <div className="audit-filters" role="tablist">
+      <div className="audit-filters" role="group" aria-label="طريقة تحديد الهوية">
         <button
           type="button"
           className={`chip ${mode === "existing" ? "active" : ""}`}
           onClick={() => setMode("existing")}
           data-testid="identify-existing"
+          aria-pressed={mode === "existing"}
         >
           {T.identifyChooseExisting}
         </button>
@@ -127,6 +128,7 @@ export function IdentifySpeakerDialog({
           className={`chip ${mode === "new" ? "active" : ""}`}
           onClick={() => setMode("new")}
           data-testid="identify-new"
+          aria-pressed={mode === "new"}
         >
           {T.identifyAddNew}
         </button>
