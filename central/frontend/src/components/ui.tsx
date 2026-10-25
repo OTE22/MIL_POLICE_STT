@@ -1,5 +1,5 @@
 /* Small shared UI building blocks: toasts, modal, badges, pagination, alerts. */
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Children, cloneElement, isValidElement, createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode, type ReactElement } from "react";
 
 import { T, t } from "@/lib/i18n";
 import type { JobStatus, SessionStatus } from "@/api/types";
@@ -25,7 +25,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const push = useCallback((text: string, kind: ToastKind = "info") => {
     const id = Date.now() + Math.random();
     setToasts((prev) => [...prev, { id, kind, text }]);
-    setTimeout(() => setToasts((prev) => prev.filter((x) => x.id !== id)), kind === "error" ? 7000 : 4000);
+    setTimeout(() => setToasts((prev) => prev.filter((x) => x.id !== id)), Math.min(20000, Math.max(kind === "error" ? 12000 : 8000, text.length * 70)));
   }, []);
   const api = useMemo<ToastApi>(
     () => ({
@@ -44,6 +44,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           <div key={x.id} className={`toast toast-${x.kind}`}>
             {x.kind === "success" ? <IconCheck /> : x.kind === "error" ? <IconAlert /> : <IconInfo />}
             <span>{x.text}</span>
+            <button className="icon-btn" type="button" aria-label="إغلاق الإشعار" onClick={() => setToasts(prev => prev.filter(toast => toast.id !== x.id))}><IconX /></button>
           </div>
         ))}
       </div>
@@ -70,14 +71,32 @@ export function Modal({
   footer?: ReactNode;
   size?: "lg";
 }) {
+  const dialog = useRef<HTMLDivElement>(null);
+  const close = useRef(onClose);
+  close.current = onClose;
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const previous = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    dialog.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      // Only the topmost modal handles keyboard input when dialogs are nested.
+      const dialogs = document.querySelectorAll('[role="dialog"]');
+      if (dialogs[dialogs.length - 1] !== dialog.current) return;
+      if (e.key === "Escape") { e.preventDefault(); close.current(); }
+      if (e.key !== "Tab") return;
+      const items = Array.from(dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]') ?? []).filter(el => el.getClientRects().length && !el.closest('[inert]'));
+      const first = items[0], last = items[items.length - 1];
+      if (!first) { e.preventDefault(); dialog.current?.focus(); }
+      else if (e.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && (document.activeElement === last || document.activeElement === dialog.current)) { e.preventDefault(); first.focus(); }
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    return () => { window.removeEventListener("keydown", onKey); document.body.style.overflow = previousOverflow; previous?.focus(); };
+  }, []);
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={`modal ${size === "lg" ? "modal-lg" : ""}`} role="dialog" aria-modal="true" aria-label={title}>
+      <div ref={dialog} tabIndex={-1} className={`modal ${size === "lg" ? "modal-lg" : ""}`} role="dialog" aria-modal="true" aria-label={title}>
         <div className="modal-header">
           <h3>{title}</h3>
           <button className="icon-btn" onClick={onClose} aria-label={T.close} type="button">
@@ -161,7 +180,7 @@ export function Pagination({
 
 export function Loading() {
   return (
-    <div className="loading">
+    <div className="loading" role="status" aria-live="polite">
       <span className="spinner" /> {T.loading}
     </div>
   );
@@ -182,15 +201,20 @@ export function Field({
   hint?: string;
   error?: string;
 }) {
+  const id = useId();
+  const items = Children.toArray(children);
+  const control = items.find(child => isValidElement(child) && typeof child.type === "string" && ["input", "select", "textarea"].includes(child.type)) as ReactElement<Record<string, unknown>> | undefined;
+  const controlId = String(control?.props.id || `${id}-control`);
+  const describedBy = [control?.props["aria-describedby"], hint && `${id}-hint`, error && `${id}-error`].filter(Boolean).join(" ") || undefined;
   return (
-    <div className={`field ${full ? "full" : ""}`}>
-      <label>
+    <div className={`field ${full ? "full" : ""}`} role={control ? undefined : "group"} aria-labelledby={control ? undefined : `${id}-label`}>
+      <label id={`${id}-label`} htmlFor={control ? controlId : undefined}>
         {label}
         {required && <span className="req">*</span>}
       </label>
-      {children}
-      {hint && <span className="hint">{hint}</span>}
-      {error && <span className="error-text">{error}</span>}
+      {items.map(child => child === control ? cloneElement(control, { id: controlId, "aria-describedby": describedBy, "aria-invalid": error ? true : undefined, "aria-required": required || undefined }) : child)}
+      {hint && <span id={`${id}-hint`} className="hint">{hint}</span>}
+      {error && <span id={`${id}-error`} className="error-text">{error}</span>}
     </div>
   );
 }

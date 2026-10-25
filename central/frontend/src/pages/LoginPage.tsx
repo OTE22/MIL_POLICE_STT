@@ -36,10 +36,10 @@ export function LoginPage() {
   return (
     <div className="login-page">
       <section className="login-brand">
-        <div className="login-brand-mark"><IconMic width={28} height={28} /><span>{T.orgLine}</span></div>
-        <div className="login-eyebrow">من الصوت إلى التوثيق</div>
+        <div className="login-brand-mark"><IconShield width={28} height={28} /><span>{T.appShort}<small lang="en" dir="ltr">MILITARY POLICE</small></span></div>
+        <div className="login-eyebrow">المعلومات · التحقيق · التوثيق</div>
         <h1>{T.appName}</h1>
-        <p>{T.orgLine}. تسجيل الجلسات، فصل المتحدثين، وتفريغ النصوص العربية محلياً على جهاز المحقق مع حفظ مركزي وسجل تدقيق كامل.</p>
+        <p>مساحة عمل موحّدة لإدارة التحقيقات، مراجعة الإفادات، وتوثيق المحاضر. من التسجيل الأول إلى المحضر النهائي، كل خطوة في مكانها.</p>
         <div className="features">
           <div>
             <IconMic /> تسجيل الجلسات من المتصفح أو رفع الملفات الصوتية
@@ -81,7 +81,7 @@ export function LoginPage() {
               autoFocus
               required
               dir="ltr"
-              style={{ textAlign: "right" }}
+              style={{ textAlign: "start" }}
             />
           </div>
           <div className="field mb-16">
@@ -95,7 +95,7 @@ export function LoginPage() {
               autoComplete="current-password"
               required
               dir="ltr"
-              style={{ textAlign: "right" }}
+              style={{ textAlign: "start" }}
             />
           </div>
           <button className="btn btn-primary btn-lg btn-block" type="submit" disabled={busy || !username || !password}>

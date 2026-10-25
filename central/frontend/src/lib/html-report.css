@@ -1,7 +1,7 @@
 /* All document alignment and printing live here, separate from the application UI. */
 @page { size: A4; margin: 14mm 12mm; }
 * { box-sizing: border-box; }
-body { margin: 0; background: #e9edf2; color: #111; font-family: StatementArabic, "Traditional Arabic", "Times New Roman", serif; direction: rtl; }
+body { margin: 0; background: #e9edf2; color: #111; font-family: Inter, "IBM Plex Sans Arabic", sans-serif; direction: rtl; }
 .report-paper { width: 186mm; max-width: 100%; min-height: 260mm; margin: 18px auto; padding: 8mm; background: white; box-shadow: 0 2px 16px #0002; }
 .report-meta { margin-bottom: 7mm; border-bottom: 2px solid #111; padding-bottom: 4mm; font-size: 12pt; }
 .report-meta h1 { font-size: 19pt; margin: 0; }
@@ -20,7 +20,7 @@ body { margin: 0; background: #e9edf2; color: #111; font-family: StatementArabic
 .signature-row { display: grid; grid-template-columns: 1fr 1fr 1.3fr; gap: 3mm; text-align: center; font-size: 12pt; line-height: 7mm; }
 .note-signature-row { grid-template-columns: 1fr 1.3fr; }
 .signature-space { height: 12mm; margin: 0 2mm; border-bottom: 1px solid #333; }
-.source-time { display: block; font: 10pt Arial,sans-serif; line-height: 5mm; color: #536174; direction: rtl; }
+.source-time { display: block; font-size: 11pt; line-height: 6mm; color: #536174; direction: rtl; }
 .empty-report { text-align: center; padding: 15mm; }
 @media print {
   body { background: white; }

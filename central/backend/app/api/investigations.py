@@ -198,6 +198,7 @@ def _apply_investigators(db: Session, session: InvestigationSession, items) -> N
 
 
 SUBJECT_FIELDS = (
+    "statement_details",
     "subject_name",
     "person_type",
     "military_id",
@@ -271,6 +272,8 @@ def _apply_subjects(
         carried = existing_by_key.get(getattr(item, "participant_key", None))
         if carried is not None:
             subject.participant_key = carried.participant_key
+            if "statement_details" not in item.model_fields_set:
+                subject.statement_details = dict(carried.statement_details or {})
         # A participant retains its person through edits, even if identifying details change.
         # Replacing that person requires an explicit remove/add operation.
         previous_id = carried.identity_id if carried else None
@@ -480,6 +483,8 @@ def update_investigation(
     db: Session = Depends(get_db),
 ) -> InvestigationOut:
     changed: list[str] = []
+    session = db.scalar(select(InvestigationSession).where(InvestigationSession.id == session.id)
+                        .with_for_update().execution_options(populate_existing=True))
     for field in ("title", "description", "location", "session_date", "start_time", "end_time", "notes", "expected_speaker_count"):
         value = getattr(body, field)
         if value is not None and value != getattr(session, field):

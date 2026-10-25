@@ -140,6 +140,7 @@ export interface SubjectDocument {
 }
 
 export interface Subject {
+  statement_details?: Record<string, string>;
   identity_id?: string | null;
   id?: string;
   /** Stable session-local handle for this participant. Absent on a row the operator has just

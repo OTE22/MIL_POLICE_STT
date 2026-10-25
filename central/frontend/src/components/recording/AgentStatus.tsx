@@ -147,12 +147,12 @@ export function AgentStatusPanel({ status }: { status: AgentStatusState }) {
     );
 
   return (
-    <div className="card">
+    <div className="card recording-agent">
       <div className="card-header">
-        <h3>{T.localAiStatus}</h3>
+        <h3>جاهزية المعالجة</h3>
         <div className="flex">
           {overall}
-          <button className="icon-btn" onClick={() => void refresh()} title={T.refresh} type="button">
+          <button className="icon-btn" onClick={() => void refresh()} title={T.refresh} aria-label="تحديث جاهزية المعالجة" type="button">
             <IconRefresh />
           </button>
         </div>
@@ -179,6 +179,8 @@ export function AgentStatusPanel({ status }: { status: AgentStatusState }) {
             <span className="k">{T.speakerIdModelStatus}</span>
             <span>{modelBadge(caps?.speaker_id)}</span>
           </div>
+        </div>
+        <details className="workspace-disclosure"><summary>تفاصيل الجهاز والخدمة</summary><div className="status-list">
           <div className="status-row">
             <span className="k">{T.device}</span>
             <span className="ltr">
@@ -193,7 +195,7 @@ export function AgentStatusPanel({ status }: { status: AgentStatusState }) {
             <span className="k">{T.deviceName}</span>
             <span className="ltr">{caps?.device_name ?? T.notAvailable}</span>
           </div>
-        </div>
+        </div></details>
         {caps && caps.processing_device === "cpu" && (
           <div className="mt-16">
             <Alert kind="warning">{T.cpuWarning}</Alert>

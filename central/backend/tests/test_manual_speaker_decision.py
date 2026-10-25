@@ -64,6 +64,15 @@ def test_confirmation_returns_identity_needed_for_immediate_enrollment(client, i
     assert data['identity_id']
     assert data['identity_name'] == data['display_name'] == 'Person B'
     assert data['speaker_role'] == 'SUBJECT'
+    current = _speakers(client, token, target['id'])['SPEAKER_00']
+    assert current['identity_name'] == current['display_name'] == data['identity_name']
+    transcript = client.get(f"/api/investigations/{target['id']}/transcript", headers=auth(token))
+    assert transcript.status_code == 200
+    observed = next(s for s in transcript.json()['speakers'] if s['id'] == probe['id'])
+    assert observed['identity_name'] == data['identity_name']
+    from app.services.report_context import speaker_map
+    with SessionLocal() as db:
+        assert speaker_map(db, uuid.UUID(target['id']))['SPEAKER_00'].report_name() == data['identity_name']
     enrollment = client.post(endpoint + '/enroll', headers=auth(token), json={'consent_recorded': True})
     assert enrollment.status_code == 201, enrollment.text
     assert enrollment.json()['identity_id'] == data['identity_id']

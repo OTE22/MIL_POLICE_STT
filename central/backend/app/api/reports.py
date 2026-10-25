@@ -27,6 +27,8 @@ from app.models import (
     ReportDraft,
     ReportQABlock,
     ReportStatus,
+    ReportNoteTemplate,
+    Subject,
     Transcript,
     TranscriptSourceMode,
     User,
@@ -61,7 +63,9 @@ from app.services.report_finalize import (
 )
 from app.services import report_m53 as m53
 from app.schemas.report_m53 import M53Update
-from app.schemas.report_html import HtmlReportUpdate
+from app.schemas.report_html import HtmlReportUpdate, StatementSelection, NoteTemplateCreate
+from app.schemas.statement_details import StatementDetailsUpdate, DETAIL_KEYS
+from app.services import report_people, note_templates
 from app.services import report_html
 from app.services.report_storage import absolute_path as report_file_path, remove_file
 from app.services.report_renderer import RenderError
@@ -329,6 +333,79 @@ def html_statement_catalogue(_: User = Depends(require_permission("reports.read"
     return report_html.CATALOGUE
 
 
+@router.get("/report-forms/note-templates")
+def get_note_templates(_: User = Depends(require_permission("reports.read", "reports.generate")), db: Session = Depends(get_db)):
+    return note_templates.list_templates(db)
+
+
+@router.post("/report-forms/note-templates", status_code=201)
+def create_note_template(body: NoteTemplateCreate, request: Request,
+                         user: User = Depends(require_permission("reports.templates.manage")), db: Session = Depends(get_db)):
+    template = ReportNoteTemplate(title=body.title, body=body.body, created_by=user.id)
+    db.add(template)
+    db.flush()
+    record_audit(db, action=AuditAction.REPORT_TEMPLATE_UPLOADED, user_id=user.id,
+                 entity_type="report_note_template", entity_id=template.id,
+                 metadata={"kind": "note_wording"}, ip_address=client_ip(request))
+    db.commit()
+    return note_templates.definition(template.id, template.title, template.body)
+
+
+@router.get("/investigations/{session_id}/report/html/people")
+def html_report_people(session: InvestigationSession = Depends(get_accessible_session),
+                       _: User = Depends(require_permission("reports.read", "reports.generate")), db: Session = Depends(get_db)):
+    return {"session_id": str(session.id), "options": report_people.options_for(db, session)}
+
+
+@router.post("/investigations/{session_id}/report/html/statement-preview")
+def html_statement_preview(body: StatementSelection, session: InvestigationSession = Depends(get_accessible_session),
+                           _: User = Depends(require_permission("reports.generate")), db: Session = Depends(get_db)):
+    draft = _require_draft(db, session)
+    _guard_editable(draft)
+    try:
+        return report_html.statement_preview(db, draft, session, body.model_dump(mode="json"))
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
+
+
+def _participant_details(session, key):
+    subject = next((s for s in session.subjects if s.participant_key == key), None)
+    if subject is None:
+        raise HTTPException(404, detail="session_participant_not_found")
+    return subject
+
+
+def _details_state(subject):
+    return {"session_id": str(subject.session_id), "participant_key": str(subject.participant_key),
+            "values": subject.statement_details or {}, "token": report_people.details_token(subject),
+            "fields": [f for f in report_html.CATALOGUE["fields"] if f["key"] in DETAIL_KEYS]}
+
+
+@router.get("/investigations/{session_id}/participants/{participant_key}/statement-details")
+def participant_statement_details(participant_key: uuid.UUID, session: InvestigationSession = Depends(get_accessible_session),
+                                  _: User = Depends(require_permission("investigations.read_assigned", "investigations.read_all"))):
+    return _details_state(_participant_details(session, participant_key))
+
+
+@router.put("/investigations/{session_id}/participants/{participant_key}/statement-details")
+def update_participant_statement_details(participant_key: uuid.UUID, body: StatementDetailsUpdate, request: Request,
+                                         session: InvestigationSession = Depends(get_accessible_session),
+                                         user: User = Depends(require_permission("investigations.update")), db: Session = Depends(get_db)):
+    db.scalar(select(InvestigationSession).where(InvestigationSession.id == session.id).with_for_update())
+    subject = db.scalar(select(Subject).where(Subject.session_id == session.id, Subject.participant_key == participant_key)
+                        .with_for_update().execution_options(populate_existing=True))
+    if subject is None:
+        raise HTTPException(404, detail="session_participant_not_found")
+    if body.expected_token != report_people.details_token(subject):
+        raise HTTPException(409, detail="statement_details_changed")
+    subject.statement_details = body.values
+    record_audit(db, action=AuditAction.INVESTIGATION_UPDATED, user_id=user.id,
+                 entity_type="investigation_session", entity_id=session.id,
+                 metadata={"participant_key": str(participant_key), "fields": sorted(body.values)}, ip_address=client_ip(request))
+    db.commit()
+    return _details_state(subject)
+
+
 @router.get("/investigations/{session_id}/report/html")
 def get_html_report(session: InvestigationSession = Depends(get_accessible_session),
                     _: User = Depends(require_permission("reports.read", "reports.generate")), db: Session = Depends(get_db)):
@@ -355,6 +432,7 @@ def create_html_report(request: Request,
 def save_html_report(body: HtmlReportUpdate, request: Request,
                      session: InvestigationSession = Depends(get_accessible_session),
                      user: User = Depends(require_permission("reports.generate")), db: Session = Depends(get_db)):
+    session = db.scalar(select(InvestigationSession).where(InvestigationSession.id == session.id).with_for_update().execution_options(populate_existing=True))
     draft = db.scalar(select(ReportDraft).where(ReportDraft.session_id == session.id).with_for_update().execution_options(populate_existing=True))
     if draft is None:
         raise HTTPException(404, detail="report_draft_not_found")
@@ -362,7 +440,7 @@ def save_html_report(body: HtmlReportUpdate, request: Request,
     if body.expected_token != report_html.token_for(draft):
         raise HTTPException(409, detail="html_report_changed")
     try:
-        document = report_html.prepare_document(body, draft, session)
+        document = report_html.prepare_document(body, draft, session, db)
     except ValueError as exc:
         raise HTTPException(422, detail=str(exc)) from exc
     draft.official_form = {**(draft.official_form or {}), "html_report": document}

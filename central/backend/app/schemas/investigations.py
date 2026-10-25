@@ -77,6 +77,13 @@ class SubjectIn(PersonInput):
     # Latin script is deliberately accepted: a passport or UNHCR paper may carry the only
     # spelling there is, and transliterating it would be inventing evidence.
     subject_name: str = Field(min_length=1, max_length=200)
+    statement_details: dict[str, str] = Field(default_factory=dict, max_length=10)
+
+    @field_validator("statement_details")
+    @classmethod
+    def valid_statement_details(cls, values):
+        from app.schemas.statement_details import validate_details
+        return validate_details(values)
     person_type: PersonType = PersonType.CIVILIAN
     # military
     military_id: str | None = Field(default=None, max_length=64)
@@ -136,6 +143,7 @@ class SubjectOut(BaseModel):
     participant_key: uuid.UUID
     identity_id: uuid.UUID | None = None
     subject_name: str | None
+    statement_details: dict[str, str] = Field(default_factory=dict)
     person_type: PersonType
     military_id: str | None
     rank: str | None

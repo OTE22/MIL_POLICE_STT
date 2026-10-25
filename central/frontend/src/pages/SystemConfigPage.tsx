@@ -68,7 +68,7 @@ export function SystemConfigPage() {
     <div className="page">
       <div className="page-header">
         <div>
-          <h2>{T.systemConfig}</h2>
+          <h1>{T.systemConfig}</h1>
           <p className="muted">{T.systemConfigHint}</p>
         </div>
         <button

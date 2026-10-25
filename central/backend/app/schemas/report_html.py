@@ -23,6 +23,8 @@ class StatementBlock(StrictModel):
     id: uuid.UUID
     type: Literal["statement"]
     speaker_id: uuid.UUID | None = None
+    participant_key: uuid.UUID | None = None
+    identity_id: uuid.UUID | None = None
     values: dict[str, str] = Field(default_factory=dict, max_length=len(FIELDS))
     identity_checked: bool = False
     attestation_confirmed: bool = False
@@ -39,6 +41,8 @@ class StatementBlock(StrictModel):
 class NoteBlock(StrictModel):
     id: uuid.UUID
     type: Literal["note"]
+    template_id: uuid.UUID | None = None
+    template_values: dict[str, str] = Field(default_factory=dict, max_length=20)
     values: dict[str, str] = Field(default_factory=dict, max_length=len(NOTE_FIELDS))
 
     @field_validator("values")
@@ -48,14 +52,23 @@ class NoteBlock(StrictModel):
             raise ValueError("Unknown or oversized note field")
         return values
 
+    @field_validator("template_values")
+    @classmethod
+    def valid_template_values(cls, values):
+        if any(len(k) > 60 or len(v) > 4000 for k, v in values.items()):
+            raise ValueError("Oversized note variable")
+        return values
+
 
 ReportBlock = Annotated[StatementBlock | NoteBlock, Field(discriminator="type")]
 
 
 class HtmlReportDocument(StrictModel):
+    session_id: uuid.UUID | None = None
     revision: Literal["statement-html-1"] = CATALOGUE["revision"]
     subject: str = Field(default="", max_length=500)
     investigator_id: uuid.UUID | None = None
+    clerk_id: uuid.UUID | None = None
     blocks: list[ReportBlock] = Field(default_factory=list, max_length=500)
 
     @model_validator(mode="after")
@@ -72,3 +85,28 @@ class HtmlReportDocument(StrictModel):
 class HtmlReportUpdate(StrictModel):
     expected_token: str = Field(pattern=r"^[a-f0-9]{64}$")
     document: HtmlReportDocument
+
+
+class StatementSelection(StrictModel):
+    participant_key: uuid.UUID | None = None
+    identity_id: uuid.UUID | None = None
+    speaker_id: uuid.UUID | None = None
+
+    @model_validator(mode="after")
+    def one_selection(self):
+        if sum(value is not None for value in (self.participant_key, self.identity_id, self.speaker_id)) != 1:
+            raise ValueError("Select one session participant or speaker")
+        return self
+
+
+class NoteTemplateCreate(StrictModel):
+    title: str = Field(min_length=1, max_length=150)
+    body: str = Field(min_length=1, max_length=10000)
+
+    @field_validator("title", "body")
+    @classmethod
+    def nonempty(cls, value):
+        if not value.strip():
+            raise ValueError("Empty template")
+        from app.services.note_templates import validate_body
+        return validate_body(value.strip())

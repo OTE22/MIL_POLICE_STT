@@ -239,12 +239,12 @@ export function UsersPage() {
       </div>
       <div className="card">
         <div className="toolbar">
-          <input className="input search" placeholder={`${T.search}…`} value={q} onChange={(e) => setQ(e.target.value)} />
+          <input className="input search" aria-label="البحث عن مستخدم" placeholder={`${T.search}…`} value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
         {!rows ? (
           <Loading />
         ) : (
-          <div className="table-wrap">
+          <div className="table-wrap" tabIndex={0} role="region" aria-label="جدول البيانات — مرّر أفقياً لعرض جميع الأعمدة>
             <table className="table">
               <thead>
                 <tr>

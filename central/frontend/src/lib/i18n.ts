@@ -1,9 +1,9 @@
 /* All user-facing Arabic strings live here. Source code stays in English. */
 
 export const T = {
-  appName: "نظام إدارة جلسات التحقيق",
-  appShort: "جلسات التحقيق",
-  orgLine: "المنصة المركزية للتحقيقات والمقابلات",
+  appName: "منصة المعلومات والتحقيق",
+  appShort: "الشرطة العسكرية",
+  orgLine: "منصة المعلومات والتحقيق — الشرطة العسكرية",
 
   // navigation
   dashboard: "لوحة التحكم",

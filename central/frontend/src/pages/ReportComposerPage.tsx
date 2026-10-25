@@ -688,9 +688,9 @@ export function ReportComposerPage() {
           <div className="audit-stages mt-8">
             {draft.speakers.map((sp) => (
               <div className="audit-stage" key={sp.id}>
-                <span className="num ltr">{sp.speaker_label}</span>
+                <span className={sp.resolved ? "" : "num ltr"}>{sp.resolved ? sp.report_name : sp.speaker_label}</span>
                 <span className="flex gap wrap">
-                  <span>{sp.report_name}</span>
+                  {!sp.resolved && <span>{sp.report_name}</span>}
                   {sp.legacy && <Badge kind="gray">{T.reportLegacySpeaker}</Badge>}
                   <Badge kind={sp.resolved ? "green" : "amber"}>
                     {sp.resolved ? T.reportSpeakersResolved : T.identifyUnknown}

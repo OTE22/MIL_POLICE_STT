@@ -6,7 +6,7 @@ import type { Dashboard } from "@/api/types";
 import { useAuth } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import { T } from "@/lib/i18n";
-import { IconClock, IconFolder, IconCheck, IconWave, IconPlus, IconChevronLeft } from "@/components/Icons";
+import { IconClock, IconFolder, IconCheck, IconWave, IconPlus, IconChevronLeft, IconFile, IconShield } from "@/components/Icons";
 import { Alert, Loading, SessionStatusBadge } from "@/components/ui";
 
 export function DashboardPage() {
@@ -36,8 +36,9 @@ export function DashboardPage() {
     <>
       <div className="page-header">
         <div>
+          <span className="page-kicker" lang="en" dir="ltr">OPERATIONS OVERVIEW</span>
           <h1>{T.dashboard}</h1>
-          <p>نظرة شاملة على الجلسات وأعمال التوثيق</p>
+          <p>صورة واضحة لسير التحقيقات وأعمال التوثيق</p>
         </div>
         {can("investigations.create") && (
           <Link to="/investigations/new" className="btn btn-primary">
@@ -48,23 +49,29 @@ export function DashboardPage() {
 
       <section className="dashboard-welcome">
         <div>
-          <span className="eyebrow">مساحة العمل</span>
+          <span className="eyebrow"><span className="tactical-rule" /> مساحة العمليات</span>
           <h2>مرحباً، {user?.profile?.full_name || user?.username}</h2>
-          <p>تابع جلساتك، راجع النصوص، وأكمل التوثيق من مكان واحد.</p>
+          <p>من الأدلة الصوتية إلى الإفادة الموثّقة.<br />تابع الجلسات، راجع المتحدثين، وأكمل المحاضر من مساحة واحدة.</p>
           <Link to="/investigations" className="welcome-link">استعراض الجلسات <IconChevronLeft /></Link>
         </div>
-        <div className="welcome-emblem" aria-hidden="true"><IconWave width={100} height={100} /></div>
+        <div className="command-summary"><div className="command-ring" style={{ "--completion": `${data.total_sessions ? Math.min(100, Math.round(data.completed / data.total_sessions * 100)) : 0}%` } as React.CSSProperties}><IconShield width={30} height={30} /><strong className="num">{data.total_sessions ? Math.round(data.completed / data.total_sessions * 100) : 0}%</strong><span>جلسات مكتملة</span></div><span className="command-summary-caption">{data.completed} من {data.total_sessions} جلسة</span></div>
       </section>
 
       <div className="grid grid-4 mb-16">
         {cards.map((c) => (
           <div key={c.label} className="card stat">
-            <div className="stat-top"><span className="stat-caption">ملخص الجلسات</span><div className="icon">{c.icon}</div></div>
+            <div className="stat-top"><span className="stat-caption" lang="en" dir="ltr">{String(cards.indexOf(c) + 1).padStart(2, "0")} / INTEL</span><div className="icon">{c.icon}</div></div>
             <span className="label">{c.label}</span>
             <span className="value num">{c.value}</span>
           </div>
         ))}
       </div>
+
+      <section className="dashboard-workflow" aria-label="مسار العمل">
+        <Link to="/investigations"><span className="workflow-icon"><IconFolder /></span><div><h3>إدارة التحقيقات</h3><p>البيانات والمشاركون والتسجيلات</p></div><IconChevronLeft /></Link>
+        {can("voice.identify") && <Link to="/voice-enrollments"><span className="workflow-icon"><IconWave /></span><div><h3>الهويات الصوتية</h3><p>مراجعة الأشخاص وعينات الصوت</p></div><IconChevronLeft /></Link>}
+        {can("reports.templates.manage") && <Link to="/report-template"><span className="workflow-icon"><IconFile /></span><div><h3>قوالب المحاضر</h3><p>إعداد نماذج التوثيق والطباعة</p></div><IconChevronLeft /></Link>}
+      </section>
 
       <div className="card">
         <div className="card-header">
@@ -73,7 +80,7 @@ export function DashboardPage() {
             {T.view} {T.all}
           </Link>
         </div>
-        <div className="table-wrap">
+        <div className="table-wrap" tabIndex={0} role="region" aria-label="جدول البيانات — مرّر أفقياً لعرض جميع الأعمدة>
           <table className="table">
             <thead>
               <tr>

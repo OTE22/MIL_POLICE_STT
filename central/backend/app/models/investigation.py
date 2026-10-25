@@ -18,7 +18,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -127,6 +127,8 @@ class Subject(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     # A person is recorded by name. Enforced in the database too - see e5c8b19d4f27.
     subject_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    # Facts at this participation, never implicitly copied from another session.
+    statement_details: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
 
     # ---- identity classification -----------------------------------------
     person_type: Mapped[PersonType] = mapped_column(

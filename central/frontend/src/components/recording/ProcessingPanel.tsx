@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { AgentError, agentApi } from "@/api/agent";
 import { ApiError, http } from "@/api/client";
@@ -49,6 +50,7 @@ export function ProcessingPanel({
   const [history, setHistory] = useState<Job[]>([]);
   const pollRef = useRef<number | null>(null);
   const completedNotified = useRef(false);
+  useEffect(() => () => onBusyChange(false), [onBusyChange]);
 
   const loadHistory = () => void http.get<Job[]>(`/investigations/${session.id}/jobs`).then(setHistory).catch(() => undefined);
   useEffect(loadHistory, [session.id]);
@@ -56,13 +58,16 @@ export function ProcessingPanel({
   // Resume polling of an in-flight agent job for this session after a page reload.
   useEffect(() => {
     if (agent.availability !== "available" || job) return;
+    let cancelled = false;
     void agentApi
       .jobs()
       .then((jobs) => {
+        if (cancelled) return;
         const mine = jobs.find((j) => j.session_id === session.id && !["COMPLETED", "FAILED", "CANCELLED"].includes(j.state));
-        if (mine) setJob(mine);
+        if (mine) { setJob(mine); onBusyChange(true); }
       })
       .catch(() => undefined);
+    return () => { cancelled = true; };
   }, [agent.availability, session.id, job]);
 
   useEffect(() => {
@@ -146,11 +151,17 @@ export function ProcessingPanel({
   const canStart = !!pending && agent.availability === "available" && !!agent.caps?.ready && !agent.caps?.busy && !uploading && (!job || ["COMPLETED", "FAILED", "CANCELLED"].includes(job.state));
   const progress = uploading ? uploadPct * 0.1 : job ? Math.max(job.progress, 0.1) : 0;
   const stateLabel = uploading ? t("state_RECEIVING_AUDIO") : job ? (job.state === "COMPLETED" && job.sync_state !== "SYNCED" ? t(`state_${job.sync_state}`, t("state_SYNCING")) : t(`state_${job.state}`)) : "";
+  const startHint = !pending ? "اختر ملفاً أو أوقف التسجيل المباشر لتجهيز الصوت أولاً."
+    : agent.availability === "checking" ? "جارٍ التحقّق من جاهزية خدمة المعالجة…"
+    : agent.availability !== "available" ? "شغّل خدمة المعالجة المحلية ثم اضغط تحديث في بطاقة الجاهزية."
+    : !agent.caps?.ready ? (agent.caps?.loadable ? "حمّل النماذج من بطاقة الجاهزية لتفعيل المعالجة." : "راجع التنبيه في بطاقة الجاهزية لاستكمال إعداد خدمة المعالجة.")
+    : agent.caps.busy ? "خدمة المعالجة مشغولة حالياً. انتظر انتهاء العملية الجارية."
+    : "الصوت والخدمة جاهزان. ابدأ المعالجة لاستخراج النص وفصل المتحدثين.";
 
   return (
-    <div className="card">
+    <div className="card processing-card">
       <div className="card-header">
-        <h3>{T.processingProgress}</h3>
+        <h3>٢. معالجة التسجيل</h3>
         {job && !["COMPLETED", "FAILED", "CANCELLED"].includes(job.state) && (
           <button className="btn btn-sm" onClick={() => void cancel()} type="button">
             <IconX /> {T.cancelJob}
@@ -167,9 +178,9 @@ export function ProcessingPanel({
           </div>
         )}
         {!job && !uploading && (
-          <button className="btn btn-primary btn-lg btn-block" onClick={() => void startProcessing()} disabled={!canStart} type="button">
+          <><p className="processing-start-hint" id="processing-start-hint" role="status">{startHint}</p><button className="btn btn-primary btn-lg btn-block" onClick={() => void startProcessing()} disabled={!canStart} aria-describedby="processing-start-hint" type="button">
             <IconWave /> {T.processRecording}
-          </button>
+          </button></>
         )}
         {(job || uploading) && (
           <>
@@ -177,7 +188,7 @@ export function ProcessingPanel({
               <strong>{stateLabel}</strong>
               <span className="num muted">{Math.round(progress * 100)}%</span>
             </div>
-            <div className="progress">
+            <div className="progress" role="progressbar" aria-label="تقدّم معالجة التسجيل" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}>
               <span style={{ width: `${Math.round(progress * 100)}%` }} />
             </div>
             <div className="steps">
@@ -209,6 +220,7 @@ export function ProcessingPanel({
               <div className="mt-16">
                 <Alert kind="success">
                   {t("state_COMPLETED")} — {T.speakerCount}: <span className="num">{job.speaker_count ?? "?"}</span>، {T.segments}: <span className="num">{job.segment_count ?? "?"}</span>
+                  <div className="actions mt-16"><Link className="btn btn-primary btn-sm" to={`?tab=transcript`}>مراجعة النص المفرغ</Link><Link className="btn btn-sm" to={`?tab=speakers`}>تحديد المتحدثين</Link></div>
                 </Alert>
               </div>
             )}
@@ -232,9 +244,9 @@ export function ProcessingPanel({
         )}
 
         {history.length > 0 && (
-          <div className="mt-24">
-            <h4 className="muted small mb-16">{T.jobHistory}</h4>
-            <div className="table-wrap">
+          <details className="processing-history">
+            <summary>{T.jobHistory} ({history.length})</summary>
+            <div className="table-wrap" tabIndex={0} role="region" aria-label="جدول البيانات — مرّر أفقياً لعرض جميع الأعمدة>
               <table className="table">
                 <thead>
                   <tr>
@@ -257,7 +269,7 @@ export function ProcessingPanel({
                 </tbody>
               </table>
             </div>
-          </div>
+          </details>
         )}
       </div>
     </div>

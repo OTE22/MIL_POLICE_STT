@@ -175,12 +175,11 @@ export function InvestigationFormPage() {
             <div className="section-title">{T.investigatorsLabel}</div>
             <div className="field full">
               {assignments.map((a, i) => (
-                <div className="flex mb-16" key={i}>
-                  <select
+                <div className="assignment-row mb-16" key={i}>
+                  <Field label={T.investigator}><select
                     className="select"
                     value={a.investigator_id}
                     onChange={(e) => setAssignments((prev) => prev.map((x, idx) => (idx === i ? { ...x, investigator_id: e.target.value } : x)))}
-                    style={{ flex: 1 }}
                   >
                     <option value="">{T.selectInvestigator}</option>
                     {investigators.map((p) => (
@@ -189,17 +188,16 @@ export function InvestigationFormPage() {
                         {p.military_id ? ` (${p.military_id})` : ""}
                       </option>
                     ))}
-                  </select>
-                  <select
+                  </select></Field>
+                  <Field label="صفة المحقق"><select
                     className="select"
                     value={a.assignment_role}
                     onChange={(e) => setAssignments((prev) => prev.map((x, idx) => (idx === i ? { ...x, assignment_role: e.target.value as AssignmentRole } : x)))}
-                    style={{ width: 180 }}
                   >
                     <option value="LEAD">{T.leadInvestigator}</option>
                     <option value="ASSISTANT">{T.assistantInvestigator}</option>
-                  </select>
-                  <button type="button" className="icon-btn" onClick={() => setAssignments((prev) => prev.filter((_, idx) => idx !== i))} aria-label={T.removeSubject}>
+                  </select></Field>
+                  <button type="button" className="icon-btn" onClick={() => setAssignments((prev) => prev.filter((_, idx) => idx !== i))} aria-label="إزالة المحقق">
                     <IconX />
                   </button>
                 </div>

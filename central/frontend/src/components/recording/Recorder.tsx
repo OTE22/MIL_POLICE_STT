@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { formatBytes, formatClock } from "@/lib/format";
 import { T } from "@/lib/i18n";
-import { IconFile, IconMic, IconPause, IconPlay, IconStop, IconUpload, IconX } from "@/components/Icons";
+import { IconCheck, IconMic, IconPause, IconPlay, IconStop, IconUpload, IconX } from "@/components/Icons";
 
 export interface PendingAudio {
   blob: Blob;
@@ -26,16 +26,19 @@ function pickMimeType(): string {
 
 export function Recorder({
   disabled,
+  pending,
   onReady,
 }: {
   disabled: boolean;
+  pending: PendingAudio | null;
   onReady: (audio: PendingAudio | null) => void;
 }) {
   const [mic, setMic] = useState<MicState>("idle");
   const [rec, setRec] = useState<RecState>("idle");
   const [elapsed, setElapsed] = useState(0);
   const [level, setLevel] = useState(0);
-  const [pending, setPending] = useState<PendingAudio | null>(null);
+  const [source, setSource] = useState<"file" | "microphone">(pending?.source === "BROWSER_RECORDING" ? "microphone" : "file");
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
 
@@ -48,6 +51,18 @@ export function Recorder({
   const audioCtxRef = useRef<AudioContext | null>(null);
   const rafRef = useRef<number | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
+  const selectionVersion = useRef(0);
+
+  useEffect(() => {
+    if (pending) setSource(pending.source === "BROWSER_RECORDING" ? "microphone" : "file");
+  }, [pending?.source]);
+
+  useEffect(() => {
+    if (!pending) { setPreviewUrl(null); return; }
+    const url = URL.createObjectURL(pending.blob);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [pending?.blob]);
 
   const stopMeter = () => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -63,7 +78,17 @@ export function Recorder({
     streamRef.current = null;
   }, []);
 
-  useEffect(() => () => releaseStream(), [releaseStream]);
+  useEffect(() => () => {
+    selectionVersion.current += 1;
+    if (tickRef.current) window.clearInterval(tickRef.current);
+    const activeRecorder = recorderRef.current;
+    if (activeRecorder && activeRecorder.state !== "inactive") {
+      if (activeRecorder.state === "recording") accumulated.current += (Date.now() - startedAt.current) / 1000;
+      // Finishing on tab exit preserves the captured audio in the parent workspace.
+      activeRecorder.stop();
+    }
+    releaseStream();
+  }, [releaseStream]);
 
   const startMeter = (stream: MediaStream) => {
     try {
@@ -94,14 +119,18 @@ export function Recorder({
 
   const start = async () => {
     setFileError(null);
-    setPending(null);
     onReady(null);
     setMic("requesting");
+    const captureVersion = selectionVersion.current;
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } });
     } catch (e) {
       setMic(e instanceof DOMException && e.name === "NotAllowedError" ? "denied" : "unavailable");
+      return;
+    }
+    if (captureVersion !== selectionVersion.current) {
+      stream.getTracks().forEach(track => track.stop());
       return;
     }
     streamRef.current = stream;
@@ -125,7 +154,6 @@ export function Recorder({
         source: "BROWSER_RECORDING",
         durationSeconds: duration,
       };
-      setPending(audio);
       onReady(audio);
       releaseStream();
     };
@@ -159,6 +187,7 @@ export function Recorder({
   };
 
   const acceptFile = (file: File) => {
+    if (disabled || rec === "live" || rec === "paused" || mic === "requesting") return;
     setFileError(null);
     const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
     if (!["wav", "mp3", "m4a", "webm"].includes(ext)) {
@@ -173,6 +202,7 @@ export function Recorder({
       setFileError(T.audioTooLarge);
       return;
     }
+    const version = ++selectionVersion.current;
     const audio: PendingAudio = {
       blob: file,
       filename: file.name,
@@ -187,22 +217,19 @@ export function Recorder({
     el.onloadedmetadata = () => {
       audio.durationSeconds = Number.isFinite(el.duration) ? el.duration : null;
       URL.revokeObjectURL(url);
-      setPending({ ...audio });
-      onReady({ ...audio });
+      if (version === selectionVersion.current) onReady({ ...audio });
     };
     el.onerror = () => {
       URL.revokeObjectURL(url);
-      setPending(audio);
-      onReady(audio);
+      if (version === selectionVersion.current) onReady(audio);
     };
     el.src = url;
     setRec("idle");
-    setPending(audio);
     onReady(audio);
   };
 
   const discard = () => {
-    setPending(null);
+    selectionVersion.current += 1;
     onReady(null);
     setRec("idle");
     setElapsed(0);
@@ -213,96 +240,38 @@ export function Recorder({
     mic === "ready" ? T.micReady : mic === "requesting" ? T.micRequesting : mic === "denied" ? T.micDenied : mic === "unavailable" ? T.micUnavailable : T.notAvailable;
   const recLabel = rec === "live" ? T.recLive : rec === "paused" ? T.recPaused : rec === "stopped" ? T.recStopped : T.recIdle;
 
-  return (
-    <div className="card">
-      <div className="card-header">
-        <h3>{T.tabRecording}</h3>
-        <div className="rec-indicator">
-          <span className={`rec-dot ${rec === "live" ? "live" : rec === "paused" ? "paused" : ""}`} />
-          {recLabel}
-        </div>
-      </div>
-      <div className="card-body">
-        <div className="status-list">
-          <div className="status-row">
-            <span className="k">{T.microphoneStatus}</span>
-            <span>{micLabel}</span>
-          </div>
-          <div className="status-row">
-            <span className="k">{T.recordingStatus}</span>
-            <span>{recLabel}</span>
-          </div>
-        </div>
-        <div className="rec-timer num" aria-live="off">
-          {formatClock(elapsed)}
-        </div>
-        <div className="level-meter" aria-hidden>
-          <span style={{ width: `${Math.round(level * 100)}%` }} />
-        </div>
-        <div className="rec-controls">
-          {(rec === "idle" || rec === "stopped") && (
-            <button className="btn btn-danger btn-lg" onClick={() => void start()} disabled={disabled || !!pending} type="button">
-              <IconMic /> {T.startRecording}
-            </button>
-          )}
-          {rec === "live" && (
-            <button className="btn btn-lg" onClick={pause} type="button">
-              <IconPause /> {T.pauseRecording}
-            </button>
-          )}
-          {rec === "paused" && (
-            <button className="btn btn-lg" onClick={resume} type="button">
-              <IconPlay /> {T.resumeRecording}
-            </button>
-          )}
-          {(rec === "live" || rec === "paused") && (
-            <button className="btn btn-primary btn-lg" onClick={stop} type="button">
-              <IconStop /> {T.stopRecording}
-            </button>
-          )}
-          {(rec === "idle" || rec === "stopped") && (
-            <button className="btn btn-lg" onClick={() => fileInput.current?.click()} disabled={disabled || !!pending} type="button">
-              <IconUpload /> {T.uploadAudio}
-            </button>
-          )}
-          <input ref={fileInput} type="file" accept={ACCEPT} className="sr-only" onChange={(e) => e.target.files?.[0] && acceptFile(e.target.files[0])} />
-        </div>
-
-        {!pending && rec !== "live" && rec !== "paused" && (
-          <div
-            className={`dropzone mt-16 ${dragOver ? "over" : ""}`}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragOver(true);
-            }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragOver(false);
-              const f = e.dataTransfer.files?.[0];
-              if (f) acceptFile(f);
-            }}
-            onClick={() => fileInput.current?.click()}
-            role="button"
-            tabIndex={0}
-          >
-            {T.dropHint}
-          </div>
-        )}
-        {fileError && <div className="error-text mt-8">{fileError}</div>}
-        {pending && (
-          <div className="mt-16 flex between wrap">
-            <span className="file-chip">
-              <IconFile width={16} height={16} />
-              <span className="ltr">{pending.filename}</span>
-              <span className="muted">({formatBytes(pending.blob.size)}{pending.durationSeconds ? ` — ${formatClock(pending.durationSeconds)}` : ""})</span>
-            </span>
-            <button className="btn btn-sm btn-ghost" onClick={discard} type="button" disabled={disabled}>
-              <IconX /> {T.discard}
-            </button>
-          </div>
-        )}
-      </div>
+  const capturing = rec === "live" || rec === "paused" || mic === "requesting";
+  return <section className="card recording-source-card" data-testid="recording-source">
+    <div className="card-header"><div><h3>١. اختر مصدر التسجيل</h3><p className="workspace-section-hint">ارفع ملفاً صوتياً أو سجّل مباشرة من الميكروفون.</p></div>
+      {source === "microphone" && <span className="rec-indicator" role="status"><span className={`rec-dot ${rec === "live" ? "live" : rec === "paused" ? "paused" : ""}`} />{recLabel}</span>}
     </div>
-  );
+    <div className="card-body">
+      <div className="recorder-source-choice" aria-label="مصدر التسجيل">
+        <button type="button" aria-pressed={source === "file"} disabled={disabled || capturing || !!pending} onClick={() => { setSource("file"); setFileError(null); }}><IconUpload /><span><strong>رفع ملف صوتي</strong><span>اختر تسجيلاً محفوظاً على جهازك</span></span></button>
+        <button type="button" aria-pressed={source === "microphone"} disabled={disabled || capturing || !!pending} onClick={() => { setSource("microphone"); setFileError(null); }}><IconMic /><span><strong>تسجيل مباشر</strong><span>استخدم ميكروفون هذا الجهاز</span></span></button>
+      </div>
+      <input ref={fileInput} type="file" accept={ACCEPT} aria-label="اختيار ملف صوتي" className="sr-only" disabled={disabled || capturing} onChange={e => e.target.files?.[0] && acceptFile(e.target.files[0])} />
+      {!pending && source === "file" && <button type="button" className={`dropzone ${dragOver ? "over" : ""}`} disabled={disabled}
+        onDragOver={e => { e.preventDefault(); if (!disabled) setDragOver(true); }} onDragLeave={() => setDragOver(false)}
+        onDrop={e => { e.preventDefault(); setDragOver(false); const file = e.dataTransfer.files?.[0]; if (file && !disabled) acceptFile(file); }}
+        onClick={() => fileInput.current?.click()} data-testid="audio-dropzone"><IconUpload /><strong>اسحب الملف إلى هنا أو انقر لاختياره</strong><span>WAV · MP3 · M4A · WebM</span><span>الحد الأقصى لحجم الملف: ٢ غيغابايت</span></button>}
+      {!pending && source === "microphone" && <div className="recording-microphone">
+        <div className="rec-timer num" aria-live="off">{formatClock(elapsed)}</div>
+        <div className="level-meter" aria-hidden><span style={{ width: `${Math.round(level * 100)}%` }} /></div>
+        <div className="rec-controls">
+          {(rec === "idle" || rec === "stopped") && <button className="btn btn-primary btn-lg" type="button" disabled={disabled || mic === "requesting"} onClick={() => void start()}><IconMic />{mic === "requesting" ? T.micRequesting : T.startRecording}</button>}
+          {rec === "live" && <button className="btn btn-lg" type="button" onClick={pause}><IconPause />{T.pauseRecording}</button>}
+          {rec === "paused" && <button className="btn btn-lg" type="button" onClick={resume}><IconPlay />{T.resumeRecording}</button>}
+          {(rec === "live" || rec === "paused") && <button className="btn btn-danger btn-lg" type="button" onClick={stop}><IconStop />{T.stopRecording}</button>}
+        </div>
+        <div className="status-list"><div className="status-row"><span className="k">{T.microphoneStatus}</span><span role="status">{mic === "idle" ? "يُطلب الإذن عند بدء التسجيل" : micLabel}</span></div></div>
+        <p className="workspace-section-hint">عند مغادرة هذا التبويب، ينتهي التسجيل ويُحتفظ بالصوت هنا بانتظار المعالجة.</p>
+      </div>}
+      {fileError && <div className="error-text mt-16" role="alert">{fileError}</div>}
+      {pending && <><div className="recording-selection" data-testid="pending-audio"><IconCheck /><div><strong>التسجيل جاهز للمعالجة</strong><p><bdi>{pending.filename}</bdi></p><p>{formatBytes(pending.blob.size)}{pending.durationSeconds ? ` · ${formatClock(pending.durationSeconds)}` : ""}</p><p>راجع الصوت، ثم اضغط «{T.processRecording}» في الخطوة التالية.</p></div>
+        <button className="btn btn-sm btn-ghost" type="button" disabled={disabled} onClick={discard}><IconX />{T.discard}</button></div>
+        {previewUrl && <audio className="recording-preview" src={previewUrl} controls preload="metadata" aria-label="معاينة التسجيل قبل المعالجة" />}
+      </>}
+    </div>
+  </section>;
 }

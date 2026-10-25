@@ -5,7 +5,7 @@ import type { AuditEntry, Paged } from "@/api/types";
 import { formatDateTime } from "@/lib/format";
 import { AuditCell } from "@/components/audit/ActivityTimeline";
 import { AUDIT_ACTIONS, T } from "@/lib/i18n";
-import { Loading, Pagination } from "@/components/ui";
+import { Field, Loading, Pagination } from "@/components/ui";
 
 export function AuditPage() {
   const [action, setAction] = useState("");
@@ -24,17 +24,17 @@ export function AuditPage() {
   return (
     <>
       <div className="page-header">
-        <h1>{T.audit}</h1>
+        <div><h1>{T.audit}</h1><p>تتبّع الإجراءات والتغييرات بحسب المستخدم والوقت ونوع السجل.</p></div>
       </div>
       <div className="card">
         <div className="toolbar">
-          <select className="select" value={action} onChange={(e) => { setAction(e.target.value); setPage(1); }}>
+          <Field label={T.action}><select className="select" value={action} onChange={(e) => { setAction(e.target.value); setPage(1); }}>
             <option value="">{T.action}: {T.all}</option>
             {Object.entries(AUDIT_ACTIONS).map(([k, v]) => (
               <option key={k} value={k}>{v}</option>
             ))}
-          </select>
-          <select className="select" value={entityType} onChange={(e) => { setEntityType(e.target.value); setPage(1); }}>
+          </select></Field>
+          <Field label={T.entity}><select className="select" value={entityType} onChange={(e) => { setEntityType(e.target.value); setPage(1); }}>
             <option value="">{T.entity}: {T.all}</option>
             <option value="user">المستخدم</option>
             <option value="investigation_session">الجلسة</option>
@@ -44,15 +44,15 @@ export function AuditPage() {
             <option value="transcript_segment">مقطع النص</option>
             <option value="session_speaker">المتحدث</option>
             <option value="workstation">محطة العمل</option>
-          </select>
-          <input className="input" type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1); }} />
-          <input className="input" type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }} />
+          </select></Field>
+          <Field label="من تاريخ"><input className="input" type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1); }} /></Field>
+          <Field label="إلى تاريخ"><input className="input" type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }} /></Field>
         </div>
         {!data ? (
           <Loading />
         ) : (
           <>
-            <div className="table-wrap">
+            <div className="table-wrap" tabIndex={0} role="region" aria-label="جدول البيانات — مرّر أفقياً لعرض جميع الأعمدة>
               <table className="table">
                 <thead>
                   <tr>

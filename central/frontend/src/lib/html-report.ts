@@ -1,6 +1,7 @@
 import type { Investigation, ReportQABlock } from "@/api/types";
 import reportCss from "./html-report.css?raw";
-import fontLicense from "./statement-font-license.txt?raw";
+import fontLicense from "../../public/fonts/IBMPlex-LICENSE.txt?raw";
+import latinFontLicense from "../../public/fonts/Inter-LICENSE.txt?raw";
 
 export interface BlockTemplate {
   title: string;
@@ -32,6 +33,9 @@ export interface StatementBlock {
   id: string;
   type: "statement";
   speaker_id: string | null;
+  participant_key?: string | null;
+  identity_id?: string | null;
+  person_snapshot?: { session_id: string; values: Record<string, string> };
   values: Record<string, string>;
   identity_checked: boolean;
   attestation_confirmed: boolean;
@@ -41,12 +45,19 @@ export interface NoteBlock {
   id: string;
   type: "note";
   values: Record<string, string>;
+  template_id?: string | null;
+  template_values?: Record<string, string>;
+  template_snapshot?: NoteTemplate;
 }
+export interface NoteTemplate { id: string; title: string; body: string; fields: string[] }
+export interface ReportPersonOption { key: string; label: string; participant_key: string | null; identity_id: string | null; speaker_id: string | null }
 export type ReportBlock = StatementBlock | NoteBlock;
 export interface HtmlReportDocument {
+  session_id?: string;
   revision: "statement-html-1";
   subject: string;
   investigator_id: string | null;
+  clerk_id?: string | null;
   blocks: ReportBlock[];
 }
 export interface HtmlReportState { token: string; document: HtmlReportDocument }
@@ -63,9 +74,36 @@ export function blockLabel(block: ReportBlock, index: number): string {
 
 /** Never send client-generated source snapshots; the server resolves and retains those. */
 export function editableDocument(document: HtmlReportDocument): HtmlReportDocument {
-  return { ...document, blocks: document.blocks.map(block => block.type === "note" ? block : ({ ...block, entries: block.entries.map(entry => ({
-    id: entry.id, question: entry.question, answer: entry.answer, source_block_ids: entry.source_block_ids,
-  })) })) };
+  return { ...document, blocks: document.blocks.map(block => {
+    if (block.type === "note") {
+      const { template_snapshot: _snapshot, ...editable } = block;
+      return editable;
+    }
+    const { person_snapshot: _snapshot, ...editable } = block;
+    return { ...editable, entries: block.entries.map(entry => ({
+      id: entry.id, question: entry.question, answer: entry.answer, source_block_ids: entry.source_block_ids,
+    })) };
+  }) };
+}
+
+export function selectionKey(block: StatementBlock): string {
+  return block.participant_key ? `participant:${block.participant_key}` : block.identity_id ? `person:${block.identity_id}`
+    : block.speaker_id ? `speaker:${block.speaker_id}` : "";
+}
+
+export function selectionPayload(option: Pick<ReportPersonOption, "participant_key" | "identity_id" | "speaker_id">) {
+  return option.participant_key ? { participant_key: option.participant_key } : option.identity_id ? { identity_id: option.identity_id } : { speaker_id: option.speaker_id };
+}
+
+export function applyNoteTemplate(block: NoteBlock, template: NoteTemplate, values: Record<string, string>): NoteBlock {
+  const text = template.body.replace(/\{([^{}]+)\}/g, (_, key: string) => values[key]?.trim() || `[${key}]`);
+  return { ...block, template_id: template.id, template_values: values, template_snapshot: template,
+    values: { ...block.values, note_text: text } };
+}
+
+export function detachNoteTemplate(block: NoteBlock): NoteBlock {
+  const { template_id: _id, template_values: _values, template_snapshot: _snapshot, ...plain } = block;
+  return plain;
 }
 
 export function importAnswers(block: StatementBlock, source: ReportQABlock[]): StatementBlock {
@@ -83,15 +121,16 @@ const escape = (value: string) => value.replace(/[&<>"']/g, c => ({ "&": "&amp;"
 
 export function renderHtmlReport(document: HtmlReportDocument, catalogue: StatementCatalogue,
   session: Pick<Investigation, "session_number" | "title" | "investigators">,
-  options: { highlight?: boolean; fontDataUrl?: string; showSources?: boolean } = {}): string {
+  options: { highlight?: boolean; fontDataUrl?: string; latinFontDataUrl?: string; showSources?: boolean } = {}): string {
   const row = (content: string, marker = "", className = "") => `<tr class="${className}"><td class="margin-marker">${marker}</td><td class="statement-text">${content}</td></tr>`;
   const selected = session.investigators.find(i => i.id === document.investigator_id);
+  const clerk = session.investigators.find(i => i.id === document.clerk_id);
   const sections = document.blocks.map((block, index) => {
     const template = block.type === "note" ? catalogue.note : catalogue;
     const labels = Object.fromEntries(template.fields.map(f => [f.key, f.label]));
     const field = (key: string, values: Record<string, string>) => `<span class="variable${values[key]?.trim() ? "" : " missing"}" data-field="${escape(key)}">${escape(values[key]?.trim() || `[${labels[key] || key}]`)}</span>`;
     const clause = (key: string, values: Record<string, string>) => escape(template.clauses[key] || "").replace(/\{([a-z_]+)\}/g, (_, name: string) => field(name, values));
-    const values = { ...block.values, investigator_name: block.values.investigator_name?.trim()
+    const values = { ...block.values, clerk_name: block.values.clerk_name?.trim() || (clerk ? [clerk.rank, clerk.full_name].filter(Boolean).join(" ") : ""), investigator_name: block.values.investigator_name?.trim()
       || (selected ? [selected.rank, selected.full_name].filter(Boolean).join(" ") : "") };
     if (block.type === "note") {
       return `<section class="statement-block note-block" data-block-id="${escape(block.id)}" aria-label="ملاحظة ${index + 1}"><table class="statement-table"><colgroup><col class="marker-col"><col></colgroup><tbody>
@@ -115,10 +154,10 @@ export function renderHtmlReport(document: HtmlReportDocument, catalogue: Statem
       ${row(`<div class="signature-row"><div>${field("statement_signature_role", values)}<div class="signature-space"></div></div><div>كاتب عدلي<br>${field("clerk_name", values)}<div class="signature-space"></div></div><div>${clause("place_date", values)}<div>المحقق: ${field("investigator_name", values)}</div><div class="signature-space"></div></div></div>`, "", "statement-signatures")}
       </tbody></table></section>`;
   }).join("");
-  const font = options.fontDataUrl?.startsWith("data:font/") ? `@font-face{font-family:StatementArabic;src:url("${options.fontDataUrl.replace(/["<>\s]/g, "")}")}` : "";
+  const font = [["IBM Plex Sans Arabic", options.fontDataUrl], ["Inter", options.latinFontDataUrl]].map(([family, url]) => url?.startsWith("data:font/") ? `@font-face{font-family:"${family}";src:url("${url.replace(/["<>\s]/g, "")}")}` : "").join("\n");
   return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; font-src data:; img-src data:; base-uri 'none'; form-action 'none'">
-    <title>مسودة محضر — ${escape(document.subject || session.title)}</title><!-- Embedded font license:\n${fontLicense.replace(/-->/g, "—>")}\n--><style>${font}\n${reportCss}</style></head>
+    <title>مسودة محضر — ${escape(document.subject || session.title)}</title><!-- Embedded font license:\n${(fontLicense + "\n" + latinFontLicense).replace(/-->/g, "—>")}\n--><style>${font}\n${reportCss}</style></head>
     <body class="${options.highlight ? "highlight-fields" : ""}"><main class="report-paper"><header class="report-meta"><div>مسودة محضر</div><h1>${escape(document.subject || session.title)}</h1><p>الجلسة: ${escape(session.session_number)} — ${escape(session.title)}</p><p>المحقق المسؤول: ${selected ? escape([selected.rank, selected.full_name].filter(Boolean).join(" ")) : '<span class="missing">[اختر المحقق]</span>'}</p></header>
     ${sections || '<p class="empty-report">أضف إفادة أو ملاحظة لبدء المحضر.</p>'}</main></body></html>`;
 }

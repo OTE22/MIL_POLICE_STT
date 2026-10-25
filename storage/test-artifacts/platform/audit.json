@@ -1,0 +1,207 @@
+[
+  {
+    "screen": "dashboard-desktop",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "dashboard-mobile",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "investigations-desktop",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "investigations-mobile",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "new-investigation-desktop",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "new-investigation-mobile",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "edit-investigation-desktop",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "edit-investigation-mobile",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "details-desktop",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "details-mobile",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "recording-desktop",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "recording-mobile",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "transcript-desktop",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "transcript-mobile",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "speakers-desktop",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "speakers-mobile",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "activity-desktop",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "activity-mobile",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "report-desktop",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "report-mobile",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "templates-desktop",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "templates-mobile",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "users-desktop",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "users-mobile",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "workstations-desktop",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "workstations-mobile",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "voice-desktop",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "voice-mobile",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "audit-desktop",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "audit-mobile",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "settings-desktop",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "settings-mobile",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "password-desktop",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "password-mobile",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "navigation-mobile",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "user-modal-mobile",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "voice-modal-desktop",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "template-designer-desktop",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "template-designer-mobile",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "login-desktop",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "login-mobile",
+    "tiny_text": [],
+    "violations": []
+  }
+]

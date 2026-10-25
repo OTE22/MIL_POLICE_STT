@@ -13,7 +13,7 @@
 .layout-thumbnails { display: flex; flex-direction: column; gap: 12px; max-height: 720px; overflow: auto; margin-top: 14px; padding: 3px; }
 .layout-thumbnail { border: 2px solid transparent; background: white; padding: 6px; border-radius: 6px; display: grid; gap: 3px; cursor: pointer; text-align: center; }
 .layout-thumbnail img { width: 100%; height: 100px; object-fit: contain; background: #fff; border: 1px solid var(--line-soft); }
-.layout-thumbnail small { color: var(--ink-soft); font-size: 11px; }
+.layout-thumbnail small { color: var(--ink-soft); font-size: 14px; }
 .layout-thumbnail.selected { border-color: var(--accent); background: var(--accent-soft); }
 .layout-stage { min-width: 0; background: #e9edf3; }
 .layout-canvas-toolbar, .layout-page-actions { padding: 12px; display: flex; justify-content: center; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -23,9 +23,9 @@
 .layout-canvas-scroll { overflow: auto; max-height: 750px; padding: 20px; }
 .layout-paper { position: relative; background: white; touch-action: none; user-select: none; box-shadow: 0 3px 15px #13213a24; overflow: hidden; cursor: crosshair; }
 .layout-paper > img { display: block; width: 100%; height: 100%; pointer-events: none; }
-.layout-box { position: absolute; border: 2px solid var(--accent); background: #fffffff0; color: var(--navy-900); }
+.layout-box { position: absolute; border: 2px solid var(--accent); background: #fffffff0; color: var(--ink); }
 .layout-box.selected { border-color: #b7791f; box-shadow: 0 0 0 2px #b7791f33; z-index: 2; }
-.layout-box > button:first-child { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; color: inherit; overflow: hidden; cursor: move; font-size: 12px; direction: rtl; }
+.layout-box > button:first-child { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; color: inherit; overflow: hidden; cursor: move; font-size: 14px; direction: rtl; }
 .layout-box .layout-resize { position: absolute; width: 15px; height: 15px; right: -2px; bottom: -2px; background: #b7791f; border: 2px solid white; cursor: se-resize; padding: 0; }
 .layout-inspector { padding: 16px; display: flex; flex-direction: column; align-items: stretch; gap: 12px; border-inline-start: 1px solid var(--line); }
 .layout-inspector h3:not(:first-child) { padding-top: 14px; border-top: 1px solid var(--line-soft); }
@@ -48,14 +48,14 @@
 .layout-expanded { position: fixed; inset: 12px; z-index: 1000; overflow: auto; margin: 0; box-shadow: 0 0 0 30px #0f1a2e99; }
 .layout-expanded .layout-canvas-scroll { max-height: calc(100vh - 330px); min-height: 300px; }
 .layout-precision-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px; padding: 10px; background: white; border-bottom: 1px solid var(--line); }
-.layout-precision-toolbar label { display: flex; align-items: center; gap: 5px; font-size: 12px; }
+.layout-precision-toolbar label { display: flex; align-items: center; gap: 5px; font-size: 14px; }
 .layout-precision-toolbar .select { width: auto; padding: 4px 8px; }
 .layout-mode { display: flex; gap: 3px; }
 .layout-mode [aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-strong); }
-.layout-measure-note { padding: 6px 12px; color: var(--ink-soft); font-size: 11px; text-align: center; }
+.layout-measure-note { padding: 6px 12px; color: var(--ink-soft); font-size: 14px; text-align: center; }
 .layout-canvas-scroll { padding: 32px 32px 20px; }
 .layout-sheet { position: relative; }
-.layout-ruler { position: absolute; background: #f8fafc; color: #4a5565; font-family: monospace; font-size: 9px; user-select: none; }
+.layout-ruler { position: absolute; background: #f8fafc; color: #4a5565; font-family: var(--font-ui); font-size: 14px; user-select: none; }
 .layout-ruler-x { top: -24px; left: 0; height: 20px; width: 100%; border-bottom: 1px solid #94a3b8; }
 .layout-ruler-y { left: -28px; top: 0; width: 24px; height: 100%; border-right: 1px solid #94a3b8; }
 .layout-ruler-x span { position: absolute; padding-left: 2px; border-left: 1px solid #94a3b8; height: 100%; }
@@ -74,7 +74,7 @@
 .layout-box .layout-handle-nw { left: -6px; top: -6px; cursor: nwse-resize; }
 .layout-box .layout-handle-se { right: -6px; bottom: -6px; cursor: nwse-resize; }
 .layout-box .layout-handle-sw { left: -6px; bottom: -6px; cursor: nesw-resize; }
-.layout-overlap-note { padding: 10px; border-radius: 6px; background: var(--warning-soft); color: #7a5015; font-size: 12px; }
+.layout-overlap-note { padding: 10px; border-radius: 6px; background: var(--warning-soft); color: #7a5015; font-size: 14px; }
 .layout-overlap-note button { margin: 4px; }
 .layout-align { display: grid; gap: 8px; }
 @media (max-width: 1200px) {
@@ -90,6 +90,6 @@
   .layout-thumbnail img { height: 70px; }
   .layout-inspector { display: flex; }
   .layout-canvas-scroll { padding: 32px 32px 10px; }
-  .layout-steps { gap: 12px; font-size: 12px; padding: 12px; }
+  .layout-steps { gap: 12px; font-size: 14px; padding: 12px; }
   .layout-heading, .layout-toolbar, .layout-footer { padding: 16px; }
 }

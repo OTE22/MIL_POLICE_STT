@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { useAuth } from "@/lib/auth";
@@ -8,7 +9,6 @@ import {
   IconFolder,
   IconKey,
   IconLogout,
-  IconMic,
   IconMonitor,
   IconPlus,
   IconMic as IconVoice,
@@ -16,6 +16,7 @@ import {
   IconGear,
   IconShield,
   IconUsers,
+  IconX,
 } from "./Icons";
 
 const APP_VERSION = "1.0.0";
@@ -41,6 +42,8 @@ function Breadcrumbs({ crumbs }: { crumbs: Crumb[] }) {
 
 export function crumbsFor(pathname: string): Crumb[] {
   if (pathname.startsWith("/investigations/new")) return [{ label: T.investigations, to: "/investigations" }, { label: T.newInvestigation }];
+  if (/^\/investigations\/[^/]+\/report/.test(pathname)) return [{ label: T.investigations, to: "/investigations" }, { label: "إعداد المحضر" }];
+  if (/^\/investigations\/[^/]+\/edit/.test(pathname)) return [{ label: T.investigations, to: "/investigations" }, { label: "تعديل بيانات الجلسة" }];
   if (pathname.startsWith("/investigations/")) return [{ label: T.investigations, to: "/investigations" }, { label: T.sessionDetails }];
   if (pathname.startsWith("/investigations")) return [{ label: T.investigations }];
   if (pathname.startsWith("/users")) return [{ label: T.users }];
@@ -57,22 +60,45 @@ export function Layout() {
   const { user, logout, can } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const [navOpen, setNavOpen] = useState(false);
+  const menu = useRef<HTMLButtonElement>(null);
+  const sidebar = useRef<HTMLElement>(null);
+  useEffect(() => { setNavOpen(false); }, [location.pathname]);
+  useEffect(() => {
+    if (!navOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    sidebar.current?.querySelector<HTMLElement>("button, a")?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setNavOpen(false);
+      if (event.key !== "Tab") return;
+      const items = Array.from(sidebar.current?.querySelectorAll<HTMLElement>("a, button") ?? []).filter(el => el.getClientRects().length);
+      if (event.shiftKey && document.activeElement === items[0]) { event.preventDefault(); items[items.length - 1]?.focus(); }
+      else if (!event.shiftKey && document.activeElement === items[items.length - 1]) { event.preventDefault(); items[0]?.focus(); }
+    };
+    const onResize = () => { if (window.innerWidth > 960) setNavOpen(false); };
+    window.addEventListener("keydown", onKey); window.addEventListener("resize", onResize);
+    return () => { document.body.style.overflow = previousOverflow; window.removeEventListener("keydown", onKey); window.removeEventListener("resize", onResize); menu.current?.focus(); };
+  }, [navOpen]);
   const displayName = user?.profile?.full_name || user?.username || "";
   const roleLabel = user?.roles.map((r) => t(`role${r[0]}${r.slice(1).toLowerCase()}`, r)).join("، ");
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${navOpen ? "navigation-open" : ""}`}>
       <a className="skip-link" href="#main-content">انتقل إلى المحتوى</a>
-      <aside className="sidebar">
+      {navOpen && <div className="navigation-scrim" onClick={() => setNavOpen(false)} aria-hidden="true" />}
+      <aside ref={sidebar} id="primary-navigation" className={`sidebar ${navOpen ? "is-open" : ""}`} aria-label="القائمة الرئيسية" role={navOpen ? "dialog" : undefined} aria-modal={navOpen || undefined}>
         <div className="sidebar-brand">
           <div className="logo">
-            <IconMic width={20} height={20} />
+            <IconShield width={25} height={25} />
           </div>
           <div>
             <strong>{T.appShort}</strong>
-            <small>{T.orgLine}</small>
+            <small>منصة المعلومات والتحقيق</small>
           </div>
         </div>
+        <button className="icon-btn navigation-close" type="button" onClick={() => setNavOpen(false)} aria-label="إغلاق القائمة"><IconX /></button>
+        <div className="sidebar-context"><span className="context-rule" /><span lang="en" dir="ltr">INTELLIGENCE & INVESTIGATION</span></div>
         <nav aria-label="التنقل الرئيسي">
           <div className="nav-section">{T.operations}</div>
           <NavLink to="/" end className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
@@ -119,14 +145,14 @@ export function Layout() {
           )}
         </nav>
         <div className="sidebar-footer">
-          <div className="sidebar-footer-heading"><IconShield /> مساحة إدارة الجلسات</div>
-          {T.appName} — <span className="num">v{APP_VERSION}</span>
+          <div className="sidebar-footer-heading"><IconShield /> بيئة العمليات المركزية</div>
+          <span lang="en" dir="ltr">MILITARY POLICE · v{APP_VERSION}</span>
         </div>
       </aside>
 
       <div className="main">
         <header className="topbar">
-          <Breadcrumbs crumbs={crumbsFor(location.pathname)} />
+          <div className="topbar-location"><button ref={menu} className="icon-btn navigation-toggle" type="button" onClick={() => setNavOpen(true)} aria-label="فتح القائمة الرئيسية" aria-expanded={navOpen} aria-controls="primary-navigation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg></button><div><div className="topbar-kicker">مركز العمليات والتحقيق</div><Breadcrumbs crumbs={crumbsFor(location.pathname)} /></div></div>
           <div className="user-menu">
             <div className="avatar" aria-hidden>
               {initials(displayName)}

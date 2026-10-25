@@ -1,6 +1,7 @@
 """ORM models. Importing this package registers every table on Base.metadata."""
 
 from app.models.audit import AuditLog
+from app.models.report_note_template import ReportNoteTemplate
 from app.models.auth import Permission, Role, RolePermission, User, UserRole
 from app.models.enums import (
     AssignmentRole,
@@ -38,6 +39,7 @@ from app.models.transcript import SessionSpeaker, Transcript, TranscriptSegment
 from app.models.voice import VoiceEnrollment
 
 __all__ = [
+    "ReportNoteTemplate",
     "AuditLog",
     "Permission",
     "Role",

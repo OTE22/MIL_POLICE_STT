@@ -45,7 +45,7 @@ export function VoiceSuggestion({
     return (
       <div className="voice-row">
         <Badge kind="green">{T.ident_CONFIRMED}</Badge>
-        {speaker.suggested_name && <span className="muted small">{speaker.suggested_name}</span>}
+        {(speaker.identity_name || speaker.display_name || speaker.suggested_name) && <span className="muted small">{speaker.identity_name || speaker.display_name || speaker.suggested_name}</span>}
         {scoreBadge(speaker.suggested_score)}
       </div>
     );

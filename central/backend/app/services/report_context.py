@@ -317,6 +317,9 @@ def build_qa_blocks(turns: list[Turn], speakers: dict[str, SpeakerInfo]) -> list
             pending = None
 
     for turn in turns:
+        # Seconds restart in each recording; a new file starts a new Q&A block.
+        if pending is not None and str(turn.recording_id) not in pending.recording_ids:
+            flush()
         info = speakers.get(turn.speaker_label)
         speaker_id = info.speaker_id if info else None
         if _is_question_role(info):

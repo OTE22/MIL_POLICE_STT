@@ -431,6 +431,7 @@ export function VoiceEnrollmentsPage() {
               <input
                 className="input search"
                 placeholder={`${T.search}…`}
+                aria-label="البحث في الهويات الصوتية"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
               />

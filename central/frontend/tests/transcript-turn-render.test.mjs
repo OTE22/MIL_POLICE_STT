@@ -2,6 +2,7 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router-dom";
 import { createServer } from "vite";
 
 test("shared speaker headings keep every source fragment's text and precise interval visible in order", async () => {
@@ -24,9 +25,9 @@ test("shared speaker headings keep every source fragment's text and precise inte
       })),
     };
     const original = JSON.stringify(transcript);
-    const html = renderToStaticMarkup(React.createElement(AuthProvider, null,
+    const html = renderToStaticMarkup(React.createElement(MemoryRouter, null, React.createElement(AuthProvider, null,
       React.createElement(ToastProvider, null,
-        React.createElement(TranscriptViewer, { transcript, onChange: () => {} }))));
+        React.createElement(TranscriptViewer, { transcript, onChange: () => {} })))));
     assert.equal((html.match(/class="time num"/g) || []).length, 8);
     assert.equal((html.match(/class="speaker"/g) || []).length, 4);
     assert.equal((html.match(/class="small muted ltr">SPEAKER_34</g) || []).length, 0);

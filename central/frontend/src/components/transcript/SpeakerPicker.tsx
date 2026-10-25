@@ -145,7 +145,7 @@ export function SpeakerPicker({
     }
   };
 
-  const current = speaker.display_name || T.unnamed;
+  const current = speaker.identity_name || speaker.display_name || "لم يتم اختيار شخص بعد";
 
   return (
     <>
@@ -154,10 +154,11 @@ export function SpeakerPicker({
         className="input picker-trigger"
         onClick={() => setOpen(true)}
         disabled={disabled}
+        aria-label={`${T.pickPerson}: ${current}`}
         data-testid="speaker-person-picker"
       >
-        <span className={speaker.display_name ? "" : "muted"}>{current}</span>
-        <span className="muted small">{T.pickPerson}</span>
+        <span className={speaker.identity_name || speaker.display_name ? "" : "muted"}>{current}</span>
+        <span className="muted small">{speaker.identity_id ? "تغيير الشخص" : T.pickPerson}</span>
       </button>
 
       {open && (
@@ -215,6 +216,7 @@ export function SpeakerPicker({
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder={T.pickSearchPlaceholder}
+                aria-label={T.pickSearchRegistry}
                 disabled={busy}
                 data-testid="pick-search"
               />
@@ -279,6 +281,7 @@ export function SpeakerPicker({
                   maxLength={200}
                   disabled={busy}
                   data-testid="pick-temporary-input"
+                  aria-label={T.pickTemporaryLabel}
                 />
                 <button
                   type="button"
