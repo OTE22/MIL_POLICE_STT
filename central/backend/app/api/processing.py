@@ -122,6 +122,10 @@ def create_processing_token(
     user: User = Depends(require_permission("processing.request")),
     db: Session = Depends(get_db),
 ) -> ProcessingTokenOut:
+    from app.services.workflow import guard_mutation
+    session = db.scalar(select(InvestigationSession).where(InvestigationSession.id == session.id)
+                        .with_for_update().execution_options(populate_existing=True))
+    guard_mutation(session)
     if session.status == SessionStatus.ARCHIVED:
         raise HTTPException(status.HTTP_409_CONFLICT, detail="session_archived")
     try:
@@ -131,17 +135,29 @@ def create_processing_token(
 
     from app.services.storage import sanitize_filename
 
-    recording = AudioRecording(
-        session_id=session.id,
-        original_filename=sanitize_filename(body.original_filename),
-        mime_type=body.mime_type.split(";")[0].strip().lower(),
-        size_bytes=body.size_bytes,
-        source=body.source,
-        upload_status=RecordingUploadStatus.PENDING,
-        created_by=user.id,
-    )
-    db.add(recording)
-    db.flush()
+    if body.recording_id:
+        recording = db.get(AudioRecording, body.recording_id)
+        if recording is None or recording.session_id != session.id:
+            raise HTTPException(404, detail="recording_not_found")
+        if (recording.original_filename != sanitize_filename(body.original_filename)
+                or recording.mime_type != body.mime_type.split(";")[0].strip().lower()
+                or recording.size_bytes != body.size_bytes or recording.source != body.source):
+            raise HTTPException(409, detail="recording_retry_metadata_mismatch")
+        if db.scalar(select(LocalProcessingJob.id).where(LocalProcessingJob.recording_id == recording.id,
+                LocalProcessingJob.status.in_([JobStatus.REQUESTED, JobStatus.ACCEPTED, JobStatus.PROCESSING])).limit(1)):
+            raise HTTPException(409, detail="recording_already_processing")
+    else:
+        recording = AudioRecording(
+            session_id=session.id,
+            original_filename=sanitize_filename(body.original_filename),
+            mime_type=body.mime_type.split(";")[0].strip().lower(),
+            size_bytes=body.size_bytes,
+            source=body.source,
+            upload_status=RecordingUploadStatus.PENDING,
+            created_by=user.id,
+        )
+        db.add(recording)
+        db.flush()
     job_id = uuid.uuid4()
     issued = issue_processing_token(
         job_id=job_id,
@@ -163,23 +179,22 @@ def create_processing_token(
     )
     db.add(job)
     session.status = SessionStatus.PROCESSING
+    session.workflow_state = "IN_PROGRESS"
+    session.revision += 1
     ip = client_ip(request)
-    record_audit(
-        db,
-        action=AuditAction.RECORDING_CREATED,
-        user_id=user.id,
-        entity_type="audio_recording",
-        entity_id=recording.id,
-        metadata={"session_id": session.id, "filename": recording.original_filename, "source": body.source},
-        ip_address=ip,
-    )
+    if body.recording_id is None:
+        record_audit(db, action=AuditAction.RECORDING_CREATED, user_id=user.id,
+            entity_type="audio_recording", entity_id=recording.id,
+            metadata={"session_id": session.id, "filename": recording.original_filename, "source": body.source},
+            ip_address=ip)
     record_audit(
         db,
         action=AuditAction.LOCAL_PROCESSING_REQUESTED,
         user_id=user.id,
         entity_type="local_processing_job",
         entity_id=job.id,
-        metadata={"session_id": session.id, "recording_id": recording.id, "accept_by": issued.accept_by.isoformat()},
+        metadata={"session_id": session.id, "recording_id": recording.id, "retry": body.recording_id is not None,
+                  "accept_by": issued.accept_by.isoformat()},
         ip_address=ip,
     )
     db.commit()
@@ -216,7 +231,7 @@ def cancel_job_by_user(
     user: User = Depends(require_permission("processing.request")),
     db: Session = Depends(get_db),
 ) -> JobOut:
-    job = db.get(LocalProcessingJob, job_id)
+    job = db.scalar(select(LocalProcessingJob).where(LocalProcessingJob.id == job_id).with_for_update(of=LocalProcessingJob))
     if job is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="job_not_found")
     session = get_accessible_session(job.session_id, user, db)
@@ -226,7 +241,8 @@ def cancel_job_by_user(
     job.agent_state = "CANCELLED"
     job.completed_at = datetime.now(timezone.utc)
     if session.status == SessionStatus.PROCESSING:
-        session.status = SessionStatus.RECORDING
+        db.flush()
+        _sync_processing_status(db, session)
     record_audit(
         db,
         action=AuditAction.LOCAL_PROCESSING_CANCELLED,
@@ -258,7 +274,7 @@ def get_agent_job(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=f"processing_token_{exc}") from exc
     if claims.get("job_id") != str(job_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="processing_token_job_mismatch")
-    job = db.get(LocalProcessingJob, job_id)
+    job = db.scalar(select(LocalProcessingJob).where(LocalProcessingJob.id == job_id).with_for_update(of=LocalProcessingJob).execution_options(populate_existing=True))
     if job is None or job.token_nonce != claims.get("jti"):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="job_not_found")
     return job, claims
@@ -311,7 +327,7 @@ def report_job_state(
 ) -> JobOut:
     job, claims = auth
     user_id = uuid.UUID(claims["user_id"])
-    if job.status in _TERMINAL and body.state not in ("COMPLETED",):
+    if job.status in _TERMINAL:
         # Terminal jobs do not regress. Cancellation by user wins.
         return _job_out(job)
     previous_state = job.agent_state
@@ -330,13 +346,15 @@ def report_job_state(
         job.completed_at = datetime.now(timezone.utc)
         session = db.get(InvestigationSession, job.session_id)
         if session is not None and session.status == SessionStatus.PROCESSING:
-            session.status = SessionStatus.FAILED
+            db.flush()
+            _sync_processing_status(db, session)
     elif body.state == "CANCELLED":
         job.status = JobStatus.CANCELLED
         job.completed_at = datetime.now(timezone.utc)
         session = db.get(InvestigationSession, job.session_id)
         if session is not None and session.status == SessionStatus.PROCESSING:
-            session.status = SessionStatus.RECORDING
+            db.flush()
+            _sync_processing_status(db, session)
     metadata = {"state": body.state, "progress": body.progress, "previous": previous_state, "session_id": job.session_id}
     # Stage completion events are derived from transitions.
     if previous_state in _STAGE_COMPLETED_AUDIT and body.state not in ("FAILED", "CANCELLED") and body.state != previous_state:
@@ -360,12 +378,17 @@ def submit_result(
     user_id = uuid.UUID(claims["user_id"])
     settings = get_settings()
 
+    # Serialize against lifecycle changes and other results in this session.
+    session = db.scalar(select(InvestigationSession).where(InvestigationSession.id == job.session_id)
+                        .with_for_update().execution_options(populate_existing=True))
+    from app.services.workflow import guard_mutation, evidence_changed
     existing = db.scalar(select(Transcript).where(Transcript.job_id == job.id))
     if existing is not None:
         if job.idempotency_key == body.idempotency_key:
             # Safe retry after a lost response: return the same answer.
             return ProcessingResultOut(job_id=job.id, transcript_id=existing.id, status=job.status, duplicate=True)
         raise HTTPException(status.HTTP_409_CONFLICT, detail="result_already_submitted")
+    guard_mutation(session)
     if job.status == JobStatus.CANCELLED:
         raise HTTPException(status.HTTP_409_CONFLICT, detail="job_cancelled")
 
@@ -382,6 +405,8 @@ def submit_result(
         if body.audio.duration_seconds is not None:
             recording.duration_seconds = body.audio.duration_seconds
         if body.audio.sha256:
+            if recording.storage_path and recording.sha256 and recording.sha256 != body.audio.sha256:
+                raise HTTPException(409, detail="verified_audio_hash_conflict")
             recording.sha256 = body.audio.sha256
         if body.audio.size_bytes:
             recording.size_bytes = body.audio.size_bytes
@@ -491,7 +516,9 @@ def submit_result(
     job.idempotency_key = body.idempotency_key
     job.completed_at = datetime.now(timezone.utc)
     job.agent_metadata = {"speaker_count": body.speaker_count, "warnings": body.warnings}
-    session.status = SessionStatus.COMPLETED
+    evidence_changed(session)
+    db.flush()
+    _sync_processing_status(db, session)
     if recording.upload_status == RecordingUploadStatus.PENDING and not settings.storage_root:
         recording.upload_status = RecordingUploadStatus.DISABLED
 
@@ -514,6 +541,10 @@ async def upload_original_audio(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="recording_not_found")
     if recording.upload_status == RecordingUploadStatus.UPLOADED and recording.storage_path:
         return {"recording_id": str(recording.id), "duplicate": True, "sha256": recording.sha256}
+    session = db.scalar(select(InvestigationSession).where(
+        InvestigationSession.id == job.session_id).with_for_update())
+    from app.services.workflow import guard_mutation, evidence_changed
+    guard_mutation(session)
     try:
         ext = validate_declared(file.filename or recording.original_filename, file.content_type or recording.mime_type, recording.size_bytes or 1)
         rel, size, sha256 = await store_upload(file, job.session_id, recording.id, ext)
@@ -531,6 +562,7 @@ async def upload_original_audio(
     recording.size_bytes = size
     recording.storage_path = rel
     recording.upload_status = RecordingUploadStatus.UPLOADED
+    evidence_changed(session)
     record_audit(db, action=AuditAction.RECORDING_UPLOADED, user_id=user_id, entity_type="audio_recording", entity_id=recording.id, metadata={"session_id": job.session_id, "size_bytes": size, "sha256": sha256})
     db.commit()
     return {"recording_id": str(recording.id), "duplicate": False, "sha256": sha256, "size_bytes": size}
@@ -547,3 +579,16 @@ def get_job(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="job_not_found")
     get_accessible_session(job.session_id, user, db)
     return _job_out(job)
+
+
+def _sync_processing_status(db, session):
+    from app.services.workflow import processing_summary, unresolved_processing_failures, ACTIVE_JOBS
+    states = processing_summary(db, session.id)
+    if any(states.get(state, 0) for state in ACTIVE_JOBS):
+        session.status = SessionStatus.PROCESSING
+    elif unresolved_processing_failures(db, session.id):
+        session.status = SessionStatus.FAILED
+    elif states.get("COMPLETED", 0):
+        session.status = SessionStatus.COMPLETED
+    else:
+        session.status = SessionStatus.RECORDING

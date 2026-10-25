@@ -12,11 +12,15 @@ RUN apt-get update \
     && groupadd --gid 1000 app \
     && useradd --uid 1000 --gid app --create-home --shell /usr/sbin/nologin app
 
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+
 WORKDIR /app
 
 COPY requirements.txt requirements-dev.txt ./
 ARG INSTALL_DEV=false
 RUN if [ "$INSTALL_DEV" = "true" ]; then pip install -r requirements-dev.txt; else pip install -r requirements.txt; fi
+
+RUN python -m playwright install --with-deps --only-shell chromium && chmod -R a+rX /opt/ms-playwright
 
 COPY --chown=app:app . .
 RUN chmod +x /app/docker-entrypoint.sh \

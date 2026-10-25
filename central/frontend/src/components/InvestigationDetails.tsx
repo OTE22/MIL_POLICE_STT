@@ -35,7 +35,7 @@ export function InvestigationDetails({ session, canViewDocuments }: { session: I
           {session.subjects.map((s, i) => (
             <div className="subject-summary" key={s.id ?? i} data-testid="subject-summary">
               <div className="flex between wrap">
-                <strong>{s.subject_name || T.unnamed}</strong>
+                <strong>{s.identity_name || s.subject_name || T.unnamed}</strong>
                 <span className="flex wrap">
                   <Badge kind={s.person_type === "MILITARY" ? "navy" : s.person_type === "UNKNOWN" ? "amber" : "blue"}>
                     {t(`person_${s.person_type}`)}

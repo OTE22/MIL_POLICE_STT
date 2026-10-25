@@ -1,331 +1,67 @@
-"""محضر تحقيق: the composer's API (draft, Q&A editing, refresh).
-
-Every route is session-scoped through `get_accessible_session`, so a user who cannot open
-the investigation cannot reach its report either, and permission is checked BEFORE anything
-is mutated. Finalization, the archive and the template registry live in their own modules.
-"""
-
+"""One HTML report workflow: structured editing, review, immutable HTML/PDF issuance."""
 from __future__ import annotations
-
-import logging
 import uuid
 from datetime import datetime, timezone
-
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from typing import Literal
+from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, Response
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
-
-from app.core.deps import client_ip, get_accessible_session, require_permission
+from app.core.deps import get_accessible_session, require_permission, client_ip
 from app.db.session import get_db
-from app.models import (
-    AudioRecording,
-    AuditAction,
-    FushaStatus,
-    GeneratedReport,
-    InvestigationSession,
-    ReportDraft,
-    ReportQABlock,
-    ReportStatus,
-    ReportNoteTemplate,
-    Subject,
-    Transcript,
-    TranscriptSourceMode,
-    User,
-)
-from app.schemas.reports import (
-    FushaDecisionIn,
-    GeneratedReportOut,
-    ReportArchiveOut,
-    ReportVerificationOut,
-    FushaSuggestIn,
-    LLMCapabilitiesBrief,
-    QABlockOut,
-    QABlockUpdateIn,
-    QAExcludeIn,
-    QAMergeIn,
-    QASplitIn,
-    RecordingOptionOut,
-    ReportDraftOut,
-    ReportDraftUpdateIn,
-    ReportSpeakerOut,
-    StalePinOut,
-)
-from app.services.audit import record_audit
-from app.services.llm import ArabicFormalizationService, FormalizationUnavailable, source_hash
-from app.services.report_finalize import (
-    FinalizationRefused,
-    Preflight,
-    check_ready,
-    finalize,
-    verify,
-    build_context,
-)
-from app.services import report_m53 as m53
-from app.schemas.report_m53 import M53Update
+from app.models import InvestigationSession, ReportDraft, ReportStatus, GeneratedReport, User, Subject, ReportNoteTemplate, AuditAction
 from app.schemas.report_html import HtmlReportUpdate, StatementSelection, NoteTemplateCreate
 from app.schemas.statement_details import StatementDetailsUpdate, DETAIL_KEYS
-from app.services import report_people, note_templates
-from app.services import report_html
-from app.services.report_storage import absolute_path as report_file_path, remove_file
-from app.services.report_renderer import RenderError
-from app.services.report_context import completed_recordings, speaker_map
-from app.services.report_draft import (
-    DraftIsFinal,
-    create_draft,
-    draft_is_stale,
-    edit_block,
-    exclude_block,
-    get_draft,
-    merge_blocks,
-    refresh_draft,
-    require_editable,
-    restore_block,
-    set_recordings,
-    set_source_mode,
-    split_block,
-)
-
-log = logging.getLogger(__name__)
-
+from app.services import report_html, report_people, note_templates
+from app.services.report_draft import create_draft, get_draft, refresh_draft
+from app.services.audit import record_audit
+from app.services.report_finalize import check_ready, finalize, verify, review_token
+from app.services.workflow import guard_mutation, source_token, source_snapshot
+from app.services.report_storage import absolute_path
 router = APIRouter(tags=["reports"])
 
-# Header fields an official محضر cannot be issued without. Reported while drafting so the
-# gap is visible early, and enforced again at finalization.
-REQUIRED_FIELD_LABELS = {
-    "report_number": "رقم المحضر",
-    "case_subject": "موضوع القضية",
-    "location": "مكان التحقيق",
-}
 
-
-def _missing_fields(draft: ReportDraft) -> list[str]:
-    if (draft.official_form or {}).get("enabled"):
-        return []  # The structured form reports its own field-specific gaps.
-    return [
-        label
-        for field, label in REQUIRED_FIELD_LABELS.items()
-        if not (getattr(draft, field) or "").strip()
-    ]
-
-
-def _block_out(block: ReportQABlock, speakers_by_id: dict) -> QABlockOut:
-    q_info = speakers_by_id.get(block.question_speaker_id)
-    a_info = speakers_by_id.get(block.answer_speaker_id)
-    return QABlockOut(
-        id=block.id,
-        sequence=block.sequence,
-        question_source_text=block.question_source_text,
-        answer_source_text=block.answer_source_text,
-        report_question_text=block.report_question_text,
-        report_answer_text=block.report_answer_text,
-        question_speaker_id=block.question_speaker_id,
-        answer_speaker_id=block.answer_speaker_id,
-        question_speaker_name=q_info.report_name() if q_info else None,
-        answer_speaker_name=a_info.report_name() if a_info else None,
-        answer_speaker_resolved=bool(a_info and a_info.resolved),
-        source_segment_ids=[str(s) for s in (block.source_segment_ids or [])],
-        source_recording_ids=[str(r) for r in (block.source_recording_ids or [])],
-        start_seconds=block.start_seconds,
-        end_seconds=block.end_seconds,
-        included_in_report=block.included_in_report,
-        exclusion_reason=block.exclusion_reason,
-        fusha_status=block.fusha_status,
-        llm_suggested_question=block.llm_suggested_question,
-        llm_suggested_answer=block.llm_suggested_answer,
-        edited_at=block.edited_at,
-    )
-
-
-def _draft_out(db: Session, session: InvestigationSession, draft: ReportDraft) -> ReportDraftOut:
-    speakers = speaker_map(db, session.id)
-    by_id = {info.speaker_id: info for info in speakers.values()}
-    selected = {str(r) for r in (draft.selected_recording_ids or [])}
-
-    transcribed = set(
-        db.scalars(select(Transcript.recording_id).where(Transcript.session_id == session.id)).all()
-    )
-    recordings = []
-    for index, rec in enumerate(
-        db.scalars(
-            select(AudioRecording)
-            .where(AudioRecording.session_id == session.id)
-            .order_by(AudioRecording.created_at)
-        ).all(),
-        start=1,
-    ):
-        recordings.append(
-            RecordingOptionOut(
-                id=rec.id,
-                index=index,
-                original_filename=rec.original_filename,
-                duration_seconds=float(rec.duration_seconds) if rec.duration_seconds is not None else None,
-                created_at=rec.created_at,
-                has_transcript=rec.id in transcribed,
-                selected=str(rec.id) in selected,
-            )
-        )
-
-    speaker_rows = [
-        ReportSpeakerOut(
-            id=info.speaker_id,
-            speaker_label=info.speaker_label,
-            source_label=info.source_label,
-            recording_id=info.recording_id,
-            role=info.role.value,
-            display_name=info.display_name,
-            person_name=info.person_name,
-            resolved=info.resolved,
-            legacy=info.legacy,
-            report_name=info.report_name(),
-        )
-        for info in sorted(speakers.values(), key=lambda i: i.speaker_label)
-    ]
-
-    # Only speakers who actually SAY something in the selected recordings matter here - an
-    # unidentified voice in a recording nobody included cannot block this report.
-    speaking_ids = {
-        sid
-        for block in draft.qa_blocks
-        if block.included_in_report
-        for sid in (block.question_speaker_id, block.answer_speaker_id)
-        if sid
-    }
-    unresolved = sorted(
-        by_id[sid].speaker_label for sid in speaking_ids if sid in by_id and not by_id[sid].resolved
-    )
-
-    version_count = int(
-        db.scalar(
-            select(func.count(GeneratedReport.id)).where(GeneratedReport.session_id == session.id)
-        )
-        or 0
-    )
-
-    # Cheap: hardware detection is cached at startup, so this is a couple of attribute reads.
-    fusha = ArabicFormalizationService()
-    fusha_info = fusha.info()
-
-    return ReportDraftOut(
-        id=draft.id,
-        session_id=draft.session_id,
-        status=draft.status,
-        official_form=_m53_state(db, session, draft),
-        report_number=draft.report_number,
-        case_subject=draft.case_subject,
-        report_date=draft.report_date,
-        report_time=draft.report_time,
-        location=draft.location,
-        intro_text=draft.intro_text,
-        closing_text=draft.closing_text,
-        transcript_source_mode=draft.transcript_source_mode,
-        unresolved_ack=draft.unresolved_ack,
-        updated_at=draft.updated_at,
-        qa_blocks=[
-            _block_out(b, by_id) for b in sorted(draft.qa_blocks, key=lambda b: b.sequence)
-        ],
-        recordings=recordings,
-        speakers=speaker_rows,
-        stale=[
-            StalePinOut(
-                recording_id=uuid.UUID(p["recording_id"]),
-                transcript_id=uuid.UUID(p["transcript_id"]),
-                reason=p["reason"],
-            )
-            for p in draft_is_stale(db, draft)
-        ],
-        missing_fields=_missing_fields(draft),
-        unresolved_speaker_labels=unresolved,
-        report_version_count=version_count,
-        llm=LLMCapabilitiesBrief(
-            available=fusha.available(),
-            provider=fusha_info.provider,
-            model=fusha_info.model,
-            fallback_reason=fusha_info.fallback_reason,
-        ),
-    )
-
-
-def _require_draft(db: Session, session: InvestigationSession) -> ReportDraft:
+def _require_draft(db, session):
     draft = get_draft(db, session.id)
     if draft is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="report_draft_not_found")
+        raise HTTPException(404, detail="report_draft_not_found")
     return draft
 
 
-def _require_block(db: Session, draft: ReportDraft, block_id: uuid.UUID) -> ReportQABlock:
-    block = db.get(ReportQABlock, block_id)
-    if block is None or block.draft_id != draft.id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="report_block_not_found")
-    return block
+def _guard_editable(draft):
+    if draft.status == ReportStatus.FINAL:
+        raise HTTPException(409, detail="report_is_final")
 
 
-def _guard_editable(draft: ReportDraft) -> None:
-    try:
-        require_editable(draft)
-    except DraftIsFinal as exc:
-        raise HTTPException(status.HTTP_409_CONFLICT, detail="report_is_final") from exc
+def _lock_session(db, session):
+    return db.scalar(select(InvestigationSession).where(InvestigationSession.id == session.id)
+                     .with_for_update().execution_options(populate_existing=True))
 
 
-# --------------------------------------------------------------------------- draft
+def _audit(db, request, user, action, session, entity_id, **metadata):
+    record_audit(db, action=action, user_id=user.id, entity_type="report", entity_id=entity_id,
+                 metadata={"session_id": str(session.id), **metadata}, ip_address=client_ip(request))
 
 
-def _m53_state(db, session, draft):
-    context = build_context(db, session, draft, None, version=0, generated_by=None)
-    token = m53.review_token(draft, context)
-    flags = m53.confirmed(draft, token)
-    values = m53.values_for(draft)
-    return {"enabled": bool((draft.official_form or {}).get("enabled")),
-            "values": {key: value for key, value in values.items() if key not in m53.AUTOMATIC},
-            "confirmations": flags, "token": token, "suggestions": m53.suggestions(context),
-            "missing_fields": m53.missing_fields(values, flags)}
+class TokenInput(BaseModel):
+    expected_token: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
-@router.get("/report-forms/m53")
-def m53_catalogue(_: User = Depends(require_permission("reports.read", "reports.generate", "reports.templates.manage"))):
-    return m53.catalogue()
+class ReviewInput(TokenInput):
+    expected_source_token: str = Field(pattern=r"^[a-f0-9]{64}$")
+    content_reviewed: Literal[True]
+    acknowledge_source_changes: bool = False
 
 
-@router.get("/report-forms/m53/blank")
-def m53_blank(format: str = "pdf", _: User = Depends(require_permission("reports.read", "reports.generate", "reports.templates.manage"))):
-    if format not in {"pdf", "docx"}:
-        raise HTTPException(422, detail="report_m53_invalid_format")
-    values = {key: "[" + m53.LABELS[key] + "]" for key in m53.FIELDS}
-    docx, pdf, _ = m53.render_documents(values, [{"answer": "[نص الإفادة المراجع]"}], {}, preview=True, blank=True)
-    return Response(pdf if format == "pdf" else docx,
-        media_type="application/pdf" if format == "pdf" else "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        headers={"Cache-Control": "no-store", "Content-Disposition": f'attachment; filename="m53-blank.{format}"'})
+class ReopenInput(TokenInput):
+    model_config = {"str_strip_whitespace": True}
+    reason: str = Field(min_length=3, max_length=2000)
 
 
-@router.put("/investigations/{session_id}/report/m53", response_model=ReportDraftOut)
-def update_m53(body: M53Update, request: Request,
-               session: InvestigationSession = Depends(get_accessible_session),
-               user: User = Depends(require_permission("reports.generate")), db: Session = Depends(get_db)):
-    draft = _require_draft(db, session)
-    _guard_editable(draft)
-    state = _m53_state(db, session, draft)
-    if body.expected_token != state["token"]:
-        raise HTTPException(409, detail="report_m53_changed")
-    # Data and approval are separate saves. This prevents accepting confirmations
-    # against values the operator has not seen rendered from persisted storage.
-    old = draft.official_form or {}
-    changed = old.get("values", {}) != body.values or bool(old.get("enabled")) != body.enabled
-    if changed and body.confirmations:
-        raise HTTPException(409, detail="report_m53_save_before_review")
-    draft.official_form = {**old, "enabled": body.enabled, "values": dict(body.values), "revision": m53.REVISION,
-                          "confirmations": {} if changed else dict(old.get("confirmations", {}))}
-    token = _m53_state(db, session, draft)["token"]
-    events = {key: {"by": str(user.id), "at": datetime.now(timezone.utc).isoformat(), "content_sha256": token}
-              for key in body.confirmations}
-    draft.official_form = {**draft.official_form, "confirmations": events}
-    draft.updated_by = user.id
-    record_audit(db, action=AuditAction.REPORT_DRAFT_UPDATED, user_id=user.id,
-        entity_type="report_draft", entity_id=draft.id,
-        metadata={"form": m53.REVISION, "changed": changed, "confirmations": sorted(events),
-                  "content_sha256": token, "session_id": session.id}, ip_address=client_ip(request))
-    db.commit()
-    db.refresh(draft)
-    return _draft_out(db, session, draft)
+def _check_token(body, draft):
+    if body.expected_token != report_html.token_for(draft):
+        raise HTTPException(409, detail="html_report_changed")
 
 
 @router.get("/report-forms/html-statement")
@@ -362,6 +98,8 @@ def html_statement_preview(body: StatementSelection, session: InvestigationSessi
                            _: User = Depends(require_permission("reports.generate")), db: Session = Depends(get_db)):
     draft = _require_draft(db, session)
     _guard_editable(draft)
+    from app.services.workflow import guard_mutation
+    guard_mutation(session)
     try:
         return report_html.statement_preview(db, draft, session, body.model_dump(mode="json"))
     except ValueError as exc:
@@ -392,12 +130,14 @@ def update_participant_statement_details(participant_key: uuid.UUID, body: State
                                          session: InvestigationSession = Depends(get_accessible_session),
                                          user: User = Depends(require_permission("investigations.update")), db: Session = Depends(get_db)):
     db.scalar(select(InvestigationSession).where(InvestigationSession.id == session.id).with_for_update())
-    subject = db.scalar(select(Subject).where(Subject.session_id == session.id, Subject.participant_key == participant_key)
+    subject = db.scalar(select(Subject).where(Subject.session_id == session.id, Subject.participant_key == participant_key, Subject.removed_at.is_(None))
                         .with_for_update().execution_options(populate_existing=True))
     if subject is None:
         raise HTTPException(404, detail="session_participant_not_found")
     if body.expected_token != report_people.details_token(subject):
         raise HTTPException(409, detail="statement_details_changed")
+    from app.services.workflow import evidence_changed
+    evidence_changed(session)
     subject.statement_details = body.values
     record_audit(db, action=AuditAction.INVESTIGATION_UPDATED, user_id=user.id,
                  entity_type="investigation_session", entity_id=session.id,
@@ -409,7 +149,7 @@ def update_participant_statement_details(participant_key: uuid.UUID, body: State
 @router.get("/investigations/{session_id}/report/html")
 def get_html_report(session: InvestigationSession = Depends(get_accessible_session),
                     _: User = Depends(require_permission("reports.read", "reports.generate")), db: Session = Depends(get_db)):
-    return report_html.state_for(_require_draft(db, session))
+    return report_html.state_for(_require_draft(db, session), db, session)
 
 
 @router.post("/investigations/{session_id}/report/html")
@@ -420,12 +160,200 @@ def create_html_report(request: Request,
     db.scalar(select(InvestigationSession).where(InvestigationSession.id == session.id).with_for_update())
     draft = get_draft(db, session.id)
     if draft is None:
+        from app.services.workflow import guard_mutation, source_token, source_snapshot
+        guard_mutation(session)
         draft = create_draft(db, session.id, user.id)
+        lead = next((i for i in session.investigators if i.assignment_role.value == "LEAD"), None)
+        draft.official_form = {"source_token": source_token(db, session), "source_snapshot": source_snapshot(db, session), "html_report": {
+            "revision": "statement-html-1", "session_id": str(session.id), "subject": session.title,
+            "investigator_id": str(lead.investigator_id) if lead else None, "clerk_id": None, "blocks": []}}
         record_audit(db, action=AuditAction.REPORT_DRAFT_CREATED, user_id=user.id,
                      entity_type="report_draft", entity_id=draft.id,
                      metadata={"form": report_html.CATALOGUE["revision"], "session_id": session.id}, ip_address=client_ip(request))
         db.commit()
-    return report_html.state_for(draft)
+    return report_html.state_for(draft, db, session)
+
+
+@router.post("/investigations/{session_id}/report/html/preview")
+def preview_html(body: HtmlReportUpdate, session: InvestigationSession = Depends(get_accessible_session),
+                 _: User = Depends(require_permission("reports.read", "reports.generate")), db: Session = Depends(get_db)):
+    from app.services.report_document import render
+    draft = _require_draft(db, session)
+    _check_token(body, draft)
+    if draft.status == ReportStatus.FINAL:
+        from app.services.report_storage import read_file, sha256_bytes
+        report = db.scalar(select(GeneratedReport).where(GeneratedReport.draft_id == draft.id,
+            GeneratedReport.session_id == session.id, GeneratedReport.format_key == "statement-html-1")
+            .order_by(GeneratedReport.report_version.desc()).limit(1))
+        html = read_file(report.html_path) if report and report.html_path else None
+        if html is None:
+            raise HTTPException(404, detail="report_file_missing")
+        if sha256_bytes(html) != report.html_sha256:
+            raise HTTPException(409, detail="report_artifact_integrity_failed")
+        return {"html": html.decode("utf-8")}
+    try:
+        document = report_html.prepare_document(body, draft, session, db, populate_untouched=False)
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
+    return {"html": render(document, session, highlight=True)}
+
+
+@router.post("/investigations/{session_id}/report/html/refresh-sources")
+def refresh_sources(body: TokenInput, request: Request,
+                    session: InvestigationSession = Depends(get_accessible_session),
+                    user: User = Depends(require_permission("reports.generate")), db: Session = Depends(get_db)):
+    from app.services.report_context import completed_recordings
+    from app.services.report_draft import set_recordings
+    session = _lock_session(db, session)
+    guard_mutation(session)
+    draft = _require_draft(db, session)
+    _guard_editable(draft)
+    _check_token(body, draft)
+    set_recordings(db, draft, [r.id for r in completed_recordings(db, session.id)], user.id)
+    draft.official_form = {**(draft.official_form or {}), "html_review": None}
+    draft.revision += 1
+    _audit(db, request, user, AuditAction.REPORT_DRAFT_UPDATED, session, draft.id, action_detail="refresh_import_sources")
+    db.commit()
+    return report_html.state_for(draft, db, session)
+
+
+@router.post("/investigations/{session_id}/report/html/review")
+def review_html(body: ReviewInput, request: Request,
+                session: InvestigationSession = Depends(get_accessible_session),
+                user: User = Depends(require_permission("reports.generate")), db: Session = Depends(get_db)):
+    from app.services.report_finalize import content_blockers
+    session = _lock_session(db, session)
+    guard_mutation(session)
+    draft = _require_draft(db, session)
+    _guard_editable(draft)
+    _check_token(body, draft)
+    current = source_token(db, session)
+    if body.expected_source_token != current:
+        raise HTTPException(409, detail="report_sources_changed")
+    if (draft.official_form or {}).get("source_token") not in (None, current) and not body.acknowledge_source_changes:
+        raise HTTPException(409, detail="report_source_changes_need_review")
+    reasons = content_blockers(session, report_html.document_for(draft))
+    if reasons:
+        raise HTTPException(422, detail={"code": "report_incomplete", "reasons": reasons})
+    draft.official_form = {**(draft.official_form or {}), "source_token": current, "source_snapshot": source_snapshot(db, session),
+                          "html_review": {"token": review_token(db, session, draft), "by": str(user.id),
+                                          "at": datetime.now(timezone.utc).isoformat(),
+                                          "source_changes_acknowledged": body.acknowledge_source_changes}}
+    _audit(db, request, user, AuditAction.REPORT_DRAFT_UPDATED, session, draft.id, action_detail="content_reviewed")
+    db.commit()
+    return report_html.state_for(draft, db, session)
+
+
+@router.get("/investigations/{session_id}/report")
+def report_status(session: InvestigationSession = Depends(get_accessible_session),
+                  _: User = Depends(require_permission("reports.read", "reports.generate")), db: Session = Depends(get_db)):
+    draft = _require_draft(db, session)
+    return {"id": str(draft.id), "status": draft.status.value, "stale": [], "case_subject": report_html.document_for(draft)["subject"],
+            "token": report_html.token_for(draft)}
+
+
+@router.post("/investigations/{session_id}/report/reopen")
+def reopen_html(body: ReopenInput, request: Request, session: InvestigationSession = Depends(get_accessible_session),
+                user: User = Depends(require_permission("reports.generate")), db: Session = Depends(get_db)):
+    session = _lock_session(db, session)
+    draft = _require_draft(db, session)
+    _check_token(body, draft)
+    if draft.status != ReportStatus.FINAL:
+        raise HTTPException(409, detail="report_not_final")
+    previous_state = session.workflow_state
+    if previous_state != "IN_PROGRESS" and "investigations.update" not in user.permission_codes:
+        raise HTTPException(403, detail="forbidden")
+    draft.status = ReportStatus.DRAFT
+    draft.official_form = {**(draft.official_form or {}), "html_review": None}
+    draft.revision += 1
+    session.workflow_state = "IN_PROGRESS"
+    session.revision += 1
+    if previous_state == "ARCHIVED":
+        from app.models import SessionStatus
+        session.status = SessionStatus.DRAFT
+    record_audit(db, action=AuditAction.INVESTIGATION_UPDATED, user_id=user.id,
+                 entity_type="investigation_session", entity_id=session.id,
+                 metadata={"workflow_before": previous_state, "workflow_after": "IN_PROGRESS",
+                           "reason": body.reason, "report_id": str(draft.id), "revision": session.revision},
+                 ip_address=client_ip(request))
+    _audit(db, request, user, AuditAction.REPORT_DRAFT_REOPENED, session, draft.id, reason=body.reason)
+    db.commit()
+    return report_html.state_for(draft, db, session)
+
+
+def _archive(db, session):
+    rows = db.scalars(select(GeneratedReport).where(GeneratedReport.session_id == session.id,
+                     GeneratedReport.format_key == "statement-html-1").order_by(GeneratedReport.report_version.desc())).all()
+    draft = get_draft(db, session.id)
+    reasons = check_ready(db, session, draft) if draft else ["report_draft_not_found"]
+    return {"reports": [{"id": str(r.id), "report_version": r.report_version, "report_number": r.report_number,
+                          "created_at": r.created_at, "html_sha256": r.html_sha256, "pdf_sha256": r.pdf_sha256,
+                          "context_sha256": r.context_sha256} for r in rows],
+            "can_finalize": not reasons, "blocked_reasons": reasons}
+
+
+@router.get("/investigations/{session_id}/reports")
+def list_reports(session: InvestigationSession = Depends(get_accessible_session),
+                 _: User = Depends(require_permission("reports.read", "reports.generate")), db: Session = Depends(get_db)):
+    return _archive(db, session)
+
+
+@router.post("/investigations/{session_id}/reports", status_code=201)
+def issue_html(body: TokenInput, request: Request, session: InvestigationSession = Depends(get_accessible_session),
+               user: User = Depends(require_permission("reports.finalize")), db: Session = Depends(get_db)):
+    session = _lock_session(db, session)
+    draft = _require_draft(db, session)
+    _check_token(body, draft)
+    report = finalize(db, session, draft, user)
+    _audit(db, request, user, AuditAction.REPORT_GENERATED, session, report.id,
+           version=report.report_version, html_sha256=report.html_sha256, pdf_sha256=report.pdf_sha256)
+    db.commit()
+    return _archive(db, session)
+
+
+def _issued(db, session, report_id):
+    report = db.get(GeneratedReport, report_id)
+    if report is None or report.session_id != session.id or report.format_key != "statement-html-1":
+        raise HTTPException(404, detail="report_not_found")
+    return report
+
+
+@router.get("/investigations/{session_id}/reports/{report_id}/file")
+def download_report(report_id: uuid.UUID, request: Request, format: Literal["html", "pdf"] = "pdf",
+                    session: InvestigationSession = Depends(get_accessible_session),
+                    user: User = Depends(require_permission("reports.read", "reports.generate")), db: Session = Depends(get_db)):
+    report = _issued(db, session, report_id)
+    path = absolute_path(report.html_path if format == "html" else report.pdf_path)
+    if path is None:
+        raise HTTPException(404, detail="report_file_missing")
+    _audit(db, request, user, AuditAction.REPORT_DOWNLOADED, session, report.id, format=format)
+    db.commit()
+    return FileResponse(path, media_type="text/html" if format == "html" else "application/pdf",
+                        filename=f"report-{session.session_number}-v{report.report_version}.{format}",
+                        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
+
+@router.get("/investigations/{session_id}/reports/{report_id}/verify")
+def verify_report(report_id: uuid.UUID, request: Request, session: InvestigationSession = Depends(get_accessible_session),
+                  user: User = Depends(require_permission("reports.read", "reports.generate")), db: Session = Depends(get_db)):
+    report = _issued(db, session, report_id)
+    result = verify(db, report)
+    _audit(db, request, user, AuditAction.REPORT_VERIFIED, session, report.id, ok=result["ok"])
+    db.commit()
+    return result
+
+
+@router.api_route("/investigations/{session_id}/report", methods=["POST", "PUT", "PATCH", "DELETE"])
+@router.api_route("/investigations/{session_id}/report/blocks/{retired_path:path}", methods=["POST", "PATCH", "PUT", "DELETE"])
+@router.post("/investigations/{session_id}/report/refresh")
+@router.api_route("/report-forms/m53/{retired_path:path}", methods=["GET", "POST", "PUT", "DELETE"])
+@router.api_route("/report-forms/m53", methods=["GET", "POST", "PUT"])
+@router.api_route("/report-templates/{retired_path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+@router.api_route("/report-templates", methods=["GET", "POST"])
+@router.api_route("/investigations/{session_id}/report/m53/{retired_path:path}", methods=["GET", "POST", "PUT"])
+@router.api_route("/investigations/{session_id}/report/m53", methods=["GET", "POST", "PUT"])
+def retired_report_format(request: Request, _: User = Depends(require_permission("reports.read", "reports.generate", "reports.templates.manage"))):
+    raise HTTPException(410, detail="legacy_report_format_retired_use_html")
 
 
 @router.put("/investigations/{session_id}/report/html")
@@ -437,718 +365,24 @@ def save_html_report(body: HtmlReportUpdate, request: Request,
     if draft is None:
         raise HTTPException(404, detail="report_draft_not_found")
     _guard_editable(draft)
+    from app.services.workflow import guard_mutation
+    guard_mutation(session)
     if body.expected_token != report_html.token_for(draft):
         raise HTTPException(409, detail="html_report_changed")
     try:
         document = report_html.prepare_document(body, draft, session, db)
     except ValueError as exc:
         raise HTTPException(422, detail=str(exc)) from exc
+    previous_document = report_html.document_for(draft)
     draft.official_form = {**(draft.official_form or {}), "html_report": document}
     draft.updated_by = user.id
+    draft.revision += 1
     record_audit(db, action=AuditAction.REPORT_DRAFT_UPDATED, user_id=user.id,
                  entity_type="report_draft", entity_id=draft.id,
-                 metadata={"form": report_html.CATALOGUE["revision"], "blocks": len(document["blocks"]), "session_id": session.id},
+                 metadata={"form": report_html.CATALOGUE["revision"], "blocks": len(document["blocks"]), "session_id": session.id,
+                           "before": previous_document, "after": document},
                  ip_address=client_ip(request))
     db.commit()
-    return report_html.state_for(draft)
+    return report_html.state_for(draft, db, session)
 
 
-@router.get("/investigations/{session_id}/report/m53/preview")
-def preview_m53(format: str = "pdf", session: InvestigationSession = Depends(get_accessible_session),
-                _: User = Depends(require_permission("reports.read", "reports.generate")), db: Session = Depends(get_db)):
-    if format not in {"pdf", "docx"}:
-        raise HTTPException(422, detail="report_m53_invalid_format")
-    draft = _require_draft(db, session)
-    context = build_context(db, session, draft, None, version=0, generated_by=None)
-    token = m53.review_token(draft, context)
-    values = {key: value or "[" + m53.LABELS[key] + "]" for key, value in m53.values_for(draft).items()}
-    try:
-        docx, pdf, _ = m53.render_documents(values, context["qa_blocks"], m53.confirmed(draft, token), preview=True)
-    except ValueError as exc:
-        raise HTTPException(422, detail=str(exc)) from exc
-    return Response(pdf if format == "pdf" else docx,
-        media_type="application/pdf" if format == "pdf" else "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        headers={"Cache-Control": "no-store", "Content-Disposition": f'attachment; filename="m53-preview.{format}"'})
-
-
-@router.get("/investigations/{session_id}/report", response_model=ReportDraftOut)
-def get_report_draft(
-    session: InvestigationSession = Depends(get_accessible_session),
-    _: User = Depends(require_permission("reports.read", "reports.generate")),
-    db: Session = Depends(get_db),
-) -> ReportDraftOut:
-    return _draft_out(db, session, _require_draft(db, session))
-
-
-@router.post("/investigations/{session_id}/report", response_model=ReportDraftOut, status_code=201)
-def create_report_draft(
-    request: Request,
-    session: InvestigationSession = Depends(get_accessible_session),
-    user: User = Depends(require_permission("reports.generate")),
-    db: Session = Depends(get_db),
-) -> ReportDraftOut:
-    """Open the composer for the first time: select every transcribed recording and build
-    the س/ج draft. Opening it again returns what is already there - never a second draft."""
-    existing = get_draft(db, session.id)
-    if existing is not None:
-        return _draft_out(db, session, existing)
-
-    if not completed_recordings(db, session.id):
-        raise HTTPException(status.HTTP_409_CONFLICT, detail="report_no_transcripts")
-
-    draft = create_draft(db, session.id, user.id)
-    record_audit(
-        db,
-        action=AuditAction.REPORT_DRAFT_CREATED,
-        user_id=user.id,
-        entity_type="report_draft",
-        entity_id=draft.id,
-        metadata={
-            "session_id": session.id,
-            "recordings": len(draft.selected_recording_ids or []),
-            "qa_blocks": len(draft.qa_blocks),
-        },
-        ip_address=client_ip(request),
-    )
-    db.commit()
-    db.refresh(draft)
-    log.info(
-        "report draft created session=%s draft=%s recordings=%d blocks=%d",
-        session.session_number, draft.id, len(draft.selected_recording_ids or []), len(draft.qa_blocks),
-    )
-    return _draft_out(db, session, draft)
-
-
-@router.put("/investigations/{session_id}/report", response_model=ReportDraftOut)
-def update_report_draft(
-    body: ReportDraftUpdateIn,
-    request: Request,
-    session: InvestigationSession = Depends(get_accessible_session),
-    user: User = Depends(require_permission("reports.generate")),
-    db: Session = Depends(get_db),
-) -> ReportDraftOut:
-    draft = _require_draft(db, session)
-    _guard_editable(draft)
-
-    fields = body.model_dump(exclude_unset=True)
-    for field in ("report_number", "case_subject", "report_date", "report_time", "location", "intro_text", "closing_text"):
-        if field in fields:
-            value = fields[field]
-            setattr(draft, field, value.strip() if isinstance(value, str) else value)
-
-    if "unresolved_ack" in fields:
-        draft.unresolved_ack = bool(fields["unresolved_ack"])
-        draft.unresolved_ack_by = user.id if draft.unresolved_ack else None
-        draft.unresolved_ack_at = func.now() if draft.unresolved_ack else None
-
-    # Selection and text mode change WHAT is quoted, so each rebuilds the dialogue. Applied
-    # after the header fields so one request can do both.
-    if fields.get("selected_recording_ids") is not None:
-        chosen = [uuid.UUID(str(r)) for r in fields["selected_recording_ids"]]
-        available = {r.id for r in completed_recordings(db, session.id)}
-        unknown = [str(r) for r in chosen if r not in available]
-        if unknown:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail={"code": "report_recording_not_available", "recording_ids": unknown},
-            )
-        if not chosen:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="report_no_recordings_selected")
-        set_recordings(db, draft, chosen, user.id)
-
-    if fields.get("transcript_source_mode") is not None:
-        set_source_mode(db, draft, TranscriptSourceMode(fields["transcript_source_mode"]), user.id)
-
-    draft.updated_by = user.id
-    record_audit(
-        db,
-        action=AuditAction.REPORT_DRAFT_UPDATED,
-        user_id=user.id,
-        entity_type="report_draft",
-        entity_id=draft.id,
-        metadata={"fields": sorted(fields.keys()), "session_id": session.id},
-        ip_address=client_ip(request),
-    )
-    db.commit()
-    db.refresh(draft)
-    return _draft_out(db, session, draft)
-
-
-@router.post("/investigations/{session_id}/report/refresh", response_model=ReportDraftOut)
-def refresh_report_draft(
-    request: Request,
-    session: InvestigationSession = Depends(get_accessible_session),
-    user: User = Depends(require_permission("reports.generate")),
-    db: Session = Depends(get_db),
-) -> ReportDraftOut:
-    """تحديث من النص المنقح - rebuild from the current transcripts, discarding the wording
-    in the draft. Explicit and audited: a transcript edit never does this by itself."""
-    draft = _require_draft(db, session)
-    _guard_editable(draft)
-    before = len(draft.qa_blocks)
-    refresh_draft(db, draft, user.id)
-    record_audit(
-        db,
-        action=AuditAction.REPORT_DRAFT_REFRESHED,
-        user_id=user.id,
-        entity_type="report_draft",
-        entity_id=draft.id,
-        metadata={"blocks_before": before, "blocks_after": len(draft.qa_blocks), "session_id": session.id},
-        ip_address=client_ip(request),
-    )
-    db.commit()
-    db.refresh(draft)
-    log.info("report draft refreshed draft=%s blocks %d -> %d", draft.id, before, len(draft.qa_blocks))
-    return _draft_out(db, session, draft)
-
-
-# --------------------------------------------------------------------------- Q&A blocks
-
-
-@router.patch("/investigations/{session_id}/report/blocks/{block_id}", response_model=ReportDraftOut)
-def update_block(
-    block_id: uuid.UUID,
-    body: QABlockUpdateIn,
-    request: Request,
-    session: InvestigationSession = Depends(get_accessible_session),
-    user: User = Depends(require_permission("reports.generate")),
-    db: Session = Depends(get_db),
-) -> ReportDraftOut:
-    draft = _require_draft(db, session)
-    _guard_editable(draft)
-    block = _require_block(db, draft, block_id)
-    fields = body.model_dump(exclude_unset=True)
-    edit_block(
-        db,
-        block,
-        question=fields.get("report_question_text"),
-        answer=fields.get("report_answer_text"),
-        user_id=user.id,
-    )
-    record_audit(
-        db,
-        action=AuditAction.REPORT_QA_EDITED,
-        user_id=user.id,
-        entity_type="report_qa_block",
-        entity_id=block.id,
-        metadata={"draft_id": draft.id, "sequence": block.sequence, "fields": sorted(fields.keys())},
-        ip_address=client_ip(request),
-    )
-    db.commit()
-    db.refresh(draft)
-    return _draft_out(db, session, draft)
-
-
-@router.post("/investigations/{session_id}/report/blocks/{block_id}/exclude", response_model=ReportDraftOut)
-def exclude_qa_block(
-    block_id: uuid.UUID,
-    body: QAExcludeIn,
-    request: Request,
-    session: InvestigationSession = Depends(get_accessible_session),
-    user: User = Depends(require_permission("reports.generate")),
-    db: Session = Depends(get_db),
-) -> ReportDraftOut:
-    """Leave this exchange out of the printed document. The transcript keeps every word."""
-    draft = _require_draft(db, session)
-    _guard_editable(draft)
-    block = _require_block(db, draft, block_id)
-    exclude_block(db, block, body.reason, user.id)
-    record_audit(
-        db,
-        action=AuditAction.REPORT_QA_EXCLUDED,
-        user_id=user.id,
-        entity_type="report_qa_block",
-        entity_id=block.id,
-        metadata={"draft_id": draft.id, "sequence": block.sequence, "reason": body.reason},
-        ip_address=client_ip(request),
-    )
-    db.commit()
-    db.refresh(draft)
-    return _draft_out(db, session, draft)
-
-
-@router.post("/investigations/{session_id}/report/blocks/{block_id}/restore", response_model=ReportDraftOut)
-def restore_qa_block(
-    block_id: uuid.UUID,
-    request: Request,
-    session: InvestigationSession = Depends(get_accessible_session),
-    user: User = Depends(require_permission("reports.generate")),
-    db: Session = Depends(get_db),
-) -> ReportDraftOut:
-    draft = _require_draft(db, session)
-    _guard_editable(draft)
-    block = _require_block(db, draft, block_id)
-    restore_block(db, block, user.id)
-    record_audit(
-        db,
-        action=AuditAction.REPORT_QA_RESTORED,
-        user_id=user.id,
-        entity_type="report_qa_block",
-        entity_id=block.id,
-        metadata={"draft_id": draft.id, "sequence": block.sequence},
-        ip_address=client_ip(request),
-    )
-    db.commit()
-    db.refresh(draft)
-    return _draft_out(db, session, draft)
-
-
-@router.post("/investigations/{session_id}/report/blocks/{block_id}/merge", response_model=ReportDraftOut)
-def merge_qa_blocks(
-    block_id: uuid.UUID,
-    body: QAMergeIn,
-    request: Request,
-    session: InvestigationSession = Depends(get_accessible_session),
-    user: User = Depends(require_permission("reports.generate")),
-    db: Session = Depends(get_db),
-) -> ReportDraftOut:
-    draft = _require_draft(db, session)
-    _guard_editable(draft)
-    first = _require_block(db, draft, block_id)
-    second = _require_block(db, draft, body.with_block_id)
-    try:
-        merged = merge_blocks(db, first, second, user.id)
-    except ValueError as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"report_{exc}") from exc
-    record_audit(
-        db,
-        action=AuditAction.REPORT_QA_EDITED,
-        user_id=user.id,
-        entity_type="report_qa_block",
-        entity_id=merged.id,
-        metadata={"draft_id": draft.id, "operation": "merge"},
-        ip_address=client_ip(request),
-    )
-    db.commit()
-    db.refresh(draft)
-    return _draft_out(db, session, draft)
-
-
-@router.post("/investigations/{session_id}/report/reopen", response_model=ReportDraftOut)
-def reopen_report_draft(
-    request: Request,
-    session: InvestigationSession = Depends(get_accessible_session),
-    user: User = Depends(require_permission("reports.generate")),
-    db: Session = Depends(get_db),
-) -> ReportDraftOut:
-    """Reopen a FINAL محضر for correction. The issued versions are untouched.
-
-    Correcting an official document does not edit it - it supersedes it. Reopening returns
-    the DRAFT to an editable state so the next finalization produces version N+1, while
-    every version already issued stays on file, downloadable and hash-verifiable.
-    """
-    draft = _require_draft(db, session)
-    if draft.status is not ReportStatus.FINAL:
-        raise HTTPException(status.HTTP_409_CONFLICT, detail="report_not_final")
-
-    issued = int(
-        db.scalar(
-            select(func.count(GeneratedReport.id)).where(GeneratedReport.session_id == session.id)
-        )
-        or 0
-    )
-    draft.status = ReportStatus.DRAFT
-    draft.updated_by = user.id
-    record_audit(
-        db,
-        action=AuditAction.REPORT_DRAFT_REOPENED,
-        user_id=user.id,
-        entity_type="report_draft",
-        entity_id=draft.id,
-        metadata={"session_id": session.id, "issued_versions": issued},
-        ip_address=client_ip(request),
-    )
-    db.commit()
-    db.refresh(draft)
-    log.info(
-        "report draft reopened session=%s (%d issued version(s) remain immutable)",
-        session.session_number, issued,
-    )
-    return _draft_out(db, session, draft)
-
-
-# --------------------------------------------------------------------------- الصياغة بالفصحى
-#
-# The AI never writes the report. It offers a rewording; a human approves, edits or rejects
-# it, and only that decision touches `report_*_text`. That order is the invariant here -
-# there is deliberately no code path from a suggestion to printed text without a person.
-
-
-@router.post("/investigations/{session_id}/report/blocks/{block_id}/fusha", response_model=ReportDraftOut)
-def suggest_fusha(
-    block_id: uuid.UUID,
-    body: FushaSuggestIn,
-    request: Request,
-    session: InvestigationSession = Depends(get_accessible_session),
-    user: User = Depends(require_permission("reports.generate")),
-    db: Session = Depends(get_db),
-) -> ReportDraftOut:
-    """Request a Modern-Standard-Arabic suggestion for this block. Stores it beside the
-    current wording; changes nothing that will be printed."""
-    draft = _require_draft(db, session)
-    _guard_editable(draft)
-    block = _require_block(db, draft, block_id)
-
-    service = ArabicFormalizationService()
-    if not service.available():
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={"code": "fusha_unavailable", "reason": service.info().fallback_reason},
-        )
-
-    suggestions: dict[str, str] = {}
-    provenance: dict | None = None
-    try:
-        if body.question and (block.report_question_text or "").strip():
-            result = service.formalize(block.report_question_text or "")
-            suggestions["question"] = result.suggested_text
-            provenance = result.provenance()
-        if body.answer and (block.report_answer_text or "").strip():
-            result = service.formalize(block.report_answer_text or "")
-            suggestions["answer"] = result.suggested_text
-            provenance = result.provenance()
-    except FormalizationUnavailable as exc:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={"code": "fusha_unavailable", "reason": exc.reason},
-        ) from exc
-
-    if not suggestions:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="fusha_nothing_to_formalize")
-
-    if "question" in suggestions:
-        block.llm_suggested_question = suggestions["question"]
-    if "answer" in suggestions:
-        block.llm_suggested_answer = suggestions["answer"]
-    block.fusha_status = FushaStatus.AI_SUGGESTED
-    # Provenance binds the suggestion to the text it was made for; the hashes are per-half,
-    # so the composer can tell a stale suggestion from a current one.
-    block.llm_provenance = {
-        **(provenance or {}),
-        "question_source_hash": source_hash(block.report_question_text or ""),
-        "answer_source_hash": source_hash(block.report_answer_text or ""),
-    }
-
-    record_audit(
-        db,
-        action=AuditAction.REPORT_FUSHA_REQUESTED,
-        user_id=user.id,
-        entity_type="report_qa_block",
-        entity_id=block.id,
-        metadata={
-            "draft_id": draft.id,
-            "sequence": block.sequence,
-            "halves": sorted(suggestions.keys()),
-            "provider": (provenance or {}).get("provider"),
-            "model": (provenance or {}).get("model"),
-        },
-        ip_address=client_ip(request),
-    )
-    db.commit()
-    db.refresh(draft)
-    return _draft_out(db, session, draft)
-
-
-@router.post(
-    "/investigations/{session_id}/report/blocks/{block_id}/fusha/decision", response_model=ReportDraftOut
-)
-def decide_fusha(
-    block_id: uuid.UUID,
-    body: FushaDecisionIn,
-    request: Request,
-    session: InvestigationSession = Depends(get_accessible_session),
-    user: User = Depends(require_permission("reports.generate")),
-    db: Session = Depends(get_db),
-) -> ReportDraftOut:
-    """اعتماد / تعديل / رفض. The ONLY way a suggestion can become printed text."""
-    draft = _require_draft(db, session)
-    _guard_editable(draft)
-    block = _require_block(db, draft, block_id)
-
-    if block.fusha_status is FushaStatus.NOT_REQUESTED:
-        raise HTTPException(status.HTTP_409_CONFLICT, detail="fusha_no_suggestion")
-
-    if not body.accept:
-        block.fusha_status = FushaStatus.REJECTED
-        # The suggestion stays on the record: the trail shows what was offered and refused.
-        record_audit(
-            db,
-            action=AuditAction.REPORT_FUSHA_REJECTED,
-            user_id=user.id,
-            entity_type="report_qa_block",
-            entity_id=block.id,
-            metadata={"draft_id": draft.id, "sequence": block.sequence},
-            ip_address=client_ip(request),
-        )
-        db.commit()
-        db.refresh(draft)
-        return _draft_out(db, session, draft)
-
-    # Accepting: either the suggestion verbatim, or the human's own edit of it.
-    question = body.report_question_text
-    answer = body.report_answer_text
-    edited = question is not None or answer is not None
-    if question is None:
-        question = block.llm_suggested_question or block.report_question_text
-    if answer is None:
-        answer = block.llm_suggested_answer or block.report_answer_text
-
-    block.report_question_text = question
-    block.report_answer_text = answer
-    block.fusha_status = FushaStatus.HUMAN_EDITED if edited else FushaStatus.APPROVED
-    block.edited_by = user.id
-    block.edited_at = datetime.now(timezone.utc)
-    block.llm_provenance = {
-        **(block.llm_provenance or {}),
-        "approved_by": str(user.id),
-        "approved_at": datetime.now(timezone.utc).isoformat(),
-        "approved_with_edit": edited,
-    }
-
-    record_audit(
-        db,
-        action=AuditAction.REPORT_FUSHA_APPROVED,
-        user_id=user.id,
-        entity_type="report_qa_block",
-        entity_id=block.id,
-        metadata={"draft_id": draft.id, "sequence": block.sequence, "edited": edited},
-        ip_address=client_ip(request),
-    )
-    db.commit()
-    db.refresh(draft)
-    return _draft_out(db, session, draft)
-
-
-@router.post("/investigations/{session_id}/report/blocks/{block_id}/split", response_model=ReportDraftOut)
-def split_qa_block(
-    block_id: uuid.UUID,
-    body: QASplitIn,
-    request: Request,
-    session: InvestigationSession = Depends(get_accessible_session),
-    user: User = Depends(require_permission("reports.generate")),
-    db: Session = Depends(get_db),
-) -> ReportDraftOut:
-    draft = _require_draft(db, session)
-    _guard_editable(draft)
-    block = _require_block(db, draft, block_id)
-    split_block(db, block, body.answer_head, body.answer_tail, user.id)
-    record_audit(
-        db,
-        action=AuditAction.REPORT_QA_EDITED,
-        user_id=user.id,
-        entity_type="report_qa_block",
-        entity_id=block.id,
-        metadata={"draft_id": draft.id, "operation": "split"},
-        ip_address=client_ip(request),
-    )
-    db.commit()
-    db.refresh(draft)
-    return _draft_out(db, session, draft)
-
-
-# --------------------------------------------------------------------------- issuing
-#
-# A finalized محضر is a document that leaves the building. It is rendered from an immutable
-# snapshot, hashed, archived, and never overwritten - a correction becomes a new version.
-
-
-def _report_out(db: Session, report: GeneratedReport) -> GeneratedReportOut:
-    from app.models import ReportTemplateVersion
-
-    template = (
-        db.get(ReportTemplateVersion, report.template_version_id)
-        if report.template_version_id
-        else None
-    )
-    author = db.get(User, report.generated_by) if report.generated_by else None
-    return GeneratedReportOut(
-        id=report.id,
-        report_version=report.report_version,
-        report_number=report.report_number,
-        template_version=template.version if template else None,
-        template_is_development=bool(template and template.is_development),
-        docx_sha256=report.docx_sha256,
-        pdf_sha256=report.pdf_sha256,
-        format_key=report.format_key,
-        context_sha256=report.context_sha256,
-        template_sha256=report.template_sha256,
-        size_bytes=report.size_bytes,
-        qa_block_count=report.qa_block_count,
-        transcript_source_mode=report.transcript_source_mode,
-        selected_recording_ids=[str(r) for r in (report.selected_recording_ids or [])],
-        pinned_transcripts=list(report.pinned_transcripts or []),
-        generated_by=report.generated_by,
-        generated_by_name=(
-            (author.profile.full_name if author and author.profile else None)
-            or (author.username if author else None)
-        ),
-        created_at=report.created_at,
-    )
-
-
-def _archive_out(db: Session, session: InvestigationSession) -> ReportArchiveOut:
-    from app.api.report_templates import active_template
-
-    reports = db.scalars(
-        select(GeneratedReport)
-        .where(GeneratedReport.session_id == session.id)
-        .order_by(GeneratedReport.report_version.desc())
-    ).all()
-
-    template = active_template(db)
-    draft = get_draft(db, session.id)
-    if draft is None:
-        preflight = Preflight(missing_fields=[], unresolved_labels=[], blocked=["report_draft_not_found"])
-    else:
-        preflight = check_ready(db, session, draft, template)
-
-    return ReportArchiveOut(
-        reports=[_report_out(db, r) for r in reports],
-        can_finalize=not (preflight.blocked or preflight.missing_fields),
-        blocked_reasons=preflight.blocked,
-        missing_fields=preflight.missing_fields,
-        unresolved_speaker_labels=preflight.unresolved_labels,
-        active_template_version=template.version if template else None,
-        active_template_is_development=bool(template and template.is_development),
-    )
-
-
-@router.get("/investigations/{session_id}/reports", response_model=ReportArchiveOut)
-def list_reports(
-    session: InvestigationSession = Depends(get_accessible_session),
-    _: User = Depends(require_permission("reports.read", "reports.generate")),
-    db: Session = Depends(get_db),
-) -> ReportArchiveOut:
-    return _archive_out(db, session)
-
-
-@router.post("/investigations/{session_id}/reports", response_model=ReportArchiveOut, status_code=201)
-def finalize_report(
-    request: Request,
-    session: InvestigationSession = Depends(get_accessible_session),
-    user: User = Depends(require_permission("reports.finalize")),
-    db: Session = Depends(get_db),
-) -> ReportArchiveOut:
-    """إنشاء المحضر النهائي - validate, freeze, render, hash, archive."""
-    from app.api.report_templates import active_template
-
-    draft = _require_draft(db, session)
-    template = active_template(db)
-    try:
-        report = finalize(db, session, draft, template, user)
-    except FinalizationRefused as exc:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, detail={"code": exc.code, **exc.detail}
-        ) from exc
-    except RenderError as exc:
-        raise HTTPException(status.HTTP_409_CONFLICT, detail=exc.code) from exc
-
-    owned_paths = [report.storage_path, report.context_path, report.pdf_path]
-    try:
-        record_audit(
-            db, action=AuditAction.REPORT_GENERATED, user_id=user.id,
-            entity_type="generated_report", entity_id=report.id,
-            metadata={
-                "session_id": session.id, "version": report.report_version,
-                "template_version_id": report.template_version_id,
-                "docx_sha256": report.docx_sha256, "pdf_sha256": report.pdf_sha256,
-                "context_sha256": report.context_sha256,
-                "qa_blocks": report.qa_block_count, "source_mode": report.transcript_source_mode,
-                "format_key": report.format_key,
-            }, ip_address=client_ip(request),
-        )
-        db.commit()
-    except Exception:
-        db.rollback()
-        # A lost COMMIT response does not prove the transaction was rolled back.
-        # Confirm absence before deleting; preserving an orphan during a database
-        # outage is safer than removing files belonging to an issued report.
-        try:
-            persisted = db.get(GeneratedReport, report.id)
-        except Exception:
-            persisted = True
-        if persisted is None:
-            for path in owned_paths:
-                if path:
-                    remove_file(path)
-        raise
-    return _archive_out(db, session)
-
-
-def _require_report(db: Session, session: InvestigationSession, report_id: uuid.UUID) -> GeneratedReport:
-    report = db.get(GeneratedReport, report_id)
-    if report is None or report.session_id != session.id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="report_not_found")
-    return report
-
-
-@router.get("/investigations/{session_id}/reports/{report_id}/file")
-def download_report(
-    report_id: uuid.UUID,
-    request: Request,
-    format: str = "docx",
-    session: InvestigationSession = Depends(get_accessible_session),
-    user: User = Depends(require_permission("reports.read", "reports.generate")),
-    db: Session = Depends(get_db),
-) -> FileResponse:
-    report = _require_report(db, session, report_id)
-    if format not in {"pdf", "docx"}:
-        raise HTTPException(422, detail="report_m53_invalid_format")
-    relative = report.pdf_path if format == "pdf" else report.storage_path
-    path = report_file_path(relative) if relative else None
-    if path is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="report_file_missing")
-
-    # Audited and committed BEFORE the file leaves: who took a copy of an official document
-    # is part of its record, and a response whose audit failed must not hand one out.
-    record_audit(
-        db,
-        action=AuditAction.REPORT_DOWNLOADED,
-        user_id=user.id,
-        entity_type="generated_report",
-        entity_id=report.id,
-        metadata={"session_id": session.id, "version": report.report_version, "format": format},
-        ip_address=client_ip(request),
-    )
-    db.commit()
-
-    number = (report.report_number or str(report.report_version)).replace("/", "-")
-    return FileResponse(
-        path,
-        media_type="application/pdf" if format == "pdf" else "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        filename=f"mahdar-{number}-v{report.report_version}.{format}",
-        content_disposition_type="attachment",
-        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
-    )
-
-
-@router.get("/investigations/{session_id}/reports/{report_id}/verify", response_model=ReportVerificationOut, response_model_exclude_none=True)
-def verify_report(
-    report_id: uuid.UUID,
-    request: Request,
-    session: InvestigationSession = Depends(get_accessible_session),
-    user: User = Depends(require_permission("reports.read", "reports.generate")),
-    db: Session = Depends(get_db),
-) -> ReportVerificationOut:
-    """Recompute the three hashes: سليم / غير مطابق. Integrity, not a signature."""
-    report = _require_report(db, session, report_id)
-    result = verify(db, report)
-    record_audit(
-        db,
-        action=AuditAction.REPORT_VERIFIED,
-        user_id=user.id,
-        entity_type="generated_report",
-        entity_id=report.id,
-        metadata={"session_id": session.id, "version": report.report_version, "ok": result.ok},
-        ip_address=client_ip(request),
-    )
-    db.commit()
-    return ReportVerificationOut(
-        report_id=report.id,
-        ok=result.ok,
-        docx_ok=result.docx_ok,
-        context_ok=result.context_ok,
-        template_ok=result.template_ok,
-        detail=result.detail,
-        pdf_ok=result.pdf_ok,
-    )

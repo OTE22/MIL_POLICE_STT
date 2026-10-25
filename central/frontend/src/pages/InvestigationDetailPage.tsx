@@ -2,12 +2,13 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { ApiError, http } from "@/api/client";
-import type { AuditEntry, Investigation, Paged, SessionStatus, Transcript } from "@/api/types";
+import type { AuditEntry, Investigation, Paged, Transcript } from "@/api/types";
 import { useAuth } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import { T, errorMessage, t } from "@/lib/i18n";
 import { Alert, Loading, SessionStatusBadge, useToast } from "@/components/ui";
 import { IconEdit, IconFile, IconMic, IconUsers, IconClock, IconFolder, IconChevronLeft } from "@/components/Icons";
+import { InvestigationWorkflow } from "@/components/InvestigationWorkflow";
 import { AgentStatusPanel, useAgentStatus } from "@/components/recording/AgentStatus";
 import { Recorder, type PendingAudio } from "@/components/recording/Recorder";
 import { ProcessingPanel } from "@/components/recording/ProcessingPanel";
@@ -102,16 +103,6 @@ export function InvestigationDetailPage() {
 
   const setTab = (next: Tab) => setParams({ tab: next });
 
-  const changeStatus = async (status: SessionStatus) => {
-    if (!session) return;
-    try {
-      setSession(await http.put<Investigation>(`/investigations/${session.id}`, { status }));
-      toast.success(T.sessionUpdated);
-    } catch (err) {
-      toast.error(err instanceof ApiError ? errorMessage(err.code) : T.err_generic);
-    }
-  };
-
   if (!session) return <Loading />;
 
 
@@ -142,9 +133,6 @@ export function InvestigationDetailPage() {
               <IconEdit /> {T.edit}
             </Link>
           )}
-          {can("investigations.update") && session.status === "DRAFT" && (
-            <button className="btn" onClick={() => void changeStatus("RECORDING")} type="button">{T.startRecording}</button>
-          )}
           {/* HTML statements can also be filled manually before a recording exists. */}
           {can("reports.generate") && (
             <Link
@@ -155,12 +143,10 @@ export function InvestigationDetailPage() {
               {T.reportCreate}
             </Link>
           )}
-          {can("investigations.archive") && session.status !== "ARCHIVED" && (
-            <button className="btn" onClick={() => void changeStatus("ARCHIVED")} type="button">{T.archive}</button>
-          )}
         </div>
       </div>
 
+      <InvestigationWorkflow session={session} onChange={setSession} />
       <div className="tabs investigation-navigation" role="tablist" aria-label="أقسام جلسة التحقيق">
         {TABS.map((x, index) => {
           const Icon = TAB_ICONS[x.key];
@@ -198,12 +184,13 @@ export function InvestigationDetailPage() {
           <div className="recording-main">
             {!can("recordings.create") ? (
               <Alert kind="info">{T.err_forbidden}</Alert>
-            ) : session.status === "ARCHIVED" ? (
+            ) : ["CLOSED", "ARCHIVED"].includes(session.workflow_state) ? (
               <Alert kind="warning">{T.err_session_archived}</Alert>
             ) : (
               <>
                 <Recorder disabled={processingBusy} pending={pending} onReady={setPending} />
-                <ProcessingPanel session={session} pending={pending} agent={agent} onCompleted={onCompleted} onBusyChange={setProcessingBusy} />
+                <ProcessingPanel session={session} pending={pending} agent={agent} onCompleted={onCompleted} onBusyChange={setProcessingBusy}
+                  onAuthorized={(audio, recordingId) => setPending(current => current?.blob === audio.blob ? { ...current, recordingId, sessionId: session.id } : current)} />
               </>
             )}
           </div>

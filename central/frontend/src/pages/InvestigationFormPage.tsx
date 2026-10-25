@@ -29,6 +29,7 @@ export function InvestigationFormPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [revision, setRevision] = useState(0);
   const [title, setTitle] = useState("");
   const [sessionNumber, setSessionNumber] = useState("");
   const [description, setDescription] = useState("");
@@ -56,6 +57,7 @@ export function InvestigationFormPage() {
   useEffect(() => {
     if (!id) return;
     void http.get<Investigation>(`/investigations/${id}`).then((s) => {
+      setRevision(s.revision);
       setTitle(s.title);
       setSessionNumber(s.session_number);
       setDescription(s.description ?? "");
@@ -76,6 +78,7 @@ export function InvestigationFormPage() {
     setBusy(true);
     setError(null);
     const payload = {
+      ...(isEdit ? { expected_revision: revision } : {}),
       title: title.trim(),
       description: clean(description),
       location: clean(location),
@@ -109,6 +112,7 @@ export function InvestigationFormPage() {
         undocumented_reason: s.is_undocumented ? s.undocumented_reason : null,
         identity_confidence: s.identity_confidence,
         notes: clean(s.notes),
+        removed_document_ids: s.removed_document_ids ?? [],
         documents: s.documents.map((d) => ({
           id: d.id,
           document_type: d.document_type,
@@ -216,7 +220,11 @@ export function InvestigationFormPage() {
                   index={i}
                   canRemove={subjects.length > 1}
                   canUploadDocuments={canUploadDocuments}
-                  onChange={(next) => setSubjects((prev) => prev.map((x, idx) => (idx === i ? next : x)))}
+                  onChange={(next) => {
+                    const latest = Math.max(0, ...next.documents.map(doc => doc.session_revision ?? 0));
+                    setRevision(current => latest === current + 1 ? latest : current);
+                    setSubjects(prev => prev.map((x, idx) => idx === i ? next : x));
+                  }}
                   onRemove={() => {
                     const key = subjects[i]?.participant_key;
                     if (key) setRemovedKeys((prev) => (prev.includes(key) ? prev : [...prev, key]));

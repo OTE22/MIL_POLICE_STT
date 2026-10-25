@@ -11,6 +11,10 @@ from app.models.enums import IdentificationStatus, SpeakerRole, TranscriptStatus
 
 
 class SegmentOut(BaseModel):
+    revision: int = 0
+    attribution_parts: list[dict] | None = None
+    attribution_reviewed_by: uuid.UUID | None = None
+    attribution_reviewed_at: datetime | None = None
     id: uuid.UUID
     sequence: int
     speaker_label: str
@@ -76,7 +80,20 @@ class TranscriptOut(BaseModel):
 
 
 class SegmentEditIn(BaseModel):
+    expected_revision: int = Field(ge=0)
     edited_text: str = Field(max_length=20000)
+
+
+class AttributionPart(BaseModel):
+    speaker_label: str = Field(min_length=1, max_length=32)
+    start_seconds: float = Field(ge=0, allow_inf_nan=False)
+    end_seconds: float = Field(ge=0, allow_inf_nan=False)
+    text: str = Field(max_length=20000)
+
+
+class AttributionEditIn(BaseModel):
+    expected_revision: int = Field(ge=0)
+    parts: list[AttributionPart] = Field(min_length=1, max_length=100)
 
 
 class SpeakerUpdateIn(PersonInput):

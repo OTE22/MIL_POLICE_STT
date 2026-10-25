@@ -23,6 +23,14 @@ from app.models.enums import (
 MAX_SUPPORTED_SPEAKERS = 4
 
 
+def _nonblank_title(value):
+    if value is not None:
+        value = value.strip()
+        if not value:
+            raise ValueError("investigation_title_required")
+    return value
+
+
 class InvestigatorAssignmentIn(BaseModel):
     investigator_id: uuid.UUID
     assignment_role: AssignmentRole = AssignmentRole.ASSISTANT
@@ -39,6 +47,12 @@ class SubjectDocumentIn(BaseModel):
     issue_date: date | None = None
     expiry_date: date | None = None
     notes: str | None = Field(default=None, max_length=2000)
+
+    @model_validator(mode="after")
+    def valid_dates(self):
+        if self.issue_date and self.expiry_date and self.expiry_date < self.issue_date:
+            raise ValueError("document_expiry_before_issue")
+        return self
 
 
 class SubjectDocumentOut(BaseModel):
@@ -62,14 +76,11 @@ class SubjectDocumentOut(BaseModel):
     uploaded_by_name: str | None = None
     created_at: datetime
     is_expired: bool = False
+    file_versions: list[dict] = Field(default_factory=list)
 
 
 class SubjectIn(PersonInput):
-    # The ONLY handle that identifies which existing participant this is. `Subject.id` is
-    # deliberately absent: the save rebuilds every row, so an id is dead the moment it is
-    # issued, and accepting one would invite a fallback that works once and then starts
-    # issuing second references. The backend mints this and rejects a value it did not issue.
-    # NOT a person identifier.
+    # Stable session-local participant handle; updates preserve the database ID and evidence.
     participant_key: uuid.UUID | None = None
     identity_id: uuid.UUID | None = None
     # A person is recorded by NAME. It was optional, and the consequence was an identity
@@ -103,7 +114,17 @@ class SubjectIn(PersonInput):
     undocumented_reason: UndocumentedReason | None = None
     identity_confidence: IdentityConfidence = IdentityConfidence.DECLARED
     notes: str | None = Field(default=None, max_length=4000)
+    removed_document_ids: list[uuid.UUID] = Field(default_factory=list)
     documents: list[SubjectDocumentIn] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def unique_documents(self):
+        identifiers = [document.id for document in self.documents if document.id is not None]
+        if len(identifiers) != len(set(identifiers)):
+            raise ValueError("duplicate_document_reference")
+        if set(identifiers) & set(self.removed_document_ids):
+            raise ValueError("document_update_and_removal_conflict")
+        return self
 
     @model_validator(mode="after")
     def _military_must_be_identifiable(self):
@@ -137,6 +158,7 @@ class SubjectIn(PersonInput):
 
 
 class SubjectOut(BaseModel):
+    identity_name: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -166,6 +188,7 @@ class SubjectOut(BaseModel):
 
 
 class InvestigationCreate(BaseModel):
+    _validate_title = field_validator("title")(_nonblank_title)
     title: str = Field(min_length=1, max_length=300)
     session_number: str | None = Field(default=None, max_length=64)
     description: str | None = Field(default=None, max_length=8000)
@@ -180,6 +203,8 @@ class InvestigationCreate(BaseModel):
 
 
 class InvestigationUpdate(BaseModel):
+    _validate_title = field_validator("title")(_nonblank_title)
+    expected_revision: int = Field(ge=0)
     title: str | None = Field(default=None, min_length=1, max_length=300)
     description: str | None = Field(default=None, max_length=8000)
     location: str | None = Field(default=None, max_length=300)
@@ -219,7 +244,6 @@ class SessionPersonOut(BaseModel):
     source: str
     # Present for subjects: the session-local handle that survives reordering.
     participant_key: uuid.UUID | None = None
-    identity_id: uuid.UUID | None = None
     # False when the row cannot be picked yet, with `blocked_reason` saying why.
     selectable: bool = True
     blocked_reason: str | None = None
@@ -254,6 +278,9 @@ class RecordingOut(BaseModel):
 
 
 class InvestigationOut(BaseModel):
+    revision: int = 0
+    workflow_state: str = "DRAFT"
+    processing_summary: dict[str, int] = Field(default_factory=dict)
     id: uuid.UUID
     session_number: str
     title: str
@@ -279,6 +306,7 @@ class InvestigationOut(BaseModel):
 
 
 class InvestigationListItem(BaseModel):
+    workflow_state: str
     id: uuid.UUID
     session_number: str
     title: str

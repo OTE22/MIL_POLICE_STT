@@ -28,6 +28,22 @@ class ProfileIn(BaseModel):
     military_id: str = Field(min_length=1, max_length=64)
     security_branch: SecurityBranch
 
+    @field_validator("military_id")
+    @classmethod
+    def normalized_service_number(cls, value):
+        from app.services.person_identity import normalize_identifier
+        result = normalize_identifier(value)
+        if not result:
+            raise ValueError("military_id_required")
+        return result
+
+    @field_validator("full_name")
+    @classmethod
+    def nonempty_name(cls, value):
+        if not value.strip():
+            raise ValueError("person_name_required")
+        return value.strip()
+
     @field_validator("security_branch")
     @classmethod
     def _branch_must_be_a_namespace(cls, v: SecurityBranch) -> SecurityBranch:

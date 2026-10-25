@@ -16,14 +16,17 @@ def details_token(subject):
     return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
-def participant_values(subject):
-    values = dict(subject.statement_details or {})
-    values.update(statement_name=subject.subject_name or "",
+def participant_values(subject, db=None):
+    from app.schemas.statement_details import DETAIL_KEYS
+    values = {key: "" for key in DETAIL_KEYS}
+    values.update(subject.statement_details or {})
+    identity = resolve_identity(db, db.get(PersonIdentity, subject.identity_id)) if db is not None and subject.identity_id else None
+    values.update(statement_name=(identity.person_name if identity else subject.subject_name) or "",
                   statement_rank=subject.rank or "", statement_service_number=subject.military_id or "",
                   civil_register=" / ".join(v for v in [subject.register_number, subject.place_of_registration] if v))
     if not values.get("occupation_statement"):
         values["occupation_statement"] = " — ".join(v for v in [subject.rank, subject.unit, subject.department] if v)
-    return {key: value for key, value in values.items() if value}
+    return values
 
 
 def options_for(db, session):
@@ -31,7 +34,7 @@ def options_for(db, session):
     for subject in session.subjects:
         person = canonical_id(db, subject.identity_id)
         represented.add(person)
-        options.append({"key": f"participant:{subject.participant_key}", "label": subject.subject_name,
+        options.append({"key": f"participant:{subject.participant_key}", "label": participant_values(subject, db).get("statement_name", ""),
                         "participant_key": str(subject.participant_key), "identity_id": person, "speaker_id": None})
     for link in session.investigators:
         person = canonical_id(db, link.investigator.identity_id)
@@ -67,7 +70,7 @@ def resolve_selection(db, session, block):
         if identity and canonical_id(db, identity) != person:
             raise ValueError("html_report_participant_identity_mismatch")
         identity = person
-        values = participant_values(subject)
+        values = participant_values(subject, db)
     elif identity:
         identity = canonical_id(db, identity)
         allowed = {o["identity_id"] for o in options_for(db, session) if o["identity_id"]}

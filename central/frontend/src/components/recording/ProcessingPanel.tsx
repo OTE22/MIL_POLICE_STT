@@ -34,12 +34,14 @@ export function ProcessingPanel({
   agent,
   onCompleted,
   onBusyChange,
+  onAuthorized,
 }: {
   session: Investigation;
   pending: PendingAudio | null;
   agent: AgentStatusState;
   onCompleted: () => void;
   onBusyChange: (busy: boolean) => void;
+  onAuthorized: (audio: PendingAudio, recordingId: string) => void;
 }) {
   const toast = useToast();
   const [job, setJob] = useState<AgentJob | null>(null);
@@ -113,7 +115,9 @@ export function ProcessingPanel({
         mime_type: pending.mimeType,
         size_bytes: pending.blob.size,
         source: pending.source,
+        recording_id: pending.sessionId === session.id ? pending.recordingId : undefined,
       });
+      onAuthorized(pending, token.recording_id);
     } catch (err) {
       setError(err instanceof ApiError ? errorMessage(err.code) : T.err_generic);
       onBusyChange(false);

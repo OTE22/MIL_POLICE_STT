@@ -6,6 +6,7 @@ or lose.
 """
 
 from __future__ import annotations
+from conftest import update_session
 
 from app.db.session import SessionLocal
 from app.services.person_identifiers import find_by_identifier, identifiers_for
@@ -80,7 +81,7 @@ def test_re_saving_the_same_documents_does_not_accumulate(client, investigator):
         "documents": [{k: d[k] for k in ("id", "document_type", "document_number", "issuing_country")}
                       for d in subject["documents"]],
     }
-    res = client.put(f"/api/investigations/{s['id']}", json={"subjects": [payload]}, headers=auth(t))
+    res = update_session(client, f"/api/investigations/{s['id']}", json={"subjects": [payload]}, headers=auth(t))
     assert res.status_code == 200, res.text
     assert len(_identifiers_of(reference)) == 1
 

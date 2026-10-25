@@ -1,5 +1,0 @@
-services:
-  backend:
-    image: military-stt/m53-tests:local
-    environment:
-      CENTRAL_AUTH_MODE: local

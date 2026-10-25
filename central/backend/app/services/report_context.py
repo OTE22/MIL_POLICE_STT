@@ -24,6 +24,7 @@ Two decisions here carry the legal weight of the feature:
 from __future__ import annotations
 
 import hashlib
+import json
 import uuid
 from dataclasses import dataclass, field
 
@@ -43,6 +44,8 @@ from app.models import (
 # A turn ends when the speaker changes or when the gap to the next segment exceeds this.
 # Diarizers fragment one utterance into several segments; stitching them back is what makes
 # a readable question instead of three broken ones.
+from app.services.transcript_content import speech_parts
+
 TURN_GAP_SECONDS = 3.0
 
 
@@ -62,7 +65,7 @@ def segments_digest(segments: list[TranscriptSegment], mode: TranscriptSourceMod
     """A transcript's 'revision' - it changes the moment any quoted line changes."""
     h = hashlib.sha256()
     for seg in sorted(segments, key=lambda s: s.sequence):
-        h.update(f"{seg.sequence}\x1f{seg.speaker_label}\x1f{effective_text(seg, mode)}\x1e".encode())
+        h.update(json.dumps([seg.sequence, speech_parts(seg, mode)], sort_keys=True, ensure_ascii=False).encode())
     return h.hexdigest()
 
 
@@ -182,14 +185,15 @@ def speaker_map(db: Session, session_id: uuid.UUID) -> dict[str, SpeakerInfo]:
     }
     out: dict[str, SpeakerInfo] = {}
     for s in speakers:
-        identity = identities.get(s.identity_id) if s.identity_id else None
+        from app.services.person_identity import resolve_identity
+        identity = resolve_identity(db, identities.get(s.identity_id)) if s.identity_id else None
         out[s.speaker_label] = SpeakerInfo(
             speaker_id=s.id,
             speaker_label=s.speaker_label,
             recording_id=s.recording_id,
             source_label=s.source_label,
             role=s.speaker_role,
-            identity_id=s.identity_id,
+            identity_id=identity.id if identity else None,
             person_name=identity.person_name if identity else None,
             display_name=s.display_name,
         )
@@ -252,29 +256,24 @@ def build_turns(
             continue
         current: Turn | None = None
         for seg in sorted(transcript.segments, key=lambda s: s.sequence):
-            text = effective_text(seg, mode).strip()
-            if not text:
-                continue
-            start, end = float(seg.start_seconds), float(seg.end_seconds)
-            same_speaker = current is not None and current.speaker_label == seg.speaker_label
-            close_enough = current is not None and (start - current.end_seconds) <= TURN_GAP_SECONDS
-            if same_speaker and close_enough:
-                # Fragments of one utterance: "هل تعرف" + "الشخص أحمد" -> one question.
-                separator = "" if current.text.endswith(("،", ":", "-")) else " "
-                current.text = f"{current.text}{separator}{text}"
-                current.end_seconds = end
-                current.segment_ids.append(seg.id)
-                continue
-            current = Turn(
-                speaker_label=seg.speaker_label,
-                recording_id=rid,
-                text=text,
-                start_seconds=start,
-                end_seconds=end,
-                segment_ids=[seg.id],
-                order=(rec_index, seg.sequence),
-            )
-            turns.append(current)
+            for part_index, part in enumerate(speech_parts(seg, mode)):
+                text = part["text"].strip()
+                if not text:
+                    continue
+                start, end = float(part["start_seconds"]), float(part["end_seconds"])
+                label = part["speaker_label"]
+                same = current is not None and current.speaker_label == label
+                close = current is not None and 0 <= start - current.end_seconds <= TURN_GAP_SECONDS
+                if same and close:
+                    current.text += " " + text
+                    current.end_seconds = end
+                    if seg.id not in current.segment_ids:
+                        current.segment_ids.append(seg.id)
+                else:
+                    current = Turn(speaker_label=label, recording_id=rid, text=text,
+                                   start_seconds=start, end_seconds=end, segment_ids=[seg.id],
+                                   order=(rec_index, seg.sequence, part_index))
+                    turns.append(current)
     return turns
 
 

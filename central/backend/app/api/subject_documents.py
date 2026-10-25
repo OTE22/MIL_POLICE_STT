@@ -9,9 +9,11 @@ written to the audit log.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.deps import client_ip, get_accessible_session, require_permission
@@ -21,7 +23,6 @@ from app.schemas.investigations import SubjectDocumentOut
 from app.services.audit import record_audit
 from app.services.document_storage import (
     InvalidDocumentError,
-    delete_document_file,
     store_document,
 )
 from app.services.storage import absolute_path, sanitize_filename
@@ -29,13 +30,15 @@ from app.services.storage import absolute_path, sanitize_filename
 router = APIRouter(tags=["subject-documents"])
 
 
-def _load(db: Session, session: InvestigationSession, document_id: uuid.UUID) -> SubjectDocument:
+def _load(db: Session, session: InvestigationSession, document_id: uuid.UUID, *, mutable=False) -> SubjectDocument:
     doc = db.get(SubjectDocument, document_id)
     if doc is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="document_not_found")
     subject = db.get(Subject, doc.subject_id)
     if subject is None or subject.session_id != session.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="document_not_found")
+    if mutable and (doc.removed_at is not None or subject.removed_at is not None):
+        raise HTTPException(409, detail="retained_document_read_only")
     return doc
 
 
@@ -52,14 +55,18 @@ async def upload_document_file(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ) -> SubjectDocumentOut:
+    from app.services.workflow import evidence_changed
+    session = db.scalar(select(InvestigationSession).where(InvestigationSession.id == session.id)
+                        .with_for_update().execution_options(populate_existing=True))
+    evidence_changed(session)
     if "investigations.update" not in user.permission_codes:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="forbidden")
-    doc = _load(db, session, document_id)
+    doc = _load(db, session, document_id, mutable=True)
     if doc.storage_path:
         # The original is evidence: replacing it requires an explicit delete first.
         raise HTTPException(status.HTTP_409_CONFLICT, detail="document_file_exists")
     try:
-        rel, size, sha256, ext, mime = await store_document(file, session.id, doc.id)
+        rel, size, sha256, ext, mime = await store_document(file, session.id, uuid.uuid4())
     except InvalidDocumentError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=exc.code) from exc
     doc.storage_path = rel
@@ -136,13 +143,21 @@ def delete_document_scan(
     user: User = Depends(require_permission("subjects.documents.view")),
     db: Session = Depends(get_db),
 ):
+    from app.services.workflow import evidence_changed
+    session = db.scalar(select(InvestigationSession).where(InvestigationSession.id == session.id)
+                        .with_for_update().execution_options(populate_existing=True))
+    evidence_changed(session)
     from fastapi import Response
 
     if "investigations.update" not in user.permission_codes:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="forbidden")
-    doc = _load(db, session, document_id)
+    doc = _load(db, session, document_id, mutable=True)
     if doc.storage_path:
-        delete_document_file(doc.storage_path)
+        doc.file_versions = [*(doc.file_versions or []), {
+            "storage_path": doc.storage_path, "sha256": doc.sha256,
+            "original_filename": doc.original_filename, "mime_type": doc.mime_type,
+            "size_bytes": doc.size_bytes, "removed_at": datetime.now(timezone.utc).isoformat(),
+            "removed_by": str(user.id)}]
     record_audit(
         db,
         action=AuditAction.SUBJECT_DOCUMENT_DELETED,
@@ -160,3 +175,24 @@ def delete_document_scan(
     doc.uploaded_by = None
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/investigations/{session_id}/subject-documents/{document_id}/versions/{version}/file")
+def download_document_version(document_id: uuid.UUID, version: int, request: Request,
+                              session: InvestigationSession = Depends(get_accessible_session),
+                              user: User = Depends(require_permission("subjects.documents.view")),
+                              db: Session = Depends(get_db)):
+    doc = _load(db, session, document_id)
+    if version < 1 or version > len(doc.file_versions or []):
+        raise HTTPException(404, detail="document_version_not_found")
+    item = doc.file_versions[version - 1]
+    path = absolute_path(item["storage_path"])
+    if path is None:
+        raise HTTPException(404, detail="document_file_not_found")
+    record_audit(db, action=AuditAction.SUBJECT_DOCUMENT_VIEWED, user_id=user.id,
+                 entity_type="subject_document", entity_id=doc.id,
+                 metadata={"session_id": session.id, "version": version, "sha256": item["sha256"]},
+                 ip_address=client_ip(request))
+    db.commit()
+    return FileResponse(path, media_type=item["mime_type"], filename=item["original_filename"],
+                        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})

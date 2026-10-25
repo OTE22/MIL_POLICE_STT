@@ -15,7 +15,6 @@ import { WorkstationsPage } from "@/pages/WorkstationsPage";
 import { AuditPage } from "@/pages/AuditPage";
 import { VoiceEnrollmentsPage } from "@/pages/VoiceEnrollmentsPage";
 import { ReportComposerPage } from "@/pages/ReportComposerPage";
-import { ReportTemplatePage } from "@/pages/ReportTemplatePage";
 import { ChangePasswordPage } from "@/pages/ChangePasswordPage";
 
 function RequireAuth({ children }: { children: ReactNode }) {
@@ -60,7 +59,7 @@ export function App() {
           path="/report-template"
           element={
             <RequirePermission codes={["reports.templates.manage"]}>
-              <ReportTemplatePage />
+              <Navigate to="/investigations" replace />
             </RequirePermission>
           }
         />

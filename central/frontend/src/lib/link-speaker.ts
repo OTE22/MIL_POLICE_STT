@@ -23,7 +23,7 @@ export async function linkToRegistryPerson(
   if (!identityId || !subjects.some(s => s.identity_id === identityId)) {
     const added = { ...(person.subject ?? emptySubject()), subject_name: person.canonicalName,
                     identity_id: identityId ?? null };
-    const saved = await http.put<Investigation>(`/investigations/${sessionId}`, { subjects: [...subjects, added] });
+    const saved = await http.put<Investigation>(`/investigations/${sessionId}`, { expected_revision: current.revision, subjects: [...subjects, added] });
     const before = new Set(subjects.map(s => s.participant_key));
     identityId = saved.subjects.find(s => !before.has(s.participant_key))?.identity_id;
     // Keep the returned identity on the draft so retrying a failed speaker PATCH reuses it.

@@ -191,6 +191,7 @@ def repoint_identity(db: Session, *, source_id: uuid.UUID, target: PersonIdentit
 
     for profile in db.scalars(select(InvestigatorProfile).where(InvestigatorProfile.identity_id == source_id)):
         profile.identity_id = target.id
+        profile.full_name = target.person_name
 
     db.flush()
     return {

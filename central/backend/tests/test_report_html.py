@@ -5,7 +5,7 @@ from copy import deepcopy
 from app.db.session import SessionLocal
 from app.models import ReportDraft, ReportStatus
 from conftest import auth, create_session
-from test_report_api import _interview, _create
+from report_test_helpers import _interview, _create
 from test_report_draft import _evidence_fingerprint
 
 
@@ -48,7 +48,6 @@ def test_multiple_statements_save_reorder_and_preserve_evidence(client, investig
     restored = client.get(path, headers=auth(token)).json()
     assert [b["values"]["statement_name"] for b in restored["document"]["blocks"]] == ["الثالث", "الثاني", "الأول"]
     assert _evidence_fingerprint(session["id"]) == before
-    assert client.get(f"/api/investigations/{session['id']}/report", headers=auth(token)).json()["qa_blocks"] == draft["qa_blocks"]
 
 
 def test_html_draft_rejects_foreign_access_stale_save_and_duplicate_ids(client, investigator, investigator2):
@@ -83,7 +82,9 @@ def test_imports_get_server_source_snapshots_and_cannot_change_person(client, in
     assert snapshot["answer_source_text"] == qa["answer_source_text"]
     assert snapshot["start_seconds"] == qa["start_seconds"]
     state = result.json()
-    assert client.post(f"/api/investigations/{session['id']}/report/refresh", headers=auth(token)).status_code == 200
+    refreshed = client.post(path + "/refresh-sources", headers=auth(token), json={"expected_token": state["token"]})
+    assert refreshed.status_code == 200, refreshed.text
+    state = refreshed.json()
     # Refresh replaces legacy QA rows; the imported HTML statement retains its evidence snapshot.
     preserved = _save(client, token, path, state, document)
     assert preserved.status_code == 200, preserved.text
@@ -96,29 +97,6 @@ def test_imports_get_server_source_snapshots_and_cannot_change_person(client, in
     assert _save(client, token, path, state, document).status_code == 422
     block["entries"][0]["source_snapshot"] = [{"answer_source_text": "forged"}]
     assert _save(client, token, path, state, document).status_code == 422
-
-
-def test_legacy_form_and_html_preserve_each_other_and_final_is_read_only(client, investigator):
-    token, session, draft, path, state = _setup(client, investigator)
-    document = {**state["document"], "blocks": [_block(), _note()]}
-    result = _save(client, token, path, state, document)
-    assert result.status_code == 200
-    state = result.json()
-    form_path = f"/api/investigations/{session['id']}/report/m53"
-    form = client.get(f"/api/investigations/{session['id']}/report", headers=auth(token)).json()["official_form"]
-    update = {"expected_token": form["token"], "enabled": False, "values": {"statement_name": "اسم في القالب السابق"}, "confirmations": []}
-    assert client.put(form_path, headers=auth(token), json=update).status_code == 200
-    assert client.get(path, headers=auth(token)).json() == state
-    document["subject"] = "تعديل HTML"
-    assert _save(client, token, path, state, document).status_code == 200
-    form = client.get(f"/api/investigations/{session['id']}/report", headers=auth(token)).json()["official_form"]
-    assert form["values"]["statement_name"] == "اسم في القالب السابق"
-    current = client.get(path, headers=auth(token)).json()
-    with SessionLocal() as db:
-        row = db.get(ReportDraft, uuid.UUID(draft["id"]))
-        row.status = ReportStatus.FINAL
-        db.commit()
-    assert _save(client, token, path, current, document).status_code == 409
 
 
 def test_blank_mask_has_variables_and_does_not_inherit_the_sample_case(client, investigator):
@@ -173,7 +151,6 @@ def test_mixed_notes_and_statements_save_reorder_remove_and_restore(client, inve
     restored = client.get(path, headers=auth(token)).json()["document"]["blocks"]
     assert [b["id"] for b in restored] == [second["id"], first["id"], statement["id"]]
     assert _evidence_fingerprint(session["id"]) == before
-    assert client.get(f"/api/investigations/{session['id']}/report", headers=auth(token)).json()["qa_blocks"] == draft["qa_blocks"]
 
 
 def test_note_only_report_rejects_wrong_fields_sources_and_duplicate_ids(client, investigator):

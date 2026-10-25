@@ -1,15 +1,16 @@
+import { workflowLabels } from "@/components/InvestigationWorkflow";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { http, qs } from "@/api/client";
-import type { InvestigationListItem, Paged, Profile, SessionStatus } from "@/api/types";
+import type { InvestigationListItem, Paged, Profile } from "@/api/types";
 import { useAuth } from "@/lib/auth";
 import { formatDate, formatDuration, personLabel } from "@/lib/format";
-import { T, t } from "@/lib/i18n";
+import { T } from "@/lib/i18n";
 import { IconPlus, IconSearch } from "@/components/Icons";
-import { Loading, Pagination, SessionStatusBadge } from "@/components/ui";
+import { Loading, Pagination, Badge, SessionStatusBadge } from "@/components/ui";
 
-const STATUSES: SessionStatus[] = ["DRAFT", "RECORDING", "PROCESSING", "COMPLETED", "FAILED", "ARCHIVED"];
+const STATUSES = Object.keys(workflowLabels);
 
 export function InvestigationsPage() {
   const { can } = useAuth();
@@ -31,7 +32,7 @@ export function InvestigationsPage() {
     const handle = setTimeout(() => {
       void http
         .get<Paged<InvestigationListItem>>(
-          `/investigations${qs({ q, status, investigator_id: investigatorId, date_from: dateFrom, date_to: dateTo, page, page_size: pageSize })}`,
+          `/investigations${qs({ q, workflow_state: status, investigator_id: investigatorId, date_from: dateFrom, date_to: dateTo, page, page_size: pageSize })}`,
         )
         .then(setData);
     }, 250);
@@ -79,7 +80,7 @@ export function InvestigationsPage() {
             <option value="">{T.status}: {T.all}</option>
             {STATUSES.map((s) => (
               <option key={s} value={s}>
-                {t(`status_${s}`)}
+                {workflowLabels[s]}
               </option>
             ))}
           </select>
@@ -136,7 +137,7 @@ export function InvestigationsPage() {
                       <td className="num">{formatDate(s.session_date)}</td>
                       <td>{formatDuration(s.duration_seconds)}</td>
                       <td>
-                        <SessionStatusBadge status={s.status} />
+                        <div><Badge kind={s.workflow_state === "CLOSED" ? "green" : "navy"}>{workflowLabels[s.workflow_state] ?? workflowLabels.DRAFT}</Badge><div className="mt-8">معالجة التسجيلات: <SessionStatusBadge status={s.status} /></div></div>
                       </td>
                       <td className="actions-cell">
                         <Link to={`/investigations/${s.id}`} className="btn btn-sm">

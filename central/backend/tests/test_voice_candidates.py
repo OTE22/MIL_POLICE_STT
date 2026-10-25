@@ -6,6 +6,7 @@ person flow, and `identity_id` is resolved by the backend from the reference num
 """
 
 from __future__ import annotations
+from conftest import update_session
 
 import uuid
 
@@ -88,7 +89,7 @@ def test_same_reference_different_name_is_refused_for_review(client, investigato
     _identify(client, t, s1, sp1["SPEAKER_00"]["id"], "الرائد علي حسن", reference)
 
     s2 = _submit(client, t, voice=_voice(SPEAKER_00=EMB_B, SPEAKER_01=EMB_A))
-    res = client.put(
+    res = update_session(client, 
         f"/api/investigations/{s2['id']}",
         json={"subjects": s2["subjects"] + [_subject_for(reference, "أحمد محمد")]},
         headers=auth(t),

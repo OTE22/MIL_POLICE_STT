@@ -5,6 +5,8 @@ import { T } from "@/lib/i18n";
 import { IconCheck, IconMic, IconPause, IconPlay, IconStop, IconUpload, IconX } from "@/components/Icons";
 
 export interface PendingAudio {
+  recordingId?: string;
+  sessionId?: string;
   blob: Blob;
   filename: string;
   mimeType: string;

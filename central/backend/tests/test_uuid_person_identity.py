@@ -1,3 +1,4 @@
+from conftest import update_session
 """Person lifecycle after retiring generated reference numbers."""
 import uuid
 
@@ -38,7 +39,7 @@ def test_same_names_are_distinct_and_resave_preserves_ids(client, admin_token):
     original = {p['participant_key']: p['identity_id'] for p in s['subjects']}
     assert len(set(original.values())) == 2
     assert all('reference_number' not in p for p in s['subjects'])
-    response = client.put(f"/api/investigations/{s['id']}", headers=auth(admin_token),
+    response = update_session(client, f"/api/investigations/{s['id']}", headers=auth(admin_token),
                           json={'subjects': list(reversed(s['subjects']))})
     assert response.status_code == 200, response.text
     assert {p['participant_key']: p['identity_id'] for p in response.json()['subjects']} == original
@@ -75,12 +76,12 @@ def test_military_numbers_reuse_person_only_within_force(client, admin_token):
 def test_lost_participant_and_identity_swap_are_refused(client, admin_token):
     s = create_session(client, admin_token)
     url = f"/api/investigations/{s['id']}"
-    response = client.put(url, headers=auth(admin_token), json={'subjects': [{'subject_name': 'أحمد محمد'}]})
+    response = update_session(client, url, headers=auth(admin_token), json={'subjects': [{'subject_name': 'أحمد محمد'}]})
     assert response.status_code == 409
     other = create_session(client, admin_token)['subjects'][0]['identity_id']
-    response = client.put(url, headers=auth(admin_token), json={'subjects': [{**s['subjects'][0], 'identity_id': other}]})
+    response = update_session(client, url, headers=auth(admin_token), json={'subjects': [{**s['subjects'][0], 'identity_id': other}]})
     assert response.status_code == 409
-    response = client.put(url, headers=auth(admin_token), json={'subjects': [], 'removed_participant_keys': [s['subjects'][0]['participant_key']]})
+    response = update_session(client, url, headers=auth(admin_token), json={'subjects': [], 'removed_participant_keys': [s['subjects'][0]['participant_key']]})
     assert response.status_code == 200
 
 
@@ -156,6 +157,6 @@ def test_merge_preserves_voiceprints_participants_and_stale_ids(client, admin_to
         assert db.scalar(select(Subject).where(Subject.session_id == uuid.UUID(s['id']))).identity_id == target.id
         assert db.scalar(select(VoiceEnrollment)).identity_id == target.id
         target_id = str(target.id)
-    saved = client.put(f"/api/investigations/{s['id']}", headers=auth(admin_token), json={'subjects': s['subjects']})
+    saved = update_session(client, f"/api/investigations/{s['id']}", headers=auth(admin_token), json={'subjects': s['subjects']})
     assert saved.status_code == 200, saved.text
     assert saved.json()['subjects'][0]['identity_id'] == target_id

@@ -1,6 +1,7 @@
 """Subject identity classification and identity-document handling."""
 
 from __future__ import annotations
+from conftest import update_session
 
 import hashlib
 import struct
@@ -169,7 +170,7 @@ def test_editing_a_session_preserves_uploaded_scans(client, investigator):
     payload = {k: fresh[k] for k in keys}
     payload["subject_name"] = "أحمد محمد علي"
     payload["documents"] = [{k: d[k] for k in doc_keys} for d in fresh["documents"]]
-    res = client.put(f"/api/investigations/{s['id']}", json={"subjects": [payload]}, headers=auth(investigator["token"]))
+    res = update_session(client, f"/api/investigations/{s['id']}", json={"subjects": [payload]}, headers=auth(investigator["token"]))
     assert res.status_code == 200
     updated = res.json()["subjects"][0]
     assert updated["subject_name"] == "أحمد محمد علي"

@@ -1,480 +1,118 @@
-"""Issuing the محضر: validate, freeze, render, hash, archive.
-
-The order in `finalize` is the whole point. A finalized report is rendered from an immutable
-SNAPSHOT of the draft, not from the live tables, and the file lands on disk before the
-database row exists - so the two can never disagree in the dangerous direction:
-
-    validate -> build context -> render -> hash -> write file
-             -> insert row -> audit -> commit           (on failure: delete the file)
-
-That leaves two possible outcomes: a complete report with a row, or no report at all. Never
-a database row pointing at a missing document, and never an official document on disk that
-the system has no record of issuing.
-"""
-
-from __future__ import annotations
-
+"""Review-bound, immutable HTML/PDF issuance. No legacy generators."""
 import json
-import logging
 import uuid
-from dataclasses import dataclass
 from datetime import datetime, timezone
-
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
-
-from app.config import get_settings
-from app.models import (
-    AudioRecording,
-    GeneratedReport,
-    InvestigationSession,
-    InvestigatorProfile,
-    PersonIdentity,
-    ReportDraft,
-    ReportStatus,
-    SessionInvestigator,
-    Subject,
-    TemplateValidationStatus,
-    Transcript,
-    TranscriptSourceMode,
-    User,
-)
-from app.services.report_context import compose_name, speaker_map
-from app.services.report_draft import included_blocks
-from app.services import report_m53 as m53
-from app.services.report_renderer import ALLOWED_PLACEHOLDERS, render
-from app.services.report_storage import (
-    atomic_write,
-    context_relative_path,
-    read_file,
-    remove_file,
-    report_relative_path,
-    sha256_bytes,
-)
-
-log = logging.getLogger(__name__)
-
-# Arabic labels for the enums a report prints. Kept beside the report because the wording on
-# an official document is a decision of this feature, not of the models.
-PERSON_TYPE_AR = {"MILITARY": "عسكري", "CIVILIAN": "مدني", "UNKNOWN": "غير محدد الهوية"}
-SESSION_STATUS_AR = {
-    "DRAFT": "مسودة",
-    "RECORDING": "قيد التسجيل",
-    "PROCESSING": "قيد المعالجة",
-    "COMPLETED": "مكتملة",
-    "FAILED": "فشلت",
-    "ARCHIVED": "مؤرشفة",
-}
-SOURCE_MODE_AR = {
-    TranscriptSourceMode.CORRECTED: "النص المنقّح (المصحّح بشرياً)",
-    TranscriptSourceMode.ORIGINAL: "النص الأصلي من الذكاء الاصطناعي",
-}
-DEV_TEMPLATE_NOTICE = "نموذج تطويري غير معتمد — DEVELOPMENT TEMPLATE"
+from pathlib import Path
+from sqlalchemy import select, func
+from fastapi import HTTPException
+from app.models import GeneratedReport, ReportStatus
+from app.services import report_html, report_document
+from app.services.workflow import source_token, source_snapshot, evidence_blockers, guard_mutation, lock_source_people
+from app.services.report_storage import atomic_write, read_file, sha256_bytes
 
 
-class FinalizationRefused(Exception):
-    """The report may not be issued yet. `code` is an Arabic-mapped error for the UI."""
-
-    def __init__(self, code: str, detail: dict | None = None):
-        super().__init__(code)
-        self.code = code
-        self.detail = detail or {}
+def format_digest():
+    paths = sorted(report_document.ASSETS.iterdir())
+    return sha256_bytes(Path(report_document.__file__).read_bytes() +
+                        json.dumps(report_html.CATALOGUE, sort_keys=True, ensure_ascii=False).encode() +
+                        b"".join(p.read_bytes() for p in paths if p.is_file()))
 
 
-@dataclass
-class Preflight:
-    missing_fields: list[str]
-    unresolved_labels: list[str]
-    blocked: list[str]
+def review_token(db, session, draft):
+    return sha256_bytes((report_html.token_for(draft) + source_token(db, session) + format_digest()).encode())
 
 
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
+def content_blockers(session, document):
+    reasons = []
+    if not document["subject"].strip():
+        reasons.append("report_subject_required")
+    if not document.get("investigator_id"):
+        reasons.append("report_investigator_required")
+    if not document["blocks"]:
+        reasons.append("report_no_content")
+    for block in document["blocks"]:
+        values = block["values"]
+        if not values.get("closing_date", "").strip() or not values.get("closing_location", "").strip():
+            reasons.append("report_closing_details_required")
+        if block["type"] == "note":
+            if not values.get("note_text", "").strip():
+                reasons.append("report_note_empty")
+        else:
+            if not values.get("statement_name", "").strip():
+                reasons.append("report_statement_name_required")
+            if not block["entries"] or any(not entry["answer"].strip() for entry in block["entries"]):
+                reasons.append("report_answer_required")
+            if block["identity_checked"] and not values.get("identity_documents", "").strip():
+                reasons.append("report_identity_documents_required")
+            if block["attestation_confirmed"] and not document.get("clerk_id"):
+                reasons.append("report_clerk_required")
+    return list(dict.fromkeys(reasons))
 
 
-def _seconds_to_clock(value: float | None) -> str:
-    if value is None:
-        return ""
-    total = int(value)
-    return f"{total // 3600:02d}:{(total % 3600) // 60:02d}:{total % 60:02d}"
+def check_ready(db, session, draft, *, verify_evidence=False):
+    if draft.status == ReportStatus.FINAL:
+        return ["report_is_final"]
+    reasons = content_blockers(session, report_html.document_for(draft)) + evidence_blockers(db, session, verify_hashes=verify_evidence)
+    if session.workflow_state in {"CLOSED", "ARCHIVED"}:
+        reasons.append("reopen_investigation_before_editing")
+    if ((draft.official_form or {}).get("html_review") or {}).get("token") != review_token(db, session, draft):
+        reasons.append("report_review_required")
+    return list(dict.fromkeys(reasons))
 
 
-def check_ready(db: Session, session: InvestigationSession, draft: ReportDraft, template) -> Preflight:
-    """Everything that must be true before an official document may be issued.
-
-    Explicit field checks rather than relying on the renderer's StrictUndefined: a blank
-    رقم المحضر is a policy failure the operator must see named, not a template error.
-    """
-    from app.api.reports import REQUIRED_FIELD_LABELS  # labels live with the API contract
-
-    missing = [
-        label
-        for field, label in REQUIRED_FIELD_LABELS.items()
-        if not (getattr(draft, field) or "").strip()
-    ]
-
-    speakers = speaker_map(db, session.id)
-    by_id = {info.speaker_id: info for info in speakers.values()}
-    speaking = {
-        sid
-        for block in included_blocks(draft)
-        for sid in (block.question_speaker_id, block.answer_speaker_id)
-        if sid
-    }
-    unresolved = sorted(
-        by_id[sid].speaker_label for sid in speaking if sid in by_id and not by_id[sid].resolved
-    )
-
-    blocked: list[str] = []
-    if draft.status is ReportStatus.FINAL:
-        blocked.append("report_is_final")
-    if not included_blocks(draft):
-        blocked.append("report_no_content")
-    if template is None:
-        blocked.append("report_no_active_template")
-    elif template.validation_status is not TemplateValidationStatus.VALID:
-        blocked.append("report_template_invalid")
-    elif template.is_development and get_settings().environment.strip().lower() == "production":
-        # A development stand-in must never leave the building as an official document.
-        blocked.append("report_template_not_official")
-    if unresolved and not draft.unresolved_ack:
-        blocked.append("report_unresolved_speakers")
-    if len(included_blocks(draft)) > get_settings().report_max_qa_blocks:
-        blocked.append("report_too_large")
-
-    if (draft.official_form or {}).get("enabled"):
-        from app.services.report_draft import draft_is_stale
-        # The built-in renderer owns this form; uploaded Word templates continue
-        # to follow their existing validation/activation path.
-        blocked = [reason for reason in blocked if reason not in {
-            "report_no_active_template", "report_template_invalid", "report_template_not_official"}]
-        context = build_context(db, session, draft, None, version=0, generated_by=None)
-        flags = m53.confirmed(draft, m53.review_token(draft, context))
-        values = m53.values_for(draft)
-        missing = m53.missing_fields(values, flags)
-        if not flags["content_reviewed"]:
-            blocked.append("report_m53_review_required")
-        if draft_is_stale(db, draft):
-            blocked.append("report_m53_stale_source")
-        names = {qa["answer_speaker"] for qa in context["qa_blocks"] if qa["answer"]}
-        if len(names) != 1 or "" in names or unresolved:
-            blocked.append("report_m53_one_subject_required")
-        elif values["statement_name"] not in names:
-            blocked.append("report_m53_subject_mismatch")
-
-    return Preflight(missing_fields=missing, unresolved_labels=unresolved, blocked=blocked)
-
-
-def build_context(
-    db: Session,
-    session: InvestigationSession,
-    draft: ReportDraft,
-    template,
-    *,
-    version: int,
-    generated_by: User | None,
-) -> dict:
-    """The immutable rendering input: everything the template may reference, all of it.
-
-    Emits EVERY catalogued key - empty string or empty list when absent - which is the
-    contract that makes StrictUndefined safe at render time.
-    """
-    speakers = speaker_map(db, session.id)
-    by_id = {info.speaker_id: info for info in speakers.values()}
-    blocks = sorted(draft.qa_blocks, key=lambda b: b.sequence)
-    printed = [b for b in blocks if b.included_in_report]
-
-    selected = [uuid.UUID(r) for r in (draft.selected_recording_ids or [])]
-    all_recordings = db.scalars(
-        select(AudioRecording)
-        .where(AudioRecording.session_id == session.id)
-        .order_by(AudioRecording.created_at)
-    ).all()
-
-    investigators = []
-    for link in db.scalars(
-        select(SessionInvestigator).where(SessionInvestigator.session_id == session.id)
-    ).all():
-        profile = db.get(InvestigatorProfile, link.investigator_id)
-        if profile:
-            investigators.append(
-                {
-                    "name": profile.full_name,
-                    "rank": profile.rank or "",
-                    "unit": profile.unit or "",
-                    "role": link.assignment_role.value,
-                }
-            )
-
-    subjects = []
-    for subject in db.scalars(select(Subject).where(Subject.session_id == session.id)).all():
-        subjects.append(
-            {
-                "name": subject.subject_name,
-                "rank": subject.rank or "",
-                "person_type": PERSON_TYPE_AR.get(subject.person_type.value, ""),
-                "nationality": subject.nationality_name or "",
-            }
-        )
-
-    lead = next((i for i in investigators if i["role"] == "LEAD"), None) or (
-        investigators[0] if investigators else None
-    )
-    main_subject = subjects[0] if subjects else None
-
-    qa_blocks = []
-    for index, block in enumerate(printed, start=1):
-        answer_info = by_id.get(block.answer_speaker_id)
-        question_info = by_id.get(block.question_speaker_id)
-        qa_blocks.append(
-            {
-                "index": index,
-                "number": str(index),
-                "question": block.report_question_text or "",
-                "answer": block.report_answer_text or "",
-                "question_speaker": question_info.report_name() if question_info else "",
-                "answer_speaker": answer_info.report_name() if answer_info else "",
-                "recording": ", ".join(str(r)[:8] for r in (block.source_recording_ids or [])),
-                "time_range": f"{_seconds_to_clock(block.start_seconds)} - {_seconds_to_clock(block.end_seconds)}",
-                # Disclosure: the document itself can show which lines a human reworded.
-                "edited": (block.report_answer_text or "") != (block.answer_source_text or "")
-                or (block.report_question_text or "") != (block.question_source_text or ""),
-            }
-        )
-
-    excluded = [
-        {
-            "index": b.sequence,
-            "reason": b.exclusion_reason or "",
-            "excerpt": (b.answer_source_text or b.question_source_text or "")[:120],
-        }
-        for b in blocks
-        if not b.included_in_report
-    ]
-
-    edits = [
-        {
-            "index": i,
-            "editor": "",
-            "edited_at": qa["time_range"],
-            "excerpt": qa["answer"][:120],
-        }
-        for i, qa in enumerate(qa_blocks, start=1)
-        if qa["edited"]
-    ]
-
-    now = _now()
-    context = {
-        "report_number": draft.report_number or "",
-        "case_subject": draft.case_subject or "",
-        "report_date": draft.report_date.isoformat() if draft.report_date else "",
-        "report_time": draft.report_time.strftime("%H:%M") if draft.report_time else "",
-        "report_datetime": (
-            f"{draft.report_date.isoformat()} {draft.report_time.strftime('%H:%M')}"
-            if draft.report_date and draft.report_time
-            else (draft.report_date.isoformat() if draft.report_date else "")
-        ),
-        "investigation_location": draft.location or "",
-        "session_number": session.session_number,
-        "session_title": session.title,
-        "session_date": session.session_date.isoformat() if session.session_date else "",
-        "session_status": SESSION_STATUS_AR.get(session.status.value, session.status.value),
-        "investigator_name": compose_name(lead["name"], None) if lead else "",
-        "investigator_rank": lead["rank"] if lead else "",
-        "investigator_unit": lead["unit"] if lead else "",
-        "subject_name": main_subject["name"] if main_subject else "",
-        "subject_rank": main_subject["rank"] if main_subject else "",
-        "subject_person_type": main_subject["person_type"] if main_subject else "",
-        "subject_nationality": main_subject["nationality"] if main_subject else "",
-        "intro_text": draft.intro_text or "",
-        "closing_text": draft.closing_text or "",
-        "transcript_source_label": SOURCE_MODE_AR.get(draft.transcript_source_mode, ""),
-        "generated_at": now.strftime("%Y-%m-%d %H:%M"),
-        "generated_by_name": (
-            (generated_by.profile.full_name if generated_by and generated_by.profile else None)
-            or (generated_by.username if generated_by else "")
-        ),
-        "report_version": version,
-        "template_version": template.version if template else 0,
-        # Stamped by the template itself; empty for an approved form.
-        "template_notice": DEV_TEMPLATE_NOTICE if (template and template.is_development) else "",
-        "qa_count": len(qa_blocks),
-        "recording_count": len(selected),
-        "qa_blocks": qa_blocks,
-        "investigators": investigators,
-        "subjects": subjects,
-        # EVERY recording of the session, with whether it was included: selective inclusion
-        # is visible on the document, never silent.
-        "recordings": [
-            {
-                "index": i,
-                "filename": r.original_filename,
-                "included": r.id in selected,
-                "duration": _seconds_to_clock(float(r.duration_seconds) if r.duration_seconds else None),
-                "transcript_id": "",
-            }
-            for i, r in enumerate(all_recordings, start=1)
-        ],
-        "speakers": [
-            {
-                "label": info.speaker_label,
-                "name": info.report_name(),
-                "role": info.role.value,
-                "resolved": info.resolved,
-            }
-            for info in sorted(speakers.values(), key=lambda i: i.speaker_label)
-        ],
-        "excluded_blocks": excluded,
-        "edits": edits,
-    }
-
-    missing = ALLOWED_PLACEHOLDERS - set(context)
-    if missing:  # the contract StrictUndefined depends on
-        raise FinalizationRefused("report_context_incomplete", {"missing": sorted(missing)})
-    return context
-
-
-def finalize(
-    db: Session,
-    session: InvestigationSession,
-    draft: ReportDraft,
-    template,
-    user: User,
-) -> GeneratedReport:
-    """Issue the report. Raises FinalizationRefused rather than producing a doubtful document."""
-    preflight = check_ready(db, session, draft, template)
-    if preflight.blocked or preflight.missing_fields:
-        raise FinalizationRefused(
-            preflight.blocked[0] if preflight.blocked else "report_missing_fields",
-            {"missing_fields": preflight.missing_fields, "unresolved": preflight.unresolved_labels},
-        )
-
-    version = int(
-        db.scalar(
-            select(func.max(GeneratedReport.report_version)).where(
-                GeneratedReport.session_id == session.id
-            )
-        )
-        or 0
-    ) + 1
-
+def finalize(db, session, draft, user):
+    guard_mutation(session)
+    lock_source_people(db, session)
+    reasons = check_ready(db, session, draft, verify_evidence=True)
+    if reasons:
+        raise HTTPException(409, detail={"code": "report_not_ready", "reasons": reasons})
+    version = int(db.scalar(select(func.max(GeneratedReport.report_version)).where(
+        GeneratedReport.session_id == session.id)) or 0) + 1
     report_id = uuid.uuid4()
-    structured = bool((draft.official_form or {}).get("enabled"))
-    if structured:
-        template = None
-    context = build_context(db, session, draft, template, version=version, generated_by=user)
-    pdf_bytes = None
-    if structured:
-        token = m53.review_token(draft, context)
-        try:
-            docx_bytes, pdf_bytes, layout = m53.render_documents(m53.values_for(draft), context["qa_blocks"], m53.confirmed(draft, token))
-        except ValueError as exc:
-            raise FinalizationRefused(str(exc)) from exc
-        context["official_form"] = {**draft.official_form, "content_sha256": token, "layout": layout,
-                                    "definition": m53.SPEC, "definition_sha256": m53.format_digest()}
-    else:
-        template_bytes = read_file(template.storage_path)
-        if template_bytes is None:
-            raise FinalizationRefused("report_template_file_missing")
-        docx_bytes = render(template_bytes, context)
-
-    # Sidecar: the exact rendering input, so a document can be re-derived and explained.
-    context_json = json.dumps(context, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
-
-    docx_rel = report_relative_path(session.id, report_id, version)
-    context_rel = context_relative_path(session.id, report_id, version)
-    pdf_rel = docx_rel.removesuffix(".docx") + ".pdf" if pdf_bytes else None
-
-    # File first, row second - a crash leaves at worst an unreferenced file, never a row
-    # pointing at a document that does not exist.
+    document = report_html.document_for(draft)
+    number = f"{session.session_number}/{version}"
+    html = report_document.render(document, session, issued=True, version=version, number=number)
     try:
-        _, size, docx_sha = atomic_write(docx_rel, docx_bytes)
-        atomic_write(context_rel, context_json)
-        if pdf_rel:
-            atomic_write(pdf_rel, pdf_bytes)
-        report = GeneratedReport(
-            id=report_id,
-            session_id=session.id,
-            draft_id=draft.id,
-            report_version=version,
-            template_version_id=template.id if template else None,
-            storage_path=docx_rel,
-            context_path=context_rel,
-            pdf_path=pdf_rel,
-            pdf_sha256=sha256_bytes(pdf_bytes) if pdf_bytes else None,
-            format_key=m53.REVISION if structured else None,
-            docx_sha256=docx_sha,
-            context_sha256=sha256_bytes(context_json),
-            template_sha256=template.sha256 if template else m53.format_digest(),
-            size_bytes=size,
-            report_number=draft.report_number,
-            transcript_source_mode=draft.transcript_source_mode,
-            selected_recording_ids=list(draft.selected_recording_ids or []),
-            pinned_transcripts=list(draft.pinned_transcripts or []),
-            qa_block_count=len(context["qa_blocks"]),
-            generated_by=user.id,
-        )
-        db.add(report)
-        draft.status = ReportStatus.FINAL
-        db.flush()
-    except Exception:
-        # No orphan official document may survive a failed insert.
-        remove_file(docx_rel)
-        remove_file(context_rel)
-        if pdf_rel:
-            remove_file(pdf_rel)
-        raise
-
-    log.info(
-        "report issued session=%s version=%d template=v%d blocks=%d sha256=%s",
-        session.session_number, version, template.version if template else 0, len(context["qa_blocks"]), docx_sha[:12],
-    )
+        pdf = report_document.pdf_from_html(html)
+    except Exception as exc:
+        raise HTTPException(503, detail="report_pdf_render_failed") from exc
+    snapshot = {"document": document, "session_id": str(session.id), "session_number": session.session_number,
+                "version": version, "report_number": number, "source_token": source_token(db, session),
+                "review": (draft.official_form or {}).get("html_review"), "format_digest": format_digest(),
+                "issued_by": str(user.id), "issued_at": datetime.now(timezone.utc).isoformat(),
+                "sources": source_snapshot(db, session),
+                "transcript_source_mode": draft.transcript_source_mode.value,
+                "transcript_pins": draft.pinned_transcripts, "selected_recording_ids": draft.selected_recording_ids}
+    context = json.dumps(snapshot, sort_keys=True, ensure_ascii=False, default=str).encode()
+    prefix = f"reports/{session.id}/v{version}-{report_id}"
+    # Failed commits can leave an orphan, never a row pointing to a deleted official artifact.
+    atomic_write(prefix + ".html", html.encode())
+    atomic_write(prefix + ".pdf", pdf)
+    atomic_write(prefix + ".context.json", context)
+    report = GeneratedReport(id=report_id, session_id=session.id, draft_id=draft.id,
+                             report_version=version, report_number=number, format_key="statement-html-1",
+                             html_path=prefix + ".html", html_sha256=sha256_bytes(html.encode()),
+                             pdf_path=prefix + ".pdf", pdf_sha256=sha256_bytes(pdf),
+                             context_path=prefix + ".context.json", context_sha256=sha256_bytes(context),
+                             renderer_sha256=format_digest(), size_bytes=len(pdf), generated_by=user.id,
+                             transcript_source_mode=draft.transcript_source_mode, qa_block_count=len(draft.qa_blocks),
+                             pinned_transcripts=draft.pinned_transcripts,
+                             selected_recording_ids=draft.selected_recording_ids)
+    db.add(report)
+    draft.status = ReportStatus.FINAL
+    draft.official_form = {**draft.official_form, "issued_source_token": snapshot["source_token"]}
+    session.revision += 1
+    db.flush()
     return report
 
 
-@dataclass
-class Verification:
-    ok: bool
-    docx_ok: bool
-    context_ok: bool
-    template_ok: bool
-    detail: str
-    pdf_ok: bool | None = None
-
-
-def verify(db: Session, report: GeneratedReport) -> Verification:
-    """Recompute the three hashes. Integrity verification - NOT a digital signature."""
-    from app.models import ReportTemplateVersion
-
-    docx = read_file(report.storage_path)
-    docx_ok = docx is not None and sha256_bytes(docx) == report.docx_sha256
-
-    context_ok = True
-    if report.context_path and report.context_sha256:
-        blob = read_file(report.context_path)
-        context_ok = blob is not None and sha256_bytes(blob) == report.context_sha256
-
-    template_ok = True
-    if report.template_version_id and report.template_sha256:
-        template = db.get(ReportTemplateVersion, report.template_version_id)
-        template_ok = template is not None and template.sha256 == report.template_sha256
-
-    pdf_ok = None
-    if report.pdf_path:
-        pdf = read_file(report.pdf_path)
-        pdf_ok = pdf is not None and sha256_bytes(pdf) == report.pdf_sha256
-    if report.format_key:
-        blob = read_file(report.context_path) if report.context_path else None
-        try:
-            archived = json.loads(blob or b"{}").get("official_form", {})
-            template_ok = archived.get("definition_sha256") == report.template_sha256
-        except (ValueError, TypeError):
-            template_ok = False
-    ok = bool(docx_ok and context_ok and template_ok and pdf_ok is not False)
-    if ok:
-        detail = "سليم"
-    elif docx is None:
-        detail = "الملف مفقود"
-    else:
-        detail = "غير مطابق"
-    return Verification(ok=ok, docx_ok=bool(docx_ok), context_ok=context_ok, template_ok=template_ok, detail=detail, pdf_ok=pdf_ok)
+def verify(db, report):
+    def matches(path, digest):
+        data = read_file(path) if path else None
+        return data is not None and digest is not None and sha256_bytes(data) == digest
+    result = {"report_id": str(report.id), "html_ok": matches(report.html_path, report.html_sha256),
+              "pdf_ok": matches(report.pdf_path, report.pdf_sha256),
+              "context_ok": matches(report.context_path, report.context_sha256)}
+    result["ok"] = all(result[key] for key in ("html_ok", "pdf_ok", "context_ok"))
+    result["detail"] = "verified" if result["ok"] else "missing_or_modified_artifact"
+    return result

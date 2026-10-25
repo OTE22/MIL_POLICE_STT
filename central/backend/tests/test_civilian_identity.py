@@ -11,6 +11,7 @@ name spelling being corrected, and two relatives are simply two people.
 """
 
 from __future__ import annotations
+from conftest import update_session
 
 import threading
 import uuid
@@ -47,7 +48,7 @@ def _get(client, token, session_id) -> list[dict]:
 
 
 def _save(client, token, session_id, subjects):
-    return client.put(
+    return update_session(client, 
         f"/api/investigations/{session_id}", json={"subjects": subjects}, headers=auth(token)
     )
 

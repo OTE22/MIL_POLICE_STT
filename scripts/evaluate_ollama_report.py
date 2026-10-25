@@ -43,7 +43,7 @@ def main() -> None:
     if MODEL not in installed:
         raise SystemExit(f"Required model is not installed: {MODEL}. No download attempted.")
     OUT.mkdir(parents=True, exist_ok=True)
-    source_format = ROOT / "central/backend/app/assets/m53/source_format.json"
+    source_format = ROOT / "central/backend/app/assets/html_statement.json"
     source = {
         "test_data": "Fictional evaluation only; not an actual investigation or issued report.",
         "template_excerpt": "اسمي {statement_name}، مولود عام {birth_year} في {birth_place}، ومقيم حالياً في {residence}، رقم الهاتف {phone}.",

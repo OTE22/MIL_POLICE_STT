@@ -1,0 +1,36 @@
+/* All document alignment and printing live here, separate from the application UI. */
+@page { size: A4; margin: 14mm 12mm; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #e9edf2; color: #111; font-family: Inter, "IBM Plex Sans Arabic", sans-serif; direction: rtl; }
+.report-paper { width: 186mm; max-width: 100%; min-height: 260mm; margin: 18px auto; padding: 8mm; background: white; box-shadow: 0 2px 16px #0002; }
+.report-meta { margin-bottom: 7mm; border-bottom: 2px solid #111; padding-bottom: 4mm; font-size: 12pt; }
+.report-meta h1 { font-size: 19pt; margin: 0; }
+.report-meta p { margin: 0; }
+.statement-block { margin: 0 0 9mm; }
+.statement-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 15pt; line-height: 9mm; }
+.marker-col { width: 17%; }
+.statement-table td { border: 1px solid #222; vertical-align: top; }
+.margin-marker { padding: 1mm 2mm; font-weight: bold; }
+.statement-text { padding: 1mm 2.5mm; text-align: right; overflow-wrap: anywhere; white-space: pre-wrap; background: repeating-linear-gradient(to bottom, transparent 0, transparent calc(9mm - .2mm), #c7c7c7 calc(9mm - .2mm), #c7c7c7 9mm); background-origin: content-box; }
+.statement-text p { margin: 0; }
+.statement-heading .statement-text { text-align: center; font-weight: bold; font-size: 17pt; }
+.variable { unicode-bidi: isolate; }
+.highlight-fields .variable { background: #e7f1ff; border-bottom: 1px dashed #4074af; }
+.missing, .highlight-fields .missing { background: #fff3cb; color: #745315; }
+.signature-row { display: grid; grid-template-columns: 1fr 1fr 1.3fr; gap: 3mm; text-align: center; font-size: 12pt; line-height: 7mm; }
+.note-signature-row { grid-template-columns: 1fr 1.3fr; }
+.signature-space { height: 12mm; margin: 0 2mm; border-bottom: 1px solid #333; }
+.source-time { display: block; font-size: 11pt; line-height: 6mm; color: #536174; direction: rtl; }
+.empty-report { text-align: center; padding: 15mm; }
+@media print {
+  body { background: white; }
+  .report-paper { margin: 0; padding: 0; width: auto; min-height: 0; box-shadow: none; }
+  .statement-block { break-inside: auto; }
+  .statement-table tr { break-inside: avoid; }
+  .statement-table .note-body { break-inside: auto; }
+  .statement-heading { break-after: avoid; }
+  .statement-signatures { break-inside: avoid; }
+  .highlight-fields .variable { background: transparent; border: none; }
+  .missing { background: transparent; color: #333; }
+  .statement-text { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+}

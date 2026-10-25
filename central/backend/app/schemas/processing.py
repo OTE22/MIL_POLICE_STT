@@ -25,6 +25,7 @@ AGENT_STATES = (
 
 
 class ProcessingTokenRequest(BaseModel):
+    recording_id: uuid.UUID | None = None  # explicit retry; never inferred from a filename
     original_filename: str = Field(min_length=1, max_length=255)
     mime_type: str = Field(min_length=1, max_length=100)
     size_bytes: int = Field(ge=1)

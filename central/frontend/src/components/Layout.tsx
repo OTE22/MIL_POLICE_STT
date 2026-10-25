@@ -12,7 +12,6 @@ import {
   IconMonitor,
   IconPlus,
   IconMic as IconVoice,
-  IconFile,
   IconGear,
   IconShield,
   IconUsers,
@@ -131,11 +130,6 @@ export function Layout() {
           {can("audit.read") && (
             <NavLink to="/audit" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
               <IconShield /> {T.audit}
-            </NavLink>
-          )}
-          {can("reports.templates.manage") && (
-            <NavLink to="/report-template" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
-              <IconFile /> {T.templateTitle}
             </NavLink>
           )}
           {can("system.configure") && (

@@ -120,6 +120,8 @@ export type SubjectDocumentType =
   | "OTHER";
 
 export interface SubjectDocument {
+  session_revision?: number;
+  file_versions?: { original_filename: string; sha256: string; removed_at: string }[];
   id?: string;
   subject_id?: string;
   document_type: SubjectDocumentType;
@@ -140,6 +142,8 @@ export interface SubjectDocument {
 }
 
 export interface Subject {
+  identity_name?: string | null;
+  removed_document_ids?: string[];
   statement_details?: Record<string, string>;
   identity_id?: string | null;
   id?: string;
@@ -147,7 +151,7 @@ export interface Subject {
       added; the backend mints it and echoes it back. Round-trip it or the server loses track
       of which submitted person is which existing one. NOT a person identifier. */
   participant_key?: string;
-  subject_name: string | null;
+  subject_name: string;
   person_type: PersonType;
   military_id: string | null;
   rank: string | null;
@@ -184,6 +188,9 @@ export interface Recording {
 }
 
 export interface Investigation {
+  revision: number;
+  workflow_state: string;
+  processing_summary: Record<string, number>;
   id: string;
   session_number: string;
   title: string;
@@ -209,6 +216,7 @@ export interface Investigation {
 }
 
 export interface InvestigationListItem {
+  workflow_state: string;
   id: string;
   session_number: string;
   title: string;
@@ -263,7 +271,14 @@ export interface Job {
   workstation_agent_id: string | null;
 }
 
+export interface AttributionPart { speaker_label: string; start_seconds: number; end_seconds: number; text: string }
+
 export interface Segment {
+  revision?: number;
+  attribution_parts?: AttributionPart[] | null;
+  source_segment_id?: string;
+  attribution_index?: number;
+  machine_original_text?: string;
   id: string;
   sequence: number;
   speaker_label: string;
@@ -561,183 +576,9 @@ export interface AgentJob {
 // ---------------------------------------------------------------- محضر تحقيق (report)
 
 export type ReportStatus = "DRAFT" | "FINAL";
-export type TranscriptSourceMode = "CORRECTED" | "ORIGINAL";
-export type FushaStatus =
-  | "NOT_REQUESTED"
-  | "AI_SUGGESTED"
-  | "HUMAN_EDITED"
-  | "APPROVED"
-  | "REJECTED";
-
-/** One س/ج exchange as it will be printed, beside the transcript text it came from. */
-export interface ReportQABlock {
-  id: string;
-  sequence: number;
-  question_source_text: string | null;
-  answer_source_text: string | null;
-  report_question_text: string | null;
-  report_answer_text: string | null;
-  question_speaker_id: string | null;
-  answer_speaker_id: string | null;
-  question_speaker_name: string | null;
-  answer_speaker_name: string | null;
-  answer_speaker_resolved: boolean;
-  source_segment_ids: string[];
-  source_recording_ids: string[];
-  start_seconds: number | null;
-  end_seconds: number | null;
-  included_in_report: boolean;
-  exclusion_reason: string | null;
-  fusha_status: FushaStatus;
-  llm_suggested_question: string | null;
-  llm_suggested_answer: string | null;
-  edited_at: string | null;
-}
-
-export interface ReportRecordingOption {
-  id: string;
-  index: number;
-  original_filename: string;
-  duration_seconds: number | null;
-  created_at: string;
-  has_transcript: boolean;
-  selected: boolean;
-}
-
-export interface ReportSpeaker {
-  id: string;
-  speaker_label: string;
-  source_label: string | null;
-  recording_id: string | null;
-  role: string;
-  display_name: string | null;
-  person_name: string | null;
-  resolved: boolean;
-  /** Pre-provenance row: which recording it came from was never stored. */
-  legacy: boolean;
-  report_name: string;
-}
-
-export interface ReportStalePin {
-  recording_id: string;
-  transcript_id: string;
-  reason: string;
-}
-
 export interface ReportDraft {
   id: string;
-  session_id: string;
   status: ReportStatus;
-  official_form: OfficialReportForm;
-  report_number: string | null;
-  case_subject: string | null;
-  report_date: string | null;
-  report_time: string | null;
-  location: string | null;
-  intro_text: string | null;
-  closing_text: string | null;
-  transcript_source_mode: TranscriptSourceMode;
-  unresolved_ack: boolean;
-  updated_at: string;
-  qa_blocks: ReportQABlock[];
-  recordings: ReportRecordingOption[];
-  speakers: ReportSpeaker[];
-  /** Transcripts edited since the draft was built. Refresh is always explicit. */
-  stale: ReportStalePin[];
-  missing_fields: string[];
-  unresolved_speaker_labels: string[];
-  report_version_count: number;
-  /** Whether Fusha assistance can be offered on this server at all. */
-  llm: {
-    available: boolean;
-    provider: string;
-    model: string | null;
-    fallback_reason: string | null;
-  };
-}
-
-export interface ReportTemplateVersion {
-  id: string;
-  version: number;
-  original_filename: string | null;
-  size_bytes: number | null;
-  sha256: string;
-  validation_status: "UNVALIDATED" | "VALID" | "INVALID";
-  validation_message: string | null;
-  /** The bundled stand-in, not an approved official form. */
-  is_development: boolean;
-  is_active: boolean;
-  activated_at: string | null;
-  notes: string | null;
-  uploaded_by: string | null;
-  created_at: string;
-  /** Issued reports citing this version - such a version is never deleted. */
-  reports_issued: number;
-}
-
-export interface ReportTemplateList {
-  active: ReportTemplateVersion | null;
-  /** False while the active form is the development stand-in or does not validate. */
-  production_ready: boolean;
-  environment: string;
-  versions: ReportTemplateVersion[];
-}
-
-export interface GeneratedReport {
-  id: string;
-  report_version: number;
-  report_number: string | null;
-  template_version: number | null;
-  template_is_development: boolean;
-  docx_sha256: string;
-  pdf_sha256: string | null;
-  format_key: string | null;
-  context_sha256: string | null;
-  template_sha256: string | null;
-  size_bytes: number | null;
-  qa_block_count: number | null;
-  transcript_source_mode: TranscriptSourceMode | null;
-  selected_recording_ids: string[];
-  pinned_transcripts: { recording_id: string; transcript_id: string; segments_sha256: string }[];
-  generated_by: string | null;
-  generated_by_name: string | null;
-  created_at: string;
-}
-
-export interface ReportArchive {
-  reports: GeneratedReport[];
-  can_finalize: boolean;
-  blocked_reasons: string[];
-  missing_fields: string[];
-  unresolved_speaker_labels: string[];
-  active_template_version: number | null;
-  active_template_is_development: boolean;
-}
-
-export interface ReportVerification {
-  report_id: string;
-  ok: boolean;
-  docx_ok: boolean;
-  context_ok: boolean;
-  template_ok: boolean;
-  detail: string;
-  pdf_ok: boolean | null;
-}
-
-export interface OfficialReportForm {
-  enabled: boolean;
-  values: Record<string, string>;
-  confirmations: Record<string, boolean>;
+  case_subject: string;
   token: string;
-  suggestions: Record<string, string>;
-  missing_fields: string[];
-}
-
-export interface M53Catalogue {
-  revision: string;
-  fields: { key: string; label_ar: string; required: boolean; automatic: boolean }[];
-  groups: { title: string; fields: string[] }[];
-  clauses: Record<string, string>;
-  confirmations: Record<string, string>;
-  requirements: Record<string, string[]>;
 }

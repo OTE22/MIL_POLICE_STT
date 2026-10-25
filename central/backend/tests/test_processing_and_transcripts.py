@@ -235,13 +235,14 @@ def _synced_session(client, investigator):
 def test_transcript_edit_preserves_original_and_audits(client, investigator, admin_token):
     s, tr = _synced_session(client, investigator)
     seg = tr["segments"][1]
-    res = client.patch(f"/api/transcript-segments/{seg['id']}", json={"edited_text": "كنت في المنزل مع عائلتي."}, headers=auth(investigator["token"]))
+    res = client.patch(f"/api/transcript-segments/{seg['id']}", json={"expected_revision": seg["revision"], "edited_text": "كنت في المنزل مع عائلتي."}, headers=auth(investigator["token"]))
     assert res.status_code == 200
     body = res.json()
     assert body["original_text"] == "كنت في المنزل." and body["edited_text"] == "كنت في المنزل مع عائلتي."
     assert body["edited_by"] == investigator["user"]["id"] and body["edited_at"] and body["edited_by_name"] == "الرائد علي حسن"
+    seg = body
     # restore to the original clears the correction but keeps the audit entry
-    res = client.patch(f"/api/transcript-segments/{seg['id']}", json={"edited_text": "كنت في المنزل."}, headers=auth(investigator["token"]))
+    res = client.patch(f"/api/transcript-segments/{seg['id']}", json={"expected_revision": seg["revision"], "edited_text": "كنت في المنزل."}, headers=auth(investigator["token"]))
     assert res.json()["edited_text"] is None and res.json()["original_text"] == "كنت في المنزل."
     logs = client.get("/api/audit-logs?action=TRANSCRIPT_SEGMENT_EDITED", headers=auth(admin_token)).json()
     assert logs["total"] == 2 and logs["items"][0]["safe_metadata"]["original_text_preserved"] is True
@@ -251,12 +252,12 @@ def test_transcript_edit_authorization(client, investigator, investigator2, view
     s, tr = _synced_session(client, investigator)
     seg = tr["segments"][0]
     # viewer: no transcripts.edit permission
-    assert client.patch(f"/api/transcript-segments/{seg['id']}", json={"edited_text": "x"}, headers=auth(viewer["token"])).status_code == 403
+    assert client.patch(f"/api/transcript-segments/{seg['id']}", json={"expected_revision": seg["revision"], "edited_text": "x"}, headers=auth(viewer["token"])).status_code == 403
     # other investigator: has permission but not resource access
-    assert client.patch(f"/api/transcript-segments/{seg['id']}", json={"edited_text": "x"}, headers=auth(investigator2["token"])).status_code == 404
+    assert client.patch(f"/api/transcript-segments/{seg['id']}", json={"expected_revision": seg["revision"], "edited_text": "x"}, headers=auth(investigator2["token"])).status_code == 404
     assert client.get(f"/api/investigations/{s['id']}/transcript", headers=auth(investigator2["token"])).status_code == 404
     # admin can edit anything
-    assert client.patch(f"/api/transcript-segments/{seg['id']}", json={"edited_text": "تصحيح المدير"}, headers=auth(admin_token)).status_code == 200
+    assert client.patch(f"/api/transcript-segments/{seg['id']}", json={"expected_revision": seg["revision"], "edited_text": "تصحيح المدير"}, headers=auth(admin_token)).status_code == 200
 
 
 def test_speaker_rename(client, investigator, viewer, admin_token):

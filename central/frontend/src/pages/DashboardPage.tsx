@@ -1,3 +1,4 @@
+import { workflowLabels } from "@/components/InvestigationWorkflow";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -7,7 +8,7 @@ import { useAuth } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import { T } from "@/lib/i18n";
 import { IconClock, IconFolder, IconCheck, IconWave, IconPlus, IconChevronLeft, IconFile, IconShield } from "@/components/Icons";
-import { Alert, Loading, SessionStatusBadge } from "@/components/ui";
+import { Alert, Loading, Badge, SessionStatusBadge } from "@/components/ui";
 
 export function DashboardPage() {
   const { can, user } = useAuth();
@@ -109,7 +110,7 @@ export function DashboardPage() {
                   <td className="num">{formatDate(s.session_date)}</td>
                   <td>{s.location ?? T.none}</td>
                   <td>
-                    <SessionStatusBadge status={s.status} />
+                    <div><Badge kind={s.workflow_state === "CLOSED" ? "green" : "navy"}>{workflowLabels[s.workflow_state] ?? workflowLabels.DRAFT}</Badge><div className="mt-8">معالجة التسجيلات: <SessionStatusBadge status={s.status} /></div></div>
                   </td>
                   <td className="actions-cell">
                     <Link to={`/investigations/${s.id}`} className="btn btn-sm">

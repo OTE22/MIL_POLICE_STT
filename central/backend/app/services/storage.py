@@ -67,7 +67,8 @@ def validate_declared(filename: str, mime_type: str, size_bytes: int) -> str:
 
 
 def recording_relative_path(session_id: uuid.UUID, recording_id: uuid.UUID, ext: str) -> str:
-    return f"recordings/{session_id}/{recording_id}.{ext}"
+    # A failed database commit must never cause a retry to overwrite retained audio.
+    return f"recordings/{session_id}/{recording_id}-{uuid.uuid4()}.{ext}"
 
 
 async def store_upload(upload: UploadFile, session_id: uuid.UUID, recording_id: uuid.UUID, ext: str) -> tuple[str, int, str]:

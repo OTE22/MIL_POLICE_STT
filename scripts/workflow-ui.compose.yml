@@ -1,0 +1,23 @@
+# Isolated real-API browser verification. Never point this service at the live database.
+services:
+  workflow-ui-backend:
+    image: military-stt/central-backend:1.0.0
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports: ["127.0.0.1:18000:8000"]
+    environment:
+      CENTRAL_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-stt}:${POSTGRES_PASSWORD:-stt}@postgres:5432/${POSTGRES_DB:-military_stt}_test
+      CENTRAL_AUTH_MODE: local
+      CENTRAL_ENVIRONMENT: development
+      CENTRAL_JWT_SECRET: workflow-ui-test-only-secret-01234567890123456789
+      CENTRAL_BOOTSTRAP_ADMIN_PASSWORD: AdminBootstrap!1
+      CENTRAL_STORAGE_ROOT: /tmp/workflow-ui/storage
+      CENTRAL_LOG_DIR: ""
+      CENTRAL_PROCESSING_TOKEN_PRIVATE_KEY_PATH: /tmp/workflow-ui/priv.pem
+      CENTRAL_PROCESSING_TOKEN_PUBLIC_KEY_PATH: /tmp/workflow-ui/pub.pem
+    networks: [internal]
+  workflow-ui-frontend:
+    image: military-stt/central-frontend:1.0.0
+    ports: ["127.0.0.1:18080:80"]
+    volumes:
+      - ./scripts/workflow-ui.nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks: [internal]

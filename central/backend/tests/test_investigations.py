@@ -1,4 +1,5 @@
 from __future__ import annotations
+from conftest import update_session
 
 from tests.conftest import auth, create_session
 
@@ -48,7 +49,7 @@ def test_unauthorized_resource_access(client, investigator, investigator2, viewe
     s = create_session(client, investigator["token"])
     # another investigator not assigned -> 404 (existence not revealed)
     assert client.get(f"/api/investigations/{s['id']}", headers=auth(investigator2["token"])).status_code == 404
-    assert client.put(f"/api/investigations/{s['id']}", json={"title": "hack"}, headers=auth(investigator2["token"])).status_code == 404
+    assert update_session(client, f"/api/investigations/{s['id']}", json={"title": "hack"}, headers=auth(investigator2["token"])).status_code == 404
     assert client.get("/api/investigations", headers=auth(investigator2["token"])).json()["total"] == 0
     # viewer cannot create
     assert client.post("/api/investigations", json={"title": "x"}, headers=auth(viewer["token"])).status_code == 403
@@ -56,20 +57,22 @@ def test_unauthorized_resource_access(client, investigator, investigator2, viewe
     assert client.post(f"/api/investigations/{s['id']}/local-processing-token", json={"original_filename": "a.wav", "mime_type": "audio/wav", "size_bytes": 10}, headers=auth(viewer["token"])).status_code in (403, 404)
 
 
-def test_update_investigation_and_status_transitions(client, investigator):
-    s = create_session(client, investigator["token"])
-    res = client.put(f"/api/investigations/{s['id']}", json={"title": "عنوان محدث", "location": "طرابلس", "status": "RECORDING", "subjects": []}, headers=auth(investigator["token"]))
-    assert res.status_code == 200
-    body = res.json()
-    assert body["title"] == "عنوان محدث" and body["status"] == "RECORDING" and body["subjects"] == []
-    # invalid transition RECORDING -> COMPLETED by hand
-    res = client.put(f"/api/investigations/{s['id']}", json={"status": "COMPLETED"}, headers=auth(investigator["token"]))
-    assert res.status_code == 409
-    # archive then processing token refused
-    res = client.put(f"/api/investigations/{s['id']}", json={"status": "ARCHIVED"}, headers=auth(investigator["token"]))
-    assert res.status_code == 200 and res.json()["status"] == "ARCHIVED"
-    res = client.post(f"/api/investigations/{s['id']}/local-processing-token", json={"original_filename": "a.wav", "mime_type": "audio/wav", "size_bytes": 10}, headers=auth(investigator["token"]))
-    assert res.status_code == 409 and res.json()["detail"] == "session_archived"
+def test_update_investigation_and_explicit_workflow_transitions(client, investigator):
+    token = investigator["token"]
+    session = create_session(client, token)
+    path = f"/api/investigations/{session['id']}"
+    saved = update_session(client, path, json={"title": "Updated title", "location": None}, headers=auth(token))
+    assert saved.status_code == 200 and saved.json()["location"] is None
+    assert update_session(client, path, json={"status": "COMPLETED"}, headers=auth(token)).status_code == 409
+    moved = client.post(path + "/workflow", headers=auth(token), json={
+        "expected_revision": saved.json()["revision"], "state": "IN_PROGRESS", "reason": "Begin investigation"})
+    assert moved.status_code == 200 and moved.json()["workflow_state"] == "IN_PROGRESS"
+    assert client.post(path + "/workflow", headers=auth(token), json={
+        "expected_revision": moved.json()["revision"], "state": "AWAITING_REVIEW", "reason": "Review requested"}).status_code == 409
+    archived = client.post(path + "/workflow", headers=auth(token), json={
+        "expected_revision": moved.json()["revision"], "state": "ARCHIVED", "reason": "No longer active"})
+    assert archived.status_code == 200 and archived.json()["workflow_state"] == "ARCHIVED"
+    assert update_session(client, path, json={"title": "Forbidden"}, headers=auth(token)).status_code == 409
 
 
 def test_list_filters_and_dashboard(client, investigator, admin_token):
@@ -87,7 +90,7 @@ def test_list_filters_and_dashboard(client, investigator, admin_token):
 
 def test_activity_log_for_session(client, investigator):
     s = create_session(client, investigator["token"])
-    client.put(f"/api/investigations/{s['id']}", json={"notes": "ملاحظة"}, headers=auth(investigator["token"]))
+    update_session(client, f"/api/investigations/{s['id']}", json={"notes": "ملاحظة"}, headers=auth(investigator["token"]))
     res = client.get(f"/api/investigations/{s['id']}/activity", headers=auth(investigator["token"]))
     assert res.status_code == 200
     actions = [e["action"] for e in res.json()["items"]]

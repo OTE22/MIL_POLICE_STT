@@ -26,13 +26,10 @@ from app.models.person_identifier import PersonIdentifier
 from app.models.person_identity import PersonIdentity
 from app.models.processing import AudioRecording, LocalProcessingJob, Workstation
 from app.models.report import (
-    FushaStatus,
     GeneratedReport,
     ReportDraft,
     ReportQABlock,
     ReportStatus,
-    ReportTemplateVersion,
-    TemplateValidationStatus,
     TranscriptSourceMode,
 )
 from app.models.transcript import SessionSpeaker, Transcript, TranscriptSegment
@@ -77,10 +74,7 @@ __all__ = [
     "TranscriptSegment",
     "ReportDraft",
     "ReportQABlock",
-    "ReportTemplateVersion",
     "GeneratedReport",
     "ReportStatus",
     "TranscriptSourceMode",
-    "TemplateValidationStatus",
-    "FushaStatus",
 ]

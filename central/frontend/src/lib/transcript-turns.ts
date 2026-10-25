@@ -15,7 +15,11 @@ export function groupTranscriptTurns(segments: readonly Segment[], maxPauseSecon
   const valid = (s: Segment) => Number.isFinite(s.start_seconds) && Number.isFinite(s.end_seconds)
     && s.start_seconds >= 0 && s.end_seconds > s.start_seconds;
 
-  for (const segment of segments) {
+  const reviewed = segments.flatMap(segment => segment.attribution_parts?.length
+    ? segment.attribution_parts.map((part, index) => ({ ...segment, ...part,
+      id: `${segment.id}:${index}`, source_segment_id: segment.id, attribution_index: index,
+      machine_original_text: segment.original_text, original_text: part.text, edited_text: null })) : [segment]);
+  for (const segment of reviewed) {
     const previous = turns[turns.length - 1];
     const last = previous?.segments[previous.segments.length - 1];
     const gap = last ? segment.start_seconds - last.end_seconds : Infinity;

@@ -9,6 +9,7 @@ import { useRef, useState } from "react";
 
 import { ApiError, api, getToken } from "@/api/client";
 import type {
+  Investigation,
   IdentityConfidence,
   PersonType,
   SecurityBranch,
@@ -104,6 +105,11 @@ function DocumentRow({
   const [busy, setBusy] = useState(false);
   const set = (k: keyof SubjectDocument, v: string | null) => onChange({ ...doc, [k]: v });
 
+  const refreshed = async (fallback: SubjectDocument) => {
+    const session = await api<Investigation>(`/investigations/${sessionId}`);
+    const next = session.subjects.flatMap(subject => subject.documents).find(item => item.id === doc.id);
+    onChange({ ...(next ?? fallback), session_revision: session.revision });
+  };
   const upload = async (file: File) => {
     if (!sessionId || !doc.id) {
       toast.warning(T.documentSaveFirst);
@@ -117,7 +123,7 @@ function DocumentRow({
         `/investigations/${sessionId}/subject-documents/${doc.id}/file`,
         { method: "POST", body: form },
       );
-      onChange(updated);
+      await refreshed(updated);
       toast.success(T.documentUploaded);
     } catch (err) {
       toast.error(err instanceof ApiError ? errorMessage(err.code) : T.err_generic);
@@ -132,7 +138,7 @@ function DocumentRow({
     setBusy(true);
     try {
       await api(`/investigations/${sessionId}/subject-documents/${doc.id}/file`, { method: "DELETE" });
-      onChange({ ...doc, has_file: false, original_filename: null, mime_type: null, size_bytes: null, sha256: null });
+      await refreshed({ ...doc, has_file: false, original_filename: null, mime_type: null, size_bytes: null, sha256: null });
       toast.success(T.documentFileDeleted);
     } catch (err) {
       toast.error(err instanceof ApiError ? errorMessage(err.code) : T.err_generic);
@@ -141,12 +147,12 @@ function DocumentRow({
     }
   };
 
-  const openFile = () => {
+  const openFile = (version?: number) => {
     if (!sessionId || !doc.id) return;
     // Authenticated fetch → object URL, so the token is never put in a URL.
     void (async () => {
       try {
-        const res = await fetch(`/api/investigations/${sessionId}/subject-documents/${doc.id}/file`, {
+        const res = await fetch(`/api/investigations/${sessionId}/subject-documents/${doc.id}${version ? `/versions/${version}` : ""}/file`, {
           headers: { Authorization: `Bearer ${getToken() ?? ""}` },
         });
         if (!res.ok) throw new ApiError(res.status, "document_file_not_found");
@@ -202,7 +208,7 @@ function DocumentRow({
                 <span className="ltr">{doc.original_filename}</span>
                 <span className="muted">({formatBytes(doc.size_bytes ?? null)})</span>
               </span>
-              <button className="btn btn-sm" type="button" onClick={openFile}>
+              <button className="btn btn-sm" type="button" onClick={() => openFile()}>
                 {T.viewDocumentFile}
               </button>
               {canUpload && (
@@ -235,6 +241,12 @@ function DocumentRow({
           <IconX />
         </button>
       </div>
+      {!!doc.file_versions?.length && <details className="mt-8"><summary>النسخ المحفوظة ({doc.file_versions.length})</summary>
+        {doc.file_versions.map((version, index) => <div key={index} className="flex wrap mt-8">
+          <button className="btn btn-sm" type="button" onClick={() => openFile(index + 1)}>{index + 1} ? {version.original_filename}</button>
+          <time>{new Date(version.removed_at).toLocaleString("ar-LB")}</time>
+        </div>)}
+      </details>}
       <input
         ref={fileInput}
         type="file"
@@ -477,7 +489,8 @@ export function SubjectFields({
             types={types}
             canUpload={canUploadDocuments}
             onChange={(d) => set("documents", subject.documents.map((x, idx) => (idx === i ? d : x)))}
-            onRemove={() => set("documents", subject.documents.filter((_, idx) => idx !== i))}
+            onRemove={() => onChange({ ...subject, documents: subject.documents.filter((_, idx) => idx !== i),
+              removed_document_ids: [...(subject.removed_document_ids ?? []), ...(doc.id ? [doc.id] : [])] })}
           />
         ))}
         {(subject.duplicate_of_sessions?.length ?? 0) > 0 && (

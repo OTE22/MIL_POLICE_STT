@@ -90,7 +90,7 @@ def create_user(
     if db.scalar(select(User.id).where(User.username == body.username)):
         raise HTTPException(status.HTTP_409_CONFLICT, detail="username_taken")
     if body.profile.military_id and db.scalar(
-        select(InvestigatorProfile.id).where(InvestigatorProfile.military_id == body.profile.military_id)
+        select(InvestigatorProfile.id).where(InvestigatorProfile.military_id == body.profile.military_id, InvestigatorProfile.security_branch == body.profile.security_branch)
     ):
         raise HTTPException(status.HTTP_409_CONFLICT, detail="military_id_taken")
     user = User(
@@ -106,6 +106,8 @@ def create_user(
     profile = InvestigatorProfile(user_id=user.id, created_by=admin.id, **body.profile.model_dump())
     db.add(profile)
     db.flush()
+    from app.services.person_identity import ensure_investigator_identity
+    ensure_investigator_identity(db, profile)
     record_audit(
         db,
         action=AuditAction.USER_CREATED,
@@ -158,6 +160,7 @@ def update_user(
             clash = db.scalar(
                 select(InvestigatorProfile.id).where(
                     InvestigatorProfile.military_id == body.profile.military_id,
+                    InvestigatorProfile.security_branch == body.profile.security_branch,
                     InvestigatorProfile.user_id != user.id,
                 )
             )
@@ -168,6 +171,11 @@ def update_user(
         else:
             for key, value in body.profile.model_dump().items():
                 setattr(user.profile, key, value)
+        from app.services.person_identity import ensure_investigator_identity
+        identity = ensure_investigator_identity(db, user.profile)
+        previous_name = identity.person_name
+        identity.person_name = user.profile.full_name
+        changes["previous_person_name"] = previous_name
         changes["profile"] = list(body.profile.model_dump(exclude_none=True).keys())
     record_audit(
         db,
@@ -175,7 +183,7 @@ def update_user(
         user_id=admin.id,
         entity_type="user",
         entity_id=user.id,
-        metadata={"fields": list(changes.keys())},
+        metadata={"fields": list(changes.keys()), "previous_person_name": changes.get("previous_person_name")},
         ip_address=client_ip(request),
     )
     db.commit()

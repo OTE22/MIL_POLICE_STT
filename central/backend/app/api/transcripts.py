@@ -24,7 +24,7 @@ from app.models import (
     TranscriptSegment,
     User,
 )
-from app.schemas.transcripts import SegmentEditIn, SegmentOut, SpeakerOut, SpeakerUpdateIn, TranscriptOut
+from app.schemas.transcripts import AttributionEditIn, SegmentEditIn, SegmentOut, SpeakerOut, SpeakerUpdateIn, TranscriptOut
 from app.services.audit import record_audit
 from app.services.person_identity import resolve_identity
 from app.models import PersonIdentity
@@ -44,6 +44,8 @@ def _user_name(db: Session, user_id: uuid.UUID | None) -> str | None:
 
 def _segment_out(db: Session, seg: TranscriptSegment) -> SegmentOut:
     return SegmentOut(
+        revision=seg.revision, attribution_parts=seg.attribution_parts,
+        attribution_reviewed_by=seg.attribution_reviewed_by, attribution_reviewed_at=seg.attribution_reviewed_at,
         id=seg.id,
         sequence=seg.sequence,
         speaker_label=seg.speaker_label,
@@ -85,12 +87,12 @@ def _speakers_out(db: Session, session_id: uuid.UUID) -> list[SpeakerOut]:
     latest_ids = (select(Transcript.id).where(Transcript.session_id == session_id)
                   .distinct(Transcript.recording_id)
                   .order_by(Transcript.recording_id, Transcript.created_at.desc(), Transcript.id.desc()))
-    rows = db.execute(select(
-        TranscriptSegment.speaker_label, func.count(TranscriptSegment.id),
-        func.coalesce(func.sum(TranscriptSegment.end_seconds - TranscriptSegment.start_seconds), 0),
-    ).where(TranscriptSegment.transcript_id.in_(latest_ids))
-      .group_by(TranscriptSegment.speaker_label)).all()
-    stats = {label: (int(count), float(total)) for label, count, total in rows}
+    from app.services.transcript_content import speech_parts
+    stats = {}
+    for segment in db.scalars(select(TranscriptSegment).where(TranscriptSegment.transcript_id.in_(latest_ids))).all():
+        for part in speech_parts(segment):
+            count, total = stats.get(part["speaker_label"], (0, 0.0))
+            stats[part["speaker_label"]] = (count + 1, total + float(part["end_seconds"]) - float(part["start_seconds"]))
     recording_names = dict(db.execute(select(AudioRecording.id, AudioRecording.original_filename)
                           .where(AudioRecording.session_id == session_id)).all())
     out = []
@@ -174,11 +176,19 @@ def edit_segment(
     user: User = Depends(require_permission("transcripts.edit")),
     db: Session = Depends(get_db),
 ) -> SegmentOut:
-    segment = db.get(TranscriptSegment, segment_id)
+    segment = db.scalar(select(TranscriptSegment).where(TranscriptSegment.id == segment_id).with_for_update())
     if segment is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="segment_not_found")
     transcript = db.get(Transcript, segment.transcript_id)
-    get_accessible_session(transcript.session_id, user, db)  # resource-level check
+    session = get_accessible_session(transcript.session_id, user, db)
+    session = db.scalar(select(InvestigationSession).where(InvestigationSession.id == session.id).with_for_update())
+    from app.services.workflow import evidence_changed
+    evidence_changed(session)
+    if body.expected_revision != segment.revision:
+        raise HTTPException(409, detail="segment_changed")
+    if segment.attribution_parts:
+        raise HTTPException(409, detail="edit_reviewed_attribution_parts")
+    segment.revision += 1
     new_text = body.edited_text.strip()
     previous = segment.edited_text
     if new_text == segment.original_text.strip():
@@ -230,6 +240,10 @@ def update_speaker(
     user: User = Depends(require_permission("speakers.assign")),
     db: Session = Depends(get_db),
 ) -> SpeakerOut:
+    from app.services.workflow import evidence_changed
+    session = db.scalar(select(InvestigationSession).where(InvestigationSession.id == session.id)
+                        .with_for_update().execution_options(populate_existing=True))
+    evidence_changed(session)
     speaker = db.scalar(select(SessionSpeaker).where(SessionSpeaker.id == speaker_id).with_for_update())
     if speaker is None or speaker.session_id != session.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="speaker_not_found")
@@ -309,3 +323,41 @@ def stream_recording(
     if path is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="audio_not_available")
     return FileResponse(path, media_type=recording.mime_type, filename=recording.original_filename)
+
+
+@router.put("/transcript-segments/{segment_id}/attribution", response_model=SegmentOut)
+def review_attribution(segment_id: uuid.UUID, body: AttributionEditIn, request: Request,
+                       user: User = Depends(require_permission("transcripts.edit")), db: Session = Depends(get_db)):
+    segment = db.scalar(select(TranscriptSegment).where(TranscriptSegment.id == segment_id).with_for_update())
+    if segment is None:
+        raise HTTPException(404, detail="segment_not_found")
+    transcript = db.get(Transcript, segment.transcript_id)
+    session = get_accessible_session(transcript.session_id, user, db)
+    session = db.scalar(select(InvestigationSession).where(InvestigationSession.id == session.id).with_for_update())
+    from app.services.workflow import evidence_changed
+    evidence_changed(session)
+    if body.expected_revision != segment.revision:
+        raise HTTPException(409, detail="segment_changed")
+    labels = set(db.scalars(select(SessionSpeaker.speaker_label).where(
+        SessionSpeaker.session_id == transcript.session_id,
+        SessionSpeaker.recording_id == transcript.recording_id)).all())
+    previous_end = float(segment.start_seconds)
+    for part in body.parts:
+        if part.speaker_label not in labels:
+            raise HTTPException(422, detail="attribution_speaker_outside_recording")
+        if (part.start_seconds < previous_end or part.end_seconds < part.start_seconds
+                or part.end_seconds > float(segment.end_seconds)):
+            raise HTTPException(422, detail="attribution_invalid_time_range")
+        previous_end = part.end_seconds
+    previous = segment.attribution_parts
+    segment.attribution_parts = [part.model_dump() for part in body.parts]
+    segment.attribution_reviewed_by = user.id
+    segment.attribution_reviewed_at = datetime.now(timezone.utc)
+    segment.revision += 1
+    record_audit(db, action=AuditAction.TRANSCRIPT_SEGMENT_EDITED, user_id=user.id,
+                 entity_type="transcript_segment", entity_id=segment.id,
+                 metadata={"session_id": transcript.session_id, "previous_attribution": previous,
+                           "attribution_parts": segment.attribution_parts, "revision": segment.revision},
+                 ip_address=client_ip(request))
+    db.commit()
+    return _segment_out(db, segment)

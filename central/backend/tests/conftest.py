@@ -42,9 +42,16 @@ ADMIN = {"username": "admin", "password": "AdminBootstrap!1"}
 
 @pytest.fixture(scope="session", autouse=True)
 def _migrate():
+    from sqlalchemy.engine import make_url
+    assert (make_url(TEST_DB_URL).database or "").endswith("_test"), "Refusing destructive tests outside an isolated _test database"
     cfg = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
-    command.upgrade(cfg, "head")
-    yield
+    with engine.connect() as lock:
+        lock.execute(text("SELECT pg_advisory_lock(104176210)"))
+        try:
+            command.upgrade(cfg, "head")
+            yield
+        finally:
+            lock.execute(text("SELECT pg_advisory_unlock(104176210)"))
 
 
 @pytest.fixture(autouse=True)
@@ -77,6 +84,15 @@ def login(client: TestClient, username: str, password: str) -> str:
 
 def auth(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
+
+
+def update_session(client, path, *, json, headers):
+    """Normal form edits read the current version; conflict tests use client.put directly."""
+    current = client.get(path, headers=headers)
+    payload = dict(json)
+    if current.status_code == 200:
+        payload.setdefault("expected_revision", current.json()["revision"])
+    return client.put(path, json=payload, headers=headers)
 
 
 @pytest.fixture

@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -15,13 +15,14 @@ from app.models.enums import SecurityBranch
 
 class InvestigatorProfile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "investigator_profiles"
+    __table_args__ = (UniqueConstraint("security_branch", "military_id", name="uq_investigator_service_number"),)
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False
     )
     full_name: Mapped[str] = mapped_column(String(200), nullable=False)
     rank: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    military_id: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
+    military_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # The force the serial belongs to. Part of the reference key, because a serial is unique
     # only WITHIN its force - without it, Army 4471 and ISF 4471 become one person.
     security_branch: Mapped[SecurityBranch | None] = mapped_column(

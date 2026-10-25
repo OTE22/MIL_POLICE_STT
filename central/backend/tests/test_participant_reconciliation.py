@@ -11,6 +11,7 @@ inferring it. Only one combination is genuinely unanswerable, and that one fails
 """
 
 from __future__ import annotations
+from conftest import update_session
 
 import uuid
 
@@ -51,7 +52,7 @@ def _save(client, token, session_id, subjects, removed=None):
     body = {"subjects": subjects}
     if removed is not None:
         body["removed_participant_keys"] = removed
-    return client.put(f"/api/investigations/{session_id}", json=body, headers=auth(token))
+    return update_session(client, f"/api/investigations/{session_id}", json=body, headers=auth(token))
 
 
 def _two_undocumented(client, token):

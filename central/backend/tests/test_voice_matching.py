@@ -7,6 +7,7 @@ candidates and abstained on a perfect 1.0000 match.
 """
 
 from __future__ import annotations
+from conftest import update_session
 
 import uuid
 
@@ -188,7 +189,7 @@ def _link_identity(client, token, session_id, speaker_id, reference, name):
     serial = reference.removeprefix("MIL-ARMY-")
     person = next((p for p in subjects if p.get("military_id") == serial and p.get("security_branch") == "ARMY"), None)
     if person is None or person["subject_name"] != name:
-        res = client.put(f"/api/investigations/{session_id}",
+        res = update_session(client, f"/api/investigations/{session_id}",
                          json={"subjects": subjects + [_subject_for(reference, name)]}, headers=auth(token))
         if res.status_code >= 400:
             return res

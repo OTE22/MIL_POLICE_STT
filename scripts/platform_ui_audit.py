@@ -21,13 +21,13 @@ PERMISSIONS = ["users.manage", "workstations.read", "audit.read", "system.config
 profile = dict(id="profile-1", user_id="user-1", full_name="أحمد منصور", rank="نقيب", military_id="MP-012450", security_branch="ARMY", unit="قسم التحقيقات", department="الشرطة العسكرية", job_title="محقق", phone="+961 1 234 567", email="investigator@example.test", location="بيروت", created_at=NOW, updated_at=NOW)
 user = dict(id="user-1", username="investigator", is_active=True, must_change_password=False, roles=["ADMIN"], permissions=PERMISSIONS, profile=profile, last_login_at=NOW, created_at=NOW)
 recording = dict(id="recording-1", original_filename="تسجيل الجلسة الأولى.wav", mime_type="audio/wav", size_bytes=480000, duration_seconds=30, sha256="ab" * 32, source="FILE_UPLOAD", upload_status="UPLOADED", created_at=NOW)
-session = dict(id=SESSION, title="مراجعة الإفادات والتحقق من تسلسل الوقائع", session_number="INV-2026-00128", location="غرفة التحقيق المركزية", session_date="2026-10-25", start_time="09:00:00", end_time="09:30:00", duration_seconds=1800, description="تدوين إفادات المشاركين ومراجعة الأدلة الصوتية قبل إعداد المحضر.", status="COMPLETED", notes="تُراجع الإفادات مع التسجيل الأصلي.", created_at=NOW, updated_at=NOW, created_by="user-1", created_by_name="أحمد منصور", has_transcript=True, expected_speaker_count=2, speaker_limit_warning=False, latest_job_status="COMPLETED", recordings=[recording], investigators=[dict(**profile, assignment_role="LEAD")], subjects=[])
+session = dict(id=SESSION, title="مراجعة الإفادات والتحقق من تسلسل الوقائع", session_number="INV-2026-00128", location="غرفة التحقيق المركزية", session_date="2026-10-25", start_time="09:00:00", end_time="09:30:00", duration_seconds=1800, description="تدوين إفادات المشاركين ومراجعة الأدلة الصوتية قبل إعداد المحضر.", status="COMPLETED", revision=0, workflow_state="IN_PROGRESS", processing_summary={"COMPLETED": 1}, notes="تُراجع الإفادات مع التسجيل الأصلي.", created_at=NOW, updated_at=NOW, created_by="user-1", created_by_name="أحمد منصور", has_transcript=True, expected_speaker_count=2, speaker_limit_warning=False, latest_job_status="COMPLETED", recordings=[recording], investigators=[dict(**profile, assignment_role="LEAD")], subjects=[])
 speakers = [dict(id="speaker-1", session_id=SESSION, recording_id="recording-1", recording_name=recording["original_filename"], speaker_label="SPEAKER_01", identity_id="person-1", identity_name="علي حسن", display_name="علي حسن", speaker_role="SUBJECT", notes="", segment_count=1, total_seconds=24, updated_at=NOW, identification_status="CONFIRMED", suggested_name=None, suggested_score=None, suggested_model=None, has_voice_embedding=True)]
 voice = dict(id="voice-1", identity_id="person-1", person_name="علي حسن", enrolled_person_name="علي حسن", notes="عينة صوتية مسجلة", model="Local voice identification", model_revision="1", provider="local", embedding_dim=192, sample_seconds=24, source_session_id=SESSION, source_speaker_label="SPEAKER_01", consent_recorded=True, is_active=True, enrolled_by="user-1", enrolled_by_name="أحمد منصور", created_at=NOW, updated_at=NOW)
 block = dict(id="statement-1", type="statement", speaker_id="speaker-1", identity_id="person-1", participant_key=None, values={"statement_name": "علي حسن", "statement_signature_role": "صاحب الإفادة"}, identity_checked=True, attestation_confirmed=False, entries=[dict(id="entry-1", question="يرجى توضيح وقت الوصول.", answer="وصلت إلى المكان صباحاً برفقة أحد زملائي.", source_block_ids=[])])
 document = dict(session_id=SESSION, revision="statement-html-1", subject=session["title"], investigator_id=profile["id"], blocks=[block])
 catalogue = dict(revision="statement-html-1", title="إفادة", fields=[dict(key="statement_name", label="اسم صاحب الإفادة", group="البيانات الشخصية"), dict(key="statement_signature_role", label="صفة الموقّع", group="البيانات الشخصية")], clauses=dict(heading="إفادة {statement_name}", identity="استمعنا إلى {statement_name}", place_date="بيروت في ٢٥ تشرين الأول ٢٠٢٦"), note=dict(title="ملاحظة", fields=[dict(key="note_text", label="نص الملاحظة", group="الملاحظة", multiline=True)], clauses=dict(body="{note_text}")))
-draft = dict(id="draft-1", session_id=SESSION, status="DRAFT", official_form=dict(enabled=False, values={}, confirmations={}, token="synthetic", suggestions={}, missing_fields=[]), report_number=None, case_subject=session["title"], report_date="2026-10-25", report_time="09:00", location=session["location"], intro_text="", closing_text="", transcript_source_mode="EDITED", unresolved_ack=False, updated_at=NOW, qa_blocks=[], recordings=[], speakers=[], stale=[], missing_fields=[], unresolved_speaker_labels=[], report_version_count=0, llm=dict(available=False, provider="none", model=None, fallback_reason=None))
+draft = dict(id="draft-1", session_id=SESSION, status="DRAFT", case_subject=session["title"], token="synthetic")
 config = dict(fields=[dict(key="max_speakers", group="المعالجة والتحقيق", label="عدد المتحدثين الافتراضي", description="العدد المستخدم عند إعداد جلسة جديدة.", type="int", value=4, min=1, max=12, options=None), dict(key="model", group="المعالجة والتحقيق", label="نموذج المعالجة", description="النموذج المحلي المستخدم في المعالجة.", type="select", value="local", options=["local", "standard"], min=None, max=None), dict(key="audit_enabled", group="سجل التدقيق", label="تسجيل الإجراءات", description="تسجيل الإجراءات والتغييرات في سجل التدقيق.", type="bool", value=True, min=None, max=None, options=None)])
 
 
@@ -40,6 +40,9 @@ class Handler(SimpleHTTPRequestHandler):
 
 def api(route):
     path = urlparse(route.request.url).path.removeprefix("/api")
+    if path.endswith("/report/html/preview") and route.request.method == "POST":
+        route.fulfill(content_type="application/json", body=json.dumps({"html": "<!doctype html><html lang='ar' dir='rtl'><body><p>Synthetic preview for presentation audit</p></body></html>"}))
+        return
     assert route.request.method == "GET", f"Unexpected mutation: {route.request.method} {path}"
     body = []
     if path == "/auth/me": body = user
@@ -52,15 +55,12 @@ def api(route):
     elif path == "/workstations": body = [dict(id="ws-1", device_name="MP-WORKSTATION-01", agent_id="agent-01", agent_version="1.0.0", stt_model="Arabic transcription", stt_model_revision="1", diarization_model="Speaker separation", diarization_model_revision="1", processing_device="cuda", gpu_name="RTX 4090", status="ONLINE", last_seen_at=NOW, registered_by_name="أحمد منصور")]
     elif path == "/voice-enrollments": body = [voice]
     elif path == "/voice-enrollments/candidates": body = []
-    elif path == "/report-templates": body = dict(active=None, production_ready=False, environment="development", versions=[])
-    elif path == "/report-templates/placeholders": body = dict(scalars=["session_number", "subject_name"], lists=["qa_blocks"], required=["session_number"])
     elif path == "/audit-logs" or path.endswith("/activity"): body = dict(items=[dict(id="event-1", action="auth.login", username="investigator", user_id="user-1", entity_type="user", entity_id="user-1", details={}, ip_address="127.0.0.1", created_at=NOW)], total=1, page=1, page_size=50)
     elif path.endswith("/transcript"): body = dict(id="transcript-1", session_id=SESSION, recording_id="recording-1", job_id="job-1", status="COMPLETED", language="ar", speakers=speakers, segments=[dict(id="seg-1", sequence=0, speaker_label="SPEAKER_01", start_seconds=0, end_seconds=24, original_text=block["entries"][0]["answer"], edited_text=None, confidence=.93, is_overlap=False, edited_by=None, edited_by_name=None, edited_at=None)], audio_available=False, warnings=[], created_at=NOW, completed_at=NOW)
     elif path.endswith("/report/html/people"): body = dict(session_id=SESSION, options=[dict(key="person:person-1", label="علي حسن", participant_key=None, identity_id="person-1", speaker_id="speaker-1")])
-    elif path.endswith("/report/html"): body = dict(token="synthetic", document=document)
+    elif path.endswith("/report/html"): body = dict(token="synthetic", document=document, status="DRAFT", source_token="synthetic", sources_changed=False, source_changes=[], reviewed=False, blocked_reasons=["report_review_required"])
     elif path.endswith("/report"): body = draft
     elif path.endswith("/reports"): body = dict(reports=[], can_finalize=False, blocked_reasons=[], missing_fields=[], unresolved_speaker_labels=[], active_template_version=None, active_template_is_development=False)
-    elif path == "/report-forms/m53": body = dict(revision="m53-1", fields=[dict(key="subject_name", label_ar="اسم صاحب الإفادة", required=True, automatic=False)], groups=[dict(title="بيانات صاحب الإفادة", fields=["subject_name"])], clauses={}, confirmations={}, requirements={})
     elif path == "/report-forms/html-statement": body = catalogue
     elif path == "/report-forms/note-templates": body = []
     elif path.endswith("/people"): body = []
@@ -74,7 +74,7 @@ else:
     threading.Thread(target=server.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{server.server_port}"
 
-routes = [("dashboard", "/"), ("investigations", "/investigations"), ("new-investigation", "/investigations/new"), ("edit-investigation", f"/investigations/{SESSION}/edit"), ("details", f"/investigations/{SESSION}"), ("recording", f"/investigations/{SESSION}?tab=recording"), ("transcript", f"/investigations/{SESSION}?tab=transcript"), ("speakers", f"/investigations/{SESSION}?tab=speakers"), ("activity", f"/investigations/{SESSION}?tab=activity"), ("report", f"/investigations/{SESSION}/report"), ("templates", "/report-template"), ("users", "/users"), ("workstations", "/workstations"), ("voice", "/voice-enrollments"), ("audit", "/audit"), ("settings", "/settings"), ("password", "/change-password")]
+routes = [("dashboard", "/"), ("investigations", "/investigations"), ("new-investigation", "/investigations/new"), ("edit-investigation", f"/investigations/{SESSION}/edit"), ("details", f"/investigations/{SESSION}"), ("recording", f"/investigations/{SESSION}?tab=recording"), ("transcript", f"/investigations/{SESSION}?tab=transcript"), ("speakers", f"/investigations/{SESSION}?tab=speakers"), ("activity", f"/investigations/{SESSION}?tab=activity"), ("report", f"/investigations/{SESSION}/report"), ("users", "/users"), ("workstations", "/workstations"), ("voice", "/voice-enrollments"), ("audit", "/audit"), ("settings", "/settings"), ("password", "/change-password")]
 results = []
 try:
     with sync_playwright() as pw:
@@ -151,43 +151,6 @@ try:
         page.keyboard.press("Escape")
 
         page.set_viewport_size(dict(width=1440, height=1050))
-        page.goto(base + f"/investigations/{SESSION}/report")
-        expect(page.get_by_role("button", name="تنزيل HTML", exact=True)).to_be_enabled()
-        with page.expect_download() as download_info:
-            page.get_by_role("button", name="تنزيل HTML", exact=True).click()
-        export_path = SHOTS / "synthetic-report.html"
-        download_info.value.save_as(export_path)
-        exported = export_path.read_text(encoding="utf-8")
-        assert 'font-family:"Inter"' in exported and 'font-family:"IBM Plex Sans Arabic"' in exported and exported.count("data:font/woff2;base64,") == 2
-        page.get_by_role("button", name="القوالب السابقة والمحاضر الصادرة").click()
-        expect(page.get_by_test_id("m53-form")).to_be_visible()
-        audit("legacy-report-desktop")
-        page.get_by_test_id("m53-form").get_by_role("combobox").select_option("m53")
-        audit("m53-form-desktop")
-        page.set_viewport_size(dict(width=390, height=844))
-        audit("m53-form-mobile")
-        # Return to the saved state before leaving the page; no writes are sent.
-        page.get_by_test_id("m53-form").get_by_role("combobox").select_option("word")
-        page.goto(base + f"/investigations/{SESSION}/report")
-        page.get_by_role("button", name="إضافة ملاحظة", exact=False).click()
-        page.get_by_text("إضافة صياغة قابلة لإعادة الاستخدام", exact=True).click()
-        audit("note-template-mobile")
-        page.get_by_role("button", name="إزالة", exact=True).last.click()
-        page.on("dialog", lambda dialog: dialog.accept())
-        page.goto(base + "/report-template")
-        page.get_by_role("button", name="تصميم قالب من نموذج", exact=False).click()
-        page.set_viewport_size(dict(width=1440, height=1050))
-        page.goto(base + "/voice-enrollments")
-        page.get_by_test_id("person-row").locator("button.audit-toggle").click()
-        page.get_by_test_id("person-edit").click()
-        audit("voice-modal-desktop")
-        page.keyboard.press("Escape")
-        page.goto(base + "/report-template")
-        page.get_by_role("button", name="تصميم قالب من نموذج", exact=False).click()
-        audit("template-designer-desktop")
-        page.set_viewport_size(dict(width=390, height=844))
-        audit("template-designer-mobile")
-
         login_context = browser.new_context(viewport=dict(width=1440, height=1050), reduced_motion="reduce", bypass_csp=True)
         page = login_context.new_page()
         page.goto(base + "/login")

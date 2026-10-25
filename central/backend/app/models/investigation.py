@@ -37,6 +37,8 @@ class InvestigationSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "investigation_sessions"
 
     session_number: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    workflow_state: Mapped[str] = mapped_column(String(32), nullable=False, default="DRAFT", server_default="DRAFT")
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     location: Mapped[str | None] = mapped_column(String(300), nullable=True)
@@ -57,7 +59,8 @@ class InvestigationSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         "SessionInvestigator", back_populates="session", cascade="all, delete-orphan", lazy="selectin"
     )
     subjects: Mapped[list[Subject]] = relationship(
-        "Subject", back_populates="session", cascade="all, delete-orphan", lazy="selectin"
+        "Subject", back_populates="session", cascade="all, delete-orphan", lazy="selectin",
+        primaryjoin="and_(InvestigationSession.id == Subject.session_id, Subject.removed_at.is_(None))"
     )
     recordings: Mapped[list["AudioRecording"]] = relationship(  # noqa: F821
         "AudioRecording", back_populates="session", cascade="all, delete-orphan"
@@ -98,8 +101,7 @@ class SessionInvestigator(UUIDPrimaryKeyMixin, Base):
 class Subject(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "subjects"
     __table_args__ = (
-        # DEFERRABLE: a rebuild deletes the old row and inserts the new one carrying the same
-        # key in one transaction, and the delete is not guaranteed to flush first.
+        # Stable session-local participant identity; deferral is retained for schema compatibility.
         UniqueConstraint(
             "session_id", "participant_key",
             name="uq_subject_participant_key", deferrable=True, initially="DEFERRED",
@@ -126,6 +128,7 @@ class Subject(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=True, index=True
     )
     # A person is recorded by name. Enforced in the database too - see e5c8b19d4f27.
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     subject_name: Mapped[str] = mapped_column(String(200), nullable=False)
     # Facts at this participation, never implicitly copied from another session.
     statement_details: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
@@ -168,7 +171,8 @@ class Subject(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     session: Mapped[InvestigationSession] = relationship("InvestigationSession", back_populates="subjects")
     documents: Mapped[list["SubjectDocument"]] = relationship(
-        "SubjectDocument", back_populates="subject", cascade="all, delete-orphan", lazy="selectin"
+        "SubjectDocument", back_populates="subject", cascade="all, delete-orphan", lazy="selectin",
+        primaryjoin="and_(Subject.id == SubjectDocument.subject_id, SubjectDocument.removed_at.is_(None))"
     )
 
 
@@ -185,6 +189,8 @@ class SubjectDocument(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     subject_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    file_versions: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
     document_type: Mapped[SubjectDocumentType] = mapped_column(
         Enum(SubjectDocumentType, name="subject_document_type"), nullable=False
     )

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import uuid
+import json
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.core.deps import accessible_sessions_stmt, client_ip, get_accessible_session, get_current_user, require_permission
@@ -51,34 +52,16 @@ from app.services.person_identity import (
 
 router = APIRouter(prefix="/investigations", tags=["investigations"])
 
-# Status transitions a user may request manually. Processing-related transitions
-# are driven by the Local Agent synchronization endpoints.
-_MANUAL_TRANSITIONS: dict[SessionStatus, set[SessionStatus]] = {
-    SessionStatus.DRAFT: {SessionStatus.RECORDING, SessionStatus.ARCHIVED},
-    SessionStatus.RECORDING: {SessionStatus.DRAFT, SessionStatus.ARCHIVED},
-    SessionStatus.PROCESSING: {SessionStatus.ARCHIVED},
-    SessionStatus.COMPLETED: {SessionStatus.ARCHIVED, SessionStatus.RECORDING},
-    SessionStatus.FAILED: {SessionStatus.RECORDING, SessionStatus.DRAFT, SessionStatus.ARCHIVED},
-    SessionStatus.ARCHIVED: {SessionStatus.DRAFT},
-}
-
-
 def _next_session_number(db: Session) -> str:
     year = datetime.now(timezone.utc).year
     prefix = f"INV-{year}-"
-    last = db.scalar(
-        select(InvestigationSession.session_number)
-        .where(InvestigationSession.session_number.like(f"{prefix}%"))
-        .order_by(InvestigationSession.session_number.desc())
-        .limit(1)
-    )
-    seq = 1
-    if last:
-        try:
-            seq = int(last.rsplit("-", 1)[1]) + 1
-        except ValueError:
-            seq = 1
-    return f"{prefix}{seq:05d}"
+    seq = int(db.scalar(text("SELECT COALESCE(MAX(substring(session_number FROM :pattern)::numeric), 0) + 1 "
+                         "FROM investigation_sessions WHERE session_number ~ :pattern"),
+                    {"pattern": f"^{prefix}([0-9]+)$"}))
+    number = f"{prefix}{seq:05d}"
+    if len(number) > 64:
+        raise HTTPException(409, detail="session_number_sequence_exhausted")
+    return number
 
 
 def _investigator_briefs(session: InvestigationSession) -> list[InvestigatorBrief]:
@@ -114,13 +97,14 @@ def _lead_name(session: InvestigationSession) -> str | None:
 
 def _duration(db: Session, session_id: uuid.UUID) -> float | None:
     value = db.scalar(
-        select(func.max(AudioRecording.duration_seconds)).where(AudioRecording.session_id == session_id)
+        select(func.sum(AudioRecording.duration_seconds)).where(AudioRecording.session_id == session_id)
     )
     return float(value) if value is not None else None
 
 
 def _list_item(db: Session, s: InvestigationSession) -> InvestigationListItem:
     return InvestigationListItem(
+        workflow_state=s.workflow_state,
         id=s.id,
         session_number=s.session_number,
         title=s.title,
@@ -146,7 +130,9 @@ def serialize_session(db: Session, s: InvestigationSession) -> InvestigationOut:
         .limit(1)
     )
     has_transcript = db.scalar(select(Transcript.id).where(Transcript.session_id == s.id).limit(1)) is not None
+    from app.services.workflow import processing_summary
     return InvestigationOut(
+        revision=s.revision, workflow_state=s.workflow_state, processing_summary=processing_summary(db, s.id),
         id=s.id,
         session_number=s.session_number,
         title=s.title,
@@ -164,7 +150,7 @@ def serialize_session(db: Session, s: InvestigationSession) -> InvestigationOut:
         created_at=s.created_at,
         updated_at=s.updated_at,
         investigators=_investigator_briefs(s),
-        subjects=[_subject_out(db, sub) for sub in s.subjects],
+        subjects=[_subject_out(db, sub) for sub in s.subjects if sub.removed_at is None],
         recordings=[RecordingOut.model_validate(r) for r in recordings],
         latest_job_status=latest_job.status.value if latest_job else None,
         has_transcript=has_transcript,
@@ -174,11 +160,11 @@ def serialize_session(db: Session, s: InvestigationSession) -> InvestigationOut:
 
 def _apply_investigators(db: Session, session: InvestigationSession, items) -> None:
     seen: set[uuid.UUID] = set()
-    session.investigators.clear()
-    db.flush()
+    existing = {link.investigator_id: link for link in session.investigators}
+    updated = []
     for item in items:
         if item.investigator_id in seen:
-            continue
+            raise HTTPException(422, detail="duplicate_investigator_assignment")
         profile = db.get(InvestigatorProfile, item.investigator_id)
         if profile is None:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="investigator_not_found")
@@ -192,9 +178,12 @@ def _apply_investigators(db: Session, session: InvestigationSession, items) -> N
         except InvestigatorProfileIncomplete:
             pass
         seen.add(item.investigator_id)
-        session.investigators.append(
-            SessionInvestigator(investigator_id=profile.id, assignment_role=item.assignment_role)
-        )
+        link = existing.get(profile.id) or SessionInvestigator(investigator_id=profile.id)
+        link.assignment_role = item.assignment_role
+        updated.append(link)
+    if sum(i.assignment_role == AssignmentRole.LEAD for i in updated) != 1:
+        raise HTTPException(422, detail="exactly_one_lead_required")
+    session.investigators = updated
 
 
 SUBJECT_FIELDS = (
@@ -249,33 +238,16 @@ def _apply_subjects(
     db: Session, session: InvestigationSession, items, user: User,
     removed_keys: set[uuid.UUID] | None = None,
 ) -> None:
-    """Replace the subject list, preserving already uploaded document scans by id."""
-    from app.services.document_storage import delete_document_file
+    """Update stable participants; explicit removals retain rows and all evidence."""
     from app.services.person_identifiers import attach_from_documents
-
-    existing_docs: dict[uuid.UUID, SubjectDocument] = {
-        doc.id: doc for subject in session.subjects for doc in subject.documents
-    }
-    kept: set[uuid.UUID] = set()
-    new_subjects: list[Subject] = []
-
-    existing_by_key = {sub.participant_key: sub for sub in session.subjects}
+    existing = {sub.participant_key: sub for sub in session.subjects if sub.removed_at is None}
     _reconcile_participants(session, items, removed_keys or set())
-
+    for key in removed_keys or set():
+        existing[key].removed_at = datetime.now(timezone.utc)
     for item in items:
         if _subject_is_empty(item):
             continue
-        subject = Subject(**{f: getattr(item, f) for f in SUBJECT_FIELDS})
-        # Carry the participation handle onto the rebuilt row - regenerating it here would
-        # defeat the whole point, since the row itself is deleted and re-inserted every save.
-        # A brand-new participant gets one from the column default.
-        carried = existing_by_key.get(getattr(item, "participant_key", None))
-        if carried is not None:
-            subject.participant_key = carried.participant_key
-            if "statement_details" not in item.model_fields_set:
-                subject.statement_details = dict(carried.statement_details or {})
-        # A participant retains its person through edits, even if identifying details change.
-        # Replacing that person requires an explicit remove/add operation.
+        carried = existing.get(item.participant_key)
         previous_id = carried.identity_id if carried else None
         if previous_id and item.identity_id:
             previous = resolve_identity(db, db.get(PersonIdentity, previous_id))
@@ -284,23 +256,34 @@ def _apply_subjects(
                 raise HTTPException(409, detail="participant_identity_change_not_permitted")
         identity = identity_for_person(db, item, identity_id=previous_id or item.identity_id,
                                        check_name=not bool(previous_id))
+        subject = carried or Subject()
+        for field in SUBJECT_FIELDS:
+            if carried is None or field in item.model_fields_set:
+                setattr(subject, field, getattr(item, field))
         subject.identity_id = identity.id
-        attach_from_documents(db, identity=identity, documents=item.documents, user_id=user.id)
+        docs = {doc.id: doc for doc in subject.documents if doc.removed_at is None}
+        submitted = {d.id for d in item.documents if d.id}
+        removed = set(item.removed_document_ids)
+        if not (submitted | removed) <= docs.keys() or submitted & removed:
+            raise HTTPException(422, detail="invalid_document_reference")
+        if docs.keys() - submitted - removed:
+            raise HTTPException(409, detail="explicit_document_removal_required")
+        for doc_id in removed:
+            docs[doc_id].removed_at = datetime.now(timezone.utc)
         for doc_in in item.documents:
-            if doc_in.id and doc_in.id in existing_docs:
-                doc = existing_docs[doc_in.id]
-                kept.add(doc.id)
-                for f in DOCUMENT_FIELDS:
-                    setattr(doc, f, getattr(doc_in, f))
+            doc = docs.get(doc_in.id) if doc_in.id else None
+            new_document = doc is None
+            if doc is None:
+                doc = SubjectDocument()
                 subject.documents.append(doc)
-            else:
-                subject.documents.append(SubjectDocument(**{f: getattr(doc_in, f) for f in DOCUMENT_FIELDS}))
-        new_subjects.append(subject)
-
-    for doc_id, doc in existing_docs.items():
-        if doc_id not in kept and doc.storage_path:
-            delete_document_file(doc.storage_path)
-    session.subjects = new_subjects
+            for field in DOCUMENT_FIELDS:
+                if new_document or field in doc_in.model_fields_set:
+                    setattr(doc, field, getattr(doc_in, field))
+            if doc.issue_date and doc.expiry_date and doc.expiry_date < doc.issue_date:
+                raise HTTPException(422, detail="document_expiry_before_issue")
+        attach_from_documents(db, identity=identity, documents=item.documents, user_id=user.id)
+        if carried is None:
+            session.subjects.append(subject)
 
 
 def _document_out(db: Session, doc: SubjectDocument) -> SubjectDocumentOut:
@@ -316,6 +299,7 @@ def _document_out(db: Session, doc: SubjectDocument) -> SubjectDocumentOut:
         expiry_date=doc.expiry_date,
         notes=doc.notes,
         has_file=bool(doc.storage_path),
+        file_versions=[{k: v for k, v in version.items() if k != "storage_path"} for version in doc.file_versions or []],
         original_filename=doc.original_filename,
         mime_type=doc.mime_type,
         size_bytes=doc.size_bytes,
@@ -344,14 +328,16 @@ def _duplicate_sessions(db: Session, subject: Subject) -> list[str]:
 
 
 def _subject_out(db: Session, subject: Subject) -> SubjectOut:
+    identity = resolve_identity(db, db.get(PersonIdentity, subject.identity_id)) if subject.identity_id else None
     return SubjectOut(
+        identity_name=identity.person_name if identity else None,
         **{f: getattr(subject, f) for f in SUBJECT_FIELDS},
         id=subject.id,
         # Echoed so the form can send it back: it is what identifies this participant across
-        # the rebuild, where `id` cannot.
+        # edits; the database ID is preserved as well.
         participant_key=subject.participant_key,
         identity_id=subject.identity_id,
-        documents=[_document_out(db, d) for d in subject.documents],
+        documents=[_document_out(db, d) for d in subject.documents if d.removed_at is None],
         duplicate_of_sessions=_duplicate_sessions(db, subject),
     )
 
@@ -367,7 +353,7 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
         select(func.count()).select_from(sub).where(sub.c.status == SessionStatus.PROCESSING.value)
     ) or 0
     completed = db.scalar(
-        select(func.count()).select_from(sub).where(sub.c.status == SessionStatus.COMPLETED.value)
+        select(func.count()).select_from(sub).where(sub.c.workflow_state == "CLOSED")
     ) or 0
     recent = db.scalars(base.order_by(InvestigationSession.created_at.desc()).limit(8)).all()
     return DashboardOut(
@@ -384,6 +370,7 @@ def list_investigations(
     q: str | None = Query(default=None, max_length=200),
     status_filter: SessionStatus | None = Query(default=None, alias="status"),
     investigator_id: uuid.UUID | None = Query(default=None),
+    workflow_state: str | None = Query(default=None, pattern="^(DRAFT|IN_PROGRESS|AWAITING_REVIEW|REVIEWED|CLOSED|ARCHIVED)$"),
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
     page: int = Query(default=1, ge=1),
@@ -401,6 +388,8 @@ def list_investigations(
                 InvestigationSession.location.ilike(like),
             )
         )
+    if workflow_state:
+        stmt = stmt.where(InvestigationSession.workflow_state == workflow_state)
     if status_filter:
         stmt = stmt.where(InvestigationSession.status == status_filter)
     if investigator_id:
@@ -427,7 +416,13 @@ def create_investigation(
     user: User = Depends(require_permission("investigations.create")),
     db: Session = Depends(get_db),
 ) -> InvestigationOut:
+    if body.start_time is not None and body.end_time is not None and body.end_time < body.start_time:
+        raise HTTPException(422, detail="session_time_range_invalid")
+    # Serialize automatic and explicit identifiers before checking their unique owner.
+    db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended('investigation-session-number', 0))"))
     number = body.session_number.strip() if body.session_number else _next_session_number(db)
+    if not number:
+        raise HTTPException(422, detail="session_number_required")
     if db.scalar(select(InvestigationSession.id).where(InvestigationSession.session_number == number)):
         raise HTTPException(status.HTTP_409_CONFLICT, detail="session_number_taken")
     session = InvestigationSession(
@@ -485,18 +480,24 @@ def update_investigation(
     changed: list[str] = []
     session = db.scalar(select(InvestigationSession).where(InvestigationSession.id == session.id)
                         .with_for_update().execution_options(populate_existing=True))
+    if body.expected_revision != session.revision:
+        raise HTTPException(409, detail="investigation_changed")
+    if session.workflow_state in {"CLOSED", "ARCHIVED"}:
+        raise HTTPException(409, detail="reopen_investigation_before_editing")
+    start = body.start_time if "start_time" in body.model_fields_set else session.start_time
+    end = body.end_time if "end_time" in body.model_fields_set else session.end_time
+    if start is not None and end is not None and end < start:
+        raise HTTPException(422, detail="session_time_range_invalid")
+    before = json.loads(serialize_session(db, session).model_dump_json())
     for field in ("title", "description", "location", "session_date", "start_time", "end_time", "notes", "expected_speaker_count"):
         value = getattr(body, field)
-        if value is not None and value != getattr(session, field):
+        if field in body.model_fields_set and value != getattr(session, field):
+            if field in {"title", "expected_speaker_count"} and value is None:
+                raise HTTPException(422, detail="required_field_cannot_be_null")
             setattr(session, field, value.strip() if isinstance(value, str) else value)
             changed.append(field)
-    if body.status is not None and body.status != session.status:
-        if body.status == SessionStatus.ARCHIVED and "investigations.archive" not in user.permission_codes:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="forbidden")
-        if body.status not in _MANUAL_TRANSITIONS.get(session.status, set()):
-            raise HTTPException(status.HTTP_409_CONFLICT, detail="invalid_status_transition")
-        session.status = body.status
-        changed.append("status")
+    if body.status is not None:
+        raise HTTPException(409, detail="use_investigation_workflow_endpoint")
     if body.investigators is not None:
         _apply_investigators(db, session, body.investigators)
         changed.append("investigators")
@@ -504,13 +505,20 @@ def update_investigation(
         _apply_subjects(db, session, body.subjects, user, set(body.removed_participant_keys))
         changed.append("subjects")
     if changed:
+        session.revision += 1
+        if session.workflow_state in {"REVIEWED", "AWAITING_REVIEW"}:
+            session.workflow_state = "IN_PROGRESS"
+        # New participant/document UUIDs and server timestamps must exist in the audit
+        # snapshot. A failed flush rolls back all changes without touching evidence files.
+        db.flush()
         record_audit(
             db,
             action=AuditAction.INVESTIGATION_UPDATED,
             user_id=user.id,
             entity_type="investigation_session",
             entity_id=session.id,
-            metadata={"fields": changed, "status": session.status},
+            metadata={"fields": changed, "status": session.status, "before": before, "revision": session.revision,
+                      "after": json.loads(serialize_session(db, session).model_dump_json())},
             ip_address=client_ip(request),
         )
     db.commit()
@@ -576,3 +584,32 @@ def list_session_people(
         )
 
     return out
+
+
+from pydantic import BaseModel, Field
+from typing import Literal
+
+class WorkflowUpdate(BaseModel):
+    model_config = {"str_strip_whitespace": True}
+    expected_revision: int = Field(ge=0)
+    state: Literal["DRAFT", "IN_PROGRESS", "AWAITING_REVIEW", "REVIEWED", "CLOSED", "ARCHIVED"]
+    reason: str = Field(min_length=3, max_length=2000)
+
+@router.post("/{session_id}/workflow", response_model=InvestigationOut)
+def update_workflow(body: WorkflowUpdate, request: Request,
+                    session: InvestigationSession = Depends(get_accessible_session),
+                    user: User = Depends(require_permission("investigations.update")), db: Session = Depends(get_db)):
+    from app.services.workflow import transition
+    session = db.scalar(select(InvestigationSession).where(InvestigationSession.id == session.id)
+                        .with_for_update().execution_options(populate_existing=True))
+    if body.expected_revision != session.revision:
+        raise HTTPException(409, detail="investigation_changed")
+    previous = session.workflow_state
+    transition(db, session, body.state, user)
+    record_audit(db, action=AuditAction.INVESTIGATION_UPDATED, user_id=user.id,
+                 entity_type="investigation_session", entity_id=session.id,
+                 metadata={"workflow_before": previous, "workflow_after": body.state,
+                           "reason": body.reason, "revision": session.revision}, ip_address=client_ip(request))
+    db.commit()
+    db.refresh(session)
+    return serialize_session(db, session)

@@ -1,15 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiError, http } from "@/api/client";
 import type { Investigation, ReportDraft } from "@/api/types";
 import { Alert, Field, Loading } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
+import { ReportIssuance } from "@/components/ReportIssuance";
 import { NoteTemplateControls } from "@/components/NoteTemplateControls";
-import { blockLabel, editableDocument, newEntry, newNote, newStatement, renderHtmlReport, selectionKey, selectionPayload,
+import { blockLabel, editableDocument, newEntry, newNote, newStatement, selectionKey, selectionPayload,
   type HtmlReportDocument, type HtmlReportState, type ReportBlock, type StatementBlock, type StatementCatalogue, type ReportPersonOption, type NoteTemplate } from "@/lib/html-report";
 
-export function HtmlReportEditor({ session, draft, editable, onLegacy, onDirtyChange }: {
-  session: Investigation; draft: ReportDraft; editable: boolean; onLegacy: () => void;
+export function HtmlReportEditor({ session, draft, editable, onStatusChange, onDirtyChange }: {
+  session: Investigation; draft: ReportDraft; editable: boolean; onStatusChange: () => void;
   onDirtyChange: (id: string, dirty: boolean) => void;
 }) {
   const { can } = useAuth();
@@ -18,13 +19,10 @@ export function HtmlReportEditor({ session, draft, editable, onLegacy, onDirtyCh
   const [catalogue, setCatalogue] = useState<StatementCatalogue | null>(null);
   const [people, setPeople] = useState<ReportPersonOption[]>([]);
   const [templates, setTemplates] = useState<NoteTemplate[]>([]);
-  const [font, setFont] = useState("");
-  const [latinFont, setLatinFont] = useState("");
+  const [preview, setPreview] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [highlight, setHighlight] = useState(true);
-  const [showSources, setShowSources] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [removed, setRemoved] = useState<{ block: ReportBlock; index: number } | null>(null);
   const frame = useRef<HTMLIFrameElement>(null);
@@ -38,18 +36,6 @@ export function HtmlReportEditor({ session, draft, editable, onLegacy, onDirtyCh
         setSaved(state); setDocument(state.document); setCatalogue(template); setPeople(participants.options); setTemplates(noteTemplates); setSelectedId(state.document.blocks[0]?.id ?? null);
       } })
       .catch(() => { if (!cancelled) setError("تعذر تحميل محضر HTML. أعد تحميل الصفحة."); });
-    const loadFont = async (url: string) => {
-      const response = await fetch(url);
-      if (!response.ok) throw new Error("font");
-      const buffer = await response.arrayBuffer();
-      return new Promise<string>((resolve, reject) => {
-        const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject;
-        reader.readAsDataURL(new Blob([buffer], { type: "font/woff2" }));
-      });
-    };
-    void Promise.all([loadFont("/fonts/IBMPlexSansArabic-Regular.woff2"), loadFont("/fonts/InterVariable.woff2")])
-      .then(([arabic, latin]) => { if (!cancelled) { setFont(arabic); setLatinFont(latin); } })
-      .catch(() => { if (!cancelled) setError("تعذر تحميل خطوط الطباعة. أعد تحميل الصفحة لإكمال تنزيل الملف."); });
     return () => { cancelled = true; };
   }, [path]);
   const dirty = !!document && !!saved && JSON.stringify(editableDocument(document)) !== JSON.stringify(editableDocument(saved.document));
@@ -60,12 +46,20 @@ export function HtmlReportEditor({ session, draft, editable, onLegacy, onDirtyCh
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
-  const preview = useMemo(() => document && catalogue ? renderHtmlReport(document, catalogue, session,
-    { highlight, fontDataUrl: font, latinFontDataUrl: latinFont, showSources }) : "", [document, catalogue, session, highlight, font, latinFont, showSources]);
-  const disabled = !editable || busy;
+  useEffect(() => {
+    if (!document || !saved) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void http.post<{ html: string }>(`${path}/preview`, { expected_token: saved.token, document: editableDocument(document) })
+        .then(value => { if (!cancelled) setPreview(value.html); })
+        .catch(() => { if (!cancelled) setError("\u062a\u0639\u0630\u0631 \u062a\u062d\u062f\u064a\u062b \u0645\u0639\u0627\u064a\u0646\u0629 \u0627\u0644\u0645\u062d\u0636\u0631"); });
+    }, 350);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [document, saved?.token, path]);
+  const disabled = !editable || busy || saved?.status === "FINAL";
   const active = document?.blocks.find(block => block.id === selectedId);
   const activeFields = active?.type === "note" ? catalogue?.note.fields : catalogue?.fields;
-  const change = (fn: (value: HtmlReportDocument) => HtmlReportDocument) => { setDocument(value => value ? fn(value) : value); setNotice(""); };
+  const change = (fn: (value: HtmlReportDocument) => HtmlReportDocument) => { setPreview(""); setDocument(value => value ? fn(value) : value); setNotice(""); };
   const updateBlock = (id: string, fn: (block: ReportBlock) => ReportBlock) => change(value => ({ ...value, blocks: value.blocks.map(block => block.id === id ? fn(block) : block) }));
   const updateStatement = (id: string, fn: (block: StatementBlock) => StatementBlock) => updateBlock(id, block => block.type === "statement" ? fn(block) : block);
   const choosePerson = async (block: StatementBlock, option: Pick<ReportPersonOption, "participant_key" | "identity_id" | "speaker_id"> | null) => {
@@ -86,7 +80,7 @@ export function HtmlReportEditor({ session, draft, editable, onLegacy, onDirtyCh
     setBusy(true); setError("");
     try {
       const state = await http.put<HtmlReportState>(path, { expected_token: saved.token, document: editableDocument(document) });
-      setSaved(state); setDocument(state.document); setNotice("تم حفظ المحضر بإفاداته وملاحظاته ضمن هذه الجلسة.");
+      setPreview(""); setSaved(state); setDocument(state.document); setNotice("تم حفظ المحضر بإفاداته وملاحظاته ضمن هذه الجلسة.");
     } catch (err) {
       setError(err instanceof ApiError && err.code === "html_report_changed"
         ? "تغيّر المحضر في نافذة أخرى. لم تُحفظ تعديلاتك فوقه. احتفظ بالنص وأعد تحميل الصفحة."
@@ -94,8 +88,8 @@ export function HtmlReportEditor({ session, draft, editable, onLegacy, onDirtyCh
     } finally { setBusy(false); }
   };
   const download = () => {
-    if (!saved || !catalogue) return;
-    const html = renderHtmlReport(saved.document, catalogue, session, { fontDataUrl: font, latinFontDataUrl: latinFont, showSources });
+    if (!saved || !preview) return;
+    const html = preview;
     const url = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
     const link = window.document.createElement("a"); link.href = url; link.download = `report-${session.session_number}.html`; link.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -108,10 +102,11 @@ export function HtmlReportEditor({ session, draft, editable, onLegacy, onDirtyCh
   });
   return <div className="html-report-editor" dir="rtl" data-testid="html-report-editor">
     <div className="page-header"><div><h1>المحضر — إفادات وملاحظات</h1><p><Link to={`/investigations/${session.id}`}>{session.title}</Link> · <span className="num">{session.session_number}</span></p></div>
-      <button className="btn" disabled={dirty || busy} onClick={onLegacy}>القوالب السابقة والمحاضر الصادرة</button></div>
+</div>
+    {saved && <ReportIssuance sessionId={session.id} state={saved} blocked={dirty || busy}
+      onState={state => { setPreview(""); setSaved(state); setDocument(state.document); }} onStatusChange={onStatusChange} />}
     {error && <Alert kind="danger">{error}</Alert>}
     {notice && <Alert kind="info">{notice}</Alert>}
-    {draft.stale.length > 0 && <Alert kind="warning">تغيّر النص المصدر بعد إعداد المحضر. راجع الأجوبة المرتبطة بالتسجيل قبل الاعتماد عليها.</Alert>}
     {!document || !catalogue ? <Loading /> : <>
       <div className="card"><div className="card-body">
         <div className="form-grid"><Field label="موضوع المحضر"><input className="input" value={document.subject} placeholder={draft.case_subject || session.title} disabled={disabled} onChange={e => change(value => ({ ...value, subject: e.target.value }))} /></Field>
@@ -121,17 +116,16 @@ export function HtmlReportEditor({ session, draft, editable, onLegacy, onDirtyCh
             <option value="">اختر من فريق هذه الجلسة</option>{session.investigators.map(i => <option key={i.id} value={i.id}>{[i.rank, i.full_name].filter(Boolean).join(" ")}</option>)}</select></Field></div>
         <div className="flex gap wrap mt-16">
           <button className="btn btn-primary" disabled={disabled} onClick={() => {
-            const block = newStatement();
+            const block = newStatement(); block.values = { closing_date: session.session_date ?? "", closing_location: session.location ?? "" };
             change(value => ({ ...value, blocks: [...value.blocks, block] })); setSelectedId(block.id);
           }}>+ إضافة إفادة</button>
           <button className="btn btn-primary" disabled={disabled} onClick={() => {
-            const block = newNote();
-            block.values = { closing_location: draft.location || session.location || "", closing_date: draft.report_date || session.session_date || "" };
+            const block = newNote(); block.values = { closing_date: session.session_date ?? "", closing_location: session.location ?? "", note_date: session.session_date ?? "", note_time: session.start_time ?? "" };
             change(value => ({ ...value, blocks: [...value.blocks, block] })); setSelectedId(block.id);
           }}>+ إضافة ملاحظة</button>
           <button className="btn" disabled={disabled || !dirty} onClick={() => void save()}>{busy ? "جارٍ الحفظ…" : "حفظ المحضر"}</button>
-          <button className="btn" disabled={busy || dirty || !document.blocks.length || !font} onClick={download}>تنزيل HTML</button>
-          <button className="btn" disabled={busy || dirty || !document.blocks.length || !font} onClick={() => frame.current?.contentWindow?.print()}>طباعة / حفظ PDF</button>
+          <button className="btn" disabled={busy || dirty || !document.blocks.length || !preview} onClick={download}>تنزيل HTML</button>
+          <button className="btn" disabled={busy || dirty || !document.blocks.length || !preview} onClick={() => frame.current?.contentWindow?.print()}>طباعة / حفظ PDF</button>
           <span className="small muted">{dirty ? "تغييرات غير محفوظة" : "المعاينة مطابقة للبيانات المحفوظة"} · {document.blocks.filter(b => b.type === "statement").length} إفادة · {document.blocks.filter(b => b.type === "note").length} ملاحظة</span>
         </div>
         <p className="small muted mt-8">أضف إفادة لكل شخص وملاحظة لكل إجراء، ورتّبها حسب تسلسل المحضر. الحقول الصفراء تنتظر التعبئة. الملف المحفوظ هنا مسودة HTML قابلة للطباعة.</p>
@@ -176,7 +170,7 @@ export function HtmlReportEditor({ session, draft, editable, onLegacy, onDirtyCh
               <b>الفقرة {index + 1}</b><Field label="السؤال (اختياري)"><textarea className="textarea" rows={2} disabled={disabled} value={entry.question} onChange={e => updateStatement(active.id, b => ({ ...b, entries: b.entries.map(row => row.id === entry.id ? { ...row, question: e.target.value } : row) }))} /></Field>
               <Field label="الجواب / نص الإفادة"><textarea className="textarea" rows={4} disabled={disabled} value={entry.answer} onChange={e => updateStatement(active.id, b => ({ ...b, entries: b.entries.map(row => row.id === entry.id ? { ...row, answer: e.target.value } : row) }))} /></Field>
               {entry.source_block_ids.length > 0 && <p className="small muted">مرتبط بمصدره في النص المنقح. التعديل هنا يغيّر مسودة المحضر.
-                {(entry.source_snapshot || []).map(source => <span className="source-time" key={source.block_id}> التسجيل {source.source_recording_ids.map(id => draft.recordings.find(r => r.id === id)?.index ?? "؟").join("، ")} · <span dir="ltr">{source.start_seconds?.toFixed(3) ?? "—"}–{source.end_seconds?.toFixed(3) ?? "—"}</span> ثانية</span>)}
+                {(entry.source_snapshot || []).map(source => <span className="source-time" key={source.block_id}> التسجيل {source.source_recording_ids.map(id => session.recordings.findIndex(r => r.id === id) + 1 || "؟").join("، ")} · <span dir="ltr">{source.start_seconds?.toFixed(3) ?? "—"}–{source.end_seconds?.toFixed(3) ?? "—"}</span> ثانية</span>)}
               </p>}
               <button className="btn btn-sm" disabled={disabled} onClick={() => updateStatement(active.id, b => ({ ...b, entries: b.entries.filter(row => row.id !== entry.id) }))}>إزالة الفقرة</button>
             </div>)}
@@ -185,8 +179,6 @@ export function HtmlReportEditor({ session, draft, editable, onLegacy, onDirtyCh
           </> : <p className="muted">اختر إفادة أو ملاحظة لتعبئة حقولها، أو أضف واحدة جديدة.</p>}
         </div></section>
         <section className="card html-report-preview"><div className="card-head">معاينة HTML المباشرة</div><div className="card-body flex gap wrap">
-          <label className="checkbox"><input type="checkbox" checked={highlight} onChange={e => setHighlight(e.target.checked)} />تمييز الحقول المتغيرة</label>
-          <label className="checkbox"><input type="checkbox" checked={showSources} onChange={e => setShowSources(e.target.checked)} />إظهار ثواني المصدر</label>
         </div><iframe ref={frame} title="معاينة محضر الإفادات والملاحظات" srcDoc={preview} sandbox="allow-same-origin allow-modals" /></section>
       </div>
     </>}

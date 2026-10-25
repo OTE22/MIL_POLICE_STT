@@ -109,13 +109,6 @@ async def store_document(
     return rel, size, digest.hexdigest(), detected, mime
 
 
-def delete_document_file(relative: str) -> None:
-    settings = get_settings()
-    path = (settings.storage_root / relative).resolve()
-    if settings.storage_root.resolve() in path.parents:
-        path.unlink(missing_ok=True)
-
-
 __all__ = [
     "MAX_DOCUMENT_BYTES",
     "ALLOWED_DOCUMENT_EXTENSIONS",
@@ -125,6 +118,5 @@ __all__ = [
     "sanitize_filename",
     "sniff_document",
     "store_document",
-    "delete_document_file",
     "document_relative_path",
 ]

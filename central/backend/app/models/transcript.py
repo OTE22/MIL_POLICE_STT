@@ -90,6 +90,12 @@ class TranscriptSegment(UUIDPrimaryKeyMixin, Base):
     original_text: Mapped[str] = mapped_column(Text, nullable=False)
     # Human correction (nullable until edited).
     edited_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attribution_parts: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    attribution_reviewed_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    attribution_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     confidence: Mapped[float | None] = mapped_column(Numeric(5, 4), nullable=True)
     is_overlap: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     edited_by: Mapped[uuid.UUID | None] = mapped_column(

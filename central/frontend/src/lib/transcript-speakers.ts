@@ -16,7 +16,7 @@ export function groupSpeakerObservations(speakers: Speaker[]) {
 }
 
 export function transcriptSpeakerOptions(speakers: Speaker[], segments: Segment[]) {
-  const present = new Set(segments.map(s => s.speaker_label));
+  const present = new Set(segments.flatMap(s => s.attribution_parts?.length ? s.attribution_parts.map(p => p.speaker_label) : [s.speaker_label]));
   const groups = new Map<string, { key: string; name: string; labels: string[] }>();
   for (const label of present) {
     const speaker = speakers.find(s => s.speaker_label === label);

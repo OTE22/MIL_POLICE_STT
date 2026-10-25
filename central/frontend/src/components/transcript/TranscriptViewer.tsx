@@ -30,6 +30,7 @@ function Highlight({ text, query }: { text: string; query: string }) {
 }
 
 function SegmentRow({
+  speakers,
   seg,
   active,
   query,
@@ -38,6 +39,7 @@ function SegmentRow({
   onSeek,
   onSaved,
 }: {
+  speakers: Speaker[];
   seg: Segment;
   active: boolean;
   query: string;
@@ -55,7 +57,12 @@ function SegmentRow({
   const save = async (value: string) => {
     setBusy(true);
     try {
-      const updated = await http.patch<Segment>(`/transcript-segments/${seg.id}`, { edited_text: value });
+      const updated = seg.attribution_parts?.length
+        ? await http.put<Segment>(`/transcript-segments/${seg.source_segment_id ?? seg.id}/attribution`, {
+          expected_revision: seg.revision ?? 0,
+          parts: seg.attribution_parts.map((part, index) => index === seg.attribution_index ? { ...part, text: value } : part),
+        })
+        : await http.patch<Segment>(`/transcript-segments/${seg.id}`, { edited_text: value, expected_revision: seg.revision ?? 0 });
       onSaved(updated);
       setEditing(false);
       toast.success(T.segmentSaved);
@@ -76,10 +83,24 @@ function SegmentRow({
       <div className="segment-content">
         {editing ? (
           <div className="edit-area" onClick={(e) => e.stopPropagation()}>
+            <label>نسبة القول إلى المتحدث
+              <select className="select" value={seg.speaker_label} disabled={busy} onChange={async event => {
+                setBusy(true);
+                try {
+                  const label = event.target.value;
+                  const parts = seg.attribution_parts?.length
+                    ? seg.attribution_parts.map((part, index) => index === seg.attribution_index ? { ...part, speaker_label: label } : part)
+                    : [{ speaker_label: label, start_seconds: seg.start_seconds, end_seconds: seg.end_seconds, text: draft }];
+                  const updated = await http.put<Segment>(`/transcript-segments/${seg.source_segment_id ?? seg.id}/attribution`, { expected_revision: seg.revision ?? 0, parts });
+                  onSaved(updated); setEditing(false);
+                } catch { toast.error(T.err_generic); } finally { setBusy(false); }
+              }}>{speakers.filter(s => s.recording_id === speakers.find(x => x.speaker_label === seg.speaker_label)?.recording_id).map(s =>
+                <option key={s.id} value={s.speaker_label}>{s.identity_name || s.display_name || s.speaker_label}</option>)}</select>
+            </label>
             <textarea className="textarea" aria-label="تعديل نص المقطع" value={draft} onChange={(e) => setDraft(e.target.value)} disabled={busy} autoFocus />
             <div className="orig-box">
               <b>{T.original} ({T.aiResult})</b>
-              {seg.original_text}
+              {seg.machine_original_text ?? seg.original_text}
             </div>
             <div className="flex">
               <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => void save(draft)} type="button">
@@ -101,7 +122,7 @@ function SegmentRow({
               <Highlight text={text} query={query} />
             </div>
             <div className="tags">
-              {seg.edited_text ? (
+              {seg.edited_text || seg.attribution_parts?.length ? (
                 <Badge kind="amber">
                   {T.edited}
                   {seg.edited_by_name ? ` — ${seg.edited_by_name}` : ""}
@@ -113,8 +134,8 @@ function SegmentRow({
               {seg.is_overlap && <Badge kind="red">{T.overlap}</Badge>}
               {seg.confidence != null && <span className="small muted num">{Math.round(seg.confidence * 100)}%</span>}
             </div>
-            {seg.edited_text && (
-              <details className="transcript-original"><summary>مقارنة مع النص الأصلي</summary><div className="orig-box mt-8"><b>{T.original}</b>{seg.original_text}</div></details>
+            {(seg.edited_text || seg.attribution_parts?.length) && (
+              <details className="transcript-original"><summary>مقارنة مع النص الأصلي</summary><div className="orig-box mt-8"><b>{T.original}</b>{seg.machine_original_text ?? seg.original_text}</div></details>
             )}
           </>
         )}
@@ -153,8 +174,8 @@ function SpeakerTurnRow({ turn, speakers, activeId, query, canEdit, canPlay, onS
         </h4>
       </div>
       <div className="speaker-turn-parts">
-        {turn.segments.map(seg => <SegmentRow key={seg.id} seg={seg}
-          active={seg.id === activeId} query={query} canEdit={canEdit} canPlay={canPlay} onSeek={onSeek} onSaved={onSaved} />)}
+        {turn.segments.map(seg => <SegmentRow key={seg.id} seg={seg} speakers={speakers}
+          active={(seg.source_segment_id ?? seg.id) === activeId} query={query} canEdit={canEdit} canPlay={canPlay} onSeek={onSeek} onSaved={onSaved} />)}
       </div>
     </section>
   );

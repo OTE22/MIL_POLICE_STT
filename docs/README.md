@@ -46,9 +46,9 @@ The interface is in Arabic. These are the ones worth knowing before you start.
 | **تحديد الهوية** | Saying which real person a voice belongs to. Only a human does this. |
 | **بصمة الصوت** (voice print) | A stored measurement of someone's voice, used to *suggest* their name in later interviews. A suggestion is never accepted automatically. |
 | **تأكيد وحدة الهوية** | A recorded human decision that selected prints belong to the displayed person, within one group or across groups. It does not merge vectors or person records. |
-| **محضر تحقيق** | The official Word document produced from a session. |
+| **محضر تحقيق** | The official immutable HTML/PDF document issued from a reviewed session. |
 | **الصياغة بالفصحى** | An optional AI suggestion that rewrites colloquial Arabic into formal Arabic. You approve, edit or reject every one. |
-| **القالب الرسمي** | The approved Word file that controls how the محضر *looks*. An administrator uploads it once. |
+| **القالب الرسمي** | The versioned server HTML renderer and bundled fonts. Word/M53 template management has been retired. |
 
 ---
 
@@ -95,3 +95,5 @@ Worth knowing on day one, because they explain most of its behaviour:
 [speaker-identification.md](speaker-identification.md) · voice matching internals
 [subject-identity.md](subject-identity.md) · how a person is identified
 [testing.md](testing.md) · the test suites and results
+
+Workflow ownership: [field lineage and duplication matrix](investigation-workflow-field-lineage.md).

@@ -95,7 +95,6 @@ class Settings(BaseSettings):
     report_fusha_timeout_seconds: int = 120
     report_fusha_max_input_chars: int = 4000
     report_max_qa_blocks: int = 500
-    report_template_upload_max_mb: int = 20
 
     # Which runtime may serve it. "auto" resolves by environment: development may use the
     # hosted NVIDIA NIM catalogue, production is LOCAL ONLY and never falls back to a cloud

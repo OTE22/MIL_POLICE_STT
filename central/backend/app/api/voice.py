@@ -300,6 +300,10 @@ def enroll_from_speaker(
     db: Session = Depends(get_db),
 ) -> VoiceEnrollmentOut:
     """Create a voice template from a speaker whose identity is already established."""
+    from app.services.workflow import evidence_changed
+    session = db.scalar(select(InvestigationSession).where(InvestigationSession.id == session.id)
+                        .with_for_update().execution_options(populate_existing=True))
+    evidence_changed(session)
     speaker = db.get(SessionSpeaker, speaker_id)
     if speaker is None or speaker.session_id != session.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="speaker_not_found")
@@ -428,6 +432,9 @@ def update_enrollment(
         if not new_name:
             raise HTTPException(400, detail="person_name_required")
         identity.person_name = new_name
+        from app.models import InvestigatorProfile
+        for profile in db.scalars(select(InvestigatorProfile).where(InvestigatorProfile.identity_id == identity.id)):
+            profile.full_name = new_name
         affected = [e.id for e in db.scalars(
             select(VoiceEnrollment).where(VoiceEnrollment.identity_id == identity.id)
         ).all()]
@@ -559,6 +566,10 @@ def decide_suggestion(
     and it requires `speakers.assign` as well - the same permission as typing the name
     by hand.
     """
+    from app.services.workflow import evidence_changed
+    session = db.scalar(select(InvestigationSession).where(InvestigationSession.id == session.id)
+                        .with_for_update().execution_options(populate_existing=True))
+    evidence_changed(session)
     speaker = db.get(SessionSpeaker, speaker_id)
     if speaker is None or speaker.session_id != session.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="speaker_not_found")
@@ -643,6 +654,10 @@ def rematch_session(
     enrolled afterwards is never applied to an existing session. This closes that gap
     without reprocessing any audio. Confirmed and rejected speakers are left untouched.
     """
+    from app.services.workflow import evidence_changed
+    session = db.scalar(select(InvestigationSession).where(InvestigationSession.id == session.id)
+                        .with_for_update().execution_options(populate_existing=True))
+    evidence_changed(session)
     diagnostics: dict[str, int] = {}
     _, scanned, suggested = rematch_speakers(
         db, session_ids=[session.id], user_id=user.id, diagnostics=diagnostics
