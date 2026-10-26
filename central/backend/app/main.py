@@ -22,6 +22,7 @@ from app.api import (
     llm_capabilities,
     processing,
     reports,
+    report_dictation,
     subject_documents,
     transcripts,
     users,
@@ -182,6 +183,7 @@ def create_app() -> FastAPI:
     app.include_router(subject_documents.router, prefix=api_prefix)
     app.include_router(voice.router, prefix=api_prefix)
     app.include_router(reports.router, prefix=api_prefix)
+    app.include_router(report_dictation.router, prefix=api_prefix)
     app.include_router(llm_capabilities.router, prefix=api_prefix)
     app.include_router(admin.router, prefix=api_prefix)
 

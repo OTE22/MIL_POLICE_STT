@@ -1,0 +1,53 @@
+.report-studio { --report-olive: #9ead78; }
+.report-studio .report-context { margin-bottom: 20px; }
+.report-studio .report-context .form-grid { grid-template-columns: minmax(260px, 2fr) repeat(2, minmax(180px, 1fr)); }
+.report-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+.report-save-state { padding: 9px 16px; border: 1px solid var(--border); border-radius: 8px; color: var(--report-olive); }
+.report-studio-grid { display: grid; grid-template-columns: minmax(190px, .65fr) minmax(390px, 1.7fr) minmax(330px, 1.2fr); align-items: start; gap: 16px; }
+.report-studio-grid > * { min-width: 0; }
+.report-outline { position: sticky; top: 20px; max-height: calc(100vh - 50px); overflow: auto; }
+.report-outline-item { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.report-outline-item.selected { border-inline-start: 3px solid var(--report-olive); padding-inline-start: 8px; background: rgba(158,173,120,.08); }
+.report-outline-item > button { text-align: start; display: flex; flex-direction: column; align-items: flex-start; width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.report-outline-item .btn-sm { min-height: 38px; }
+.report-needs { color: #e8c777; font-size: 14px; margin-top: 4px; }
+.report-paper { position: sticky; top: 20px; }
+.report-paper iframe { width: 100%; height: calc(100vh - 120px); min-height: 650px; display: block; border: 0; background: #e7e8e4; }
+.report-edit-panel .card-head { overflow-wrap: anywhere; }
+.report-focused-fields { display: grid; gap: 18px; }
+.report-focused-fields .form-grid { grid-template-columns: 1fr; }
+.report-focused-fields .textarea { font-size: 17px; line-height: 1.9; resize: vertical; }
+.report-focused-fields .html-answer-editor { margin-top: 16px; }
+.report-focused-fields details > summary { padding: 12px 0; cursor: pointer; font-weight: 600; }
+.report-reference-group { border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin: 12px 0; min-width: 0; }
+.report-reference-group .checkbox { overflow-wrap: anywhere; }
+.report-pdf-frame { display: block; width: 100%; height: 85vh; min-height: 650px; border: 1px solid var(--border); margin: 18px 0; background: #e7e8e4; }
+.report-attention { display: block; text-align: start; white-space: normal; margin-top: 8px; }
+.report-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 18px 0; }
+.report-compare > * { min-width: 0; border: 1px solid var(--border); padding: 16px; overflow-wrap: anywhere; }
+.report-compare pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.8; }
+.preserve-lines { white-space: pre-wrap; overflow-wrap: anywhere; }
+.report-dictation { margin-top: 22px; border-inline-start: 4px solid var(--report-olive); }
+.dictation-review { margin-top: 20px; padding-block: 18px; border-top: 1px solid var(--border); }
+.dictation-review > * + * { margin-top: 12px; }
+.recorder-source-choice[hidden] { display: none; }
+.report-mobile-tabs { display: none; }
+@media (max-width: 1500px) {
+  .report-studio-grid { grid-template-columns: 220px minmax(400px, 1fr); }
+  .report-paper { grid-column: 2; grid-row: 1 / span 2; }
+  .report-outline { position: static; max-height: 400px; }
+  .report-edit-panel { grid-column: 1 / -1; }
+  .report-focused-fields { max-width: 950px; margin-inline: auto; }
+  .report-paper iframe { height: 700px; }
+}
+@media (max-width: 900px) {
+  .report-studio .report-context .form-grid { grid-template-columns: 1fr; }
+  .report-mobile-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+  .report-studio-grid { display: block; }
+  .report-studio-grid > * { display: none; }
+  .report-studio-grid.show-outline .report-outline, .report-studio-grid.show-edit .report-edit-panel, .report-studio-grid.show-preview .report-paper { display: block; }
+  .report-outline, .report-paper { position: static; max-height: none; }
+  .report-compare { grid-template-columns: 1fr; }
+  .report-toolbar .btn { flex: 1 1 44%; }
+  .report-paper iframe, .report-pdf-frame { height: 75vh; min-height: 500px; }
+}

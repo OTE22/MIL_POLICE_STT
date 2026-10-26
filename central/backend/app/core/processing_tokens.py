@@ -85,6 +85,7 @@ def issue_processing_token(
     recording_id: uuid.UUID,
     user_id: uuid.UUID,
     session_number: str,
+    purpose: str = "INTERVIEW",
 ) -> IssuedProcessingToken:
     settings = get_settings()
     now = datetime.now(timezone.utc)
@@ -106,6 +107,7 @@ def issue_processing_token(
         "user_id": str(user_id),
         "session_number": session_number,
         "allowed_action": ALLOWED_ACTION,
+        "purpose": purpose,
     }
     token = jwt.encode(payload, load_private_key(), algorithm="ES256", headers={"kid": "central-es256-v1"})
     return IssuedProcessingToken(

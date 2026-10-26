@@ -12,7 +12,7 @@ export function InvestigationWorkflow({ session, onChange }: { session: Investig
   const [busy, setBusy] = useState(false);
   return <section className="card card-body"><h2>حالة جلسة التحقيق: {workflowLabels[session.workflow_state] ?? workflowLabels.DRAFT}</h2>
     <p>المراجعة والإقفال مستقلان عن انتهاء معالجة التسجيلات.</p>
-    <p>مهام المعالجة: نشطة {(session.processing_summary?.REQUESTED ?? 0) + (session.processing_summary?.ACCEPTED ?? 0) + (session.processing_summary?.PROCESSING ?? 0)} · فاشلة {session.processing_summary?.FAILED ?? 0} · مكتملة {session.processing_summary?.COMPLETED ?? 0}</p>
+    <p>مهام المعالجة: نشطة {(session.processing_summary?.REQUESTED ?? 0) + (session.processing_summary?.ACCEPTED ?? 0) + (session.processing_summary?.PROCESSING ?? 0)} · تحتاج إعادة المحاولة {session.unresolved_processing_failures ?? 0} · مكتملة {session.processing_summary?.COMPLETED ?? 0}</p>
     {error && <Alert kind="danger">{error}</Alert>}
     {can("investigations.update") && <><Field label="سبب الانتقال أو إعادة الفتح"><input className="input" value={reason} maxLength={2000} onChange={e => setReason(e.target.value)} /></Field>
       <div className="flex gap wrap">{(transitions[session.workflow_state] ?? []).filter(state =>

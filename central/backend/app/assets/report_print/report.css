@@ -10,6 +10,12 @@ body { margin: 0; background: #e9edf2; color: #111; font-family: Inter, "IBM Ple
 .statement-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 15pt; line-height: 9mm; }
 .marker-col { width: 17%; }
 .statement-table td { border: 1px solid #222; vertical-align: top; }
+.statement-table th { border: 1px solid #222; padding: 1mm 2mm; font-weight: 700; }
+.statement-table thead { display: table-header-group; }
+.conclusion-block { break-before: page; margin-top: 12mm; }
+.conclusion-block .signature-row { display: block; text-align: left; }
+.highlight-fields .statement-block { cursor: pointer; outline: 2px solid transparent; outline-offset: 3px; }
+.highlight-fields .statement-block:focus, .highlight-fields .statement-block.selected { outline-color: #66704e; background: #f3f4ed; }
 .margin-marker { padding: 1mm 2mm; font-weight: bold; }
 .statement-text { padding: 1mm 2.5mm; text-align: right; overflow-wrap: anywhere; white-space: pre-wrap; background: repeating-linear-gradient(to bottom, transparent 0, transparent calc(9mm - .2mm), #c7c7c7 calc(9mm - .2mm), #c7c7c7 9mm); background-origin: content-box; }
 .statement-text p { margin: 0; }
@@ -28,6 +34,8 @@ body { margin: 0; background: #e9edf2; color: #111; font-family: Inter, "IBM Ple
   .statement-block { break-inside: auto; }
   .statement-table tr { break-inside: avoid; }
   .statement-table .note-body { break-inside: auto; }
+  .statement-table .qa-row, .statement-table .conclusion-body { break-inside: auto; }
+  .conclusion-block { margin-top: 0; }
   .statement-heading { break-after: avoid; }
   .statement-signatures { break-inside: avoid; }
   .highlight-fields .variable { background: transparent; border: none; }

@@ -1,0 +1,187 @@
+#1 [internal] load local bake definitions
+#1 reading from stdin 1.35kB done
+#1 DONE 0.0s
+
+#2 [backend internal] load build definition from Dockerfile
+#2 transferring dockerfile: 30B
+#2 transferring dockerfile: 1.32kB 0.1s done
+#2 DONE 0.3s
+
+#3 [frontend internal] load build definition from Dockerfile
+#3 transferring dockerfile: 471B 0.1s done
+#3 DONE 0.4s
+
+#4 [frontend] resolve image config for docker-image://docker.io/docker/dockerfile:1.7
+#4 ...
+
+#5 [auth] docker/dockerfile:pull token for registry-1.docker.io
+#5 DONE 0.0s
+
+#4 [frontend] resolve image config for docker-image://docker.io/docker/dockerfile:1.7
+#4 DONE 5.7s
+
+#6 [frontend] docker-image://docker.io/docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+#6 resolve docker.io/docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+#6 resolve docker.io/docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e 0.4s done
+#6 resolve docker.io/docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e 0.4s done
+#6 CACHED
+
+#7 [frontend internal] load metadata for docker.io/library/nginx:1.27-alpine
+#7 ...
+
+#8 [auth] library/nginx:pull token for registry-1.docker.io
+#8 DONE 0.0s
+
+#9 [auth] library/node:pull token for registry-1.docker.io
+#9 DONE 0.0s
+
+#10 [backend internal] load metadata for docker.io/library/python:3.11-slim
+#10 ...
+
+#11 [auth] library/python:pull token for registry-1.docker.io
+#11 DONE 0.0s
+
+#7 [frontend internal] load metadata for docker.io/library/nginx:1.27-alpine
+#7 DONE 1.8s
+
+#12 [frontend internal] load metadata for docker.io/library/node:20-alpine
+#12 DONE 1.9s
+
+#10 [backend internal] load metadata for docker.io/library/python:3.11-slim
+#10 ...
+
+#13 [frontend internal] load .dockerignore
+#13 transferring context: 95B 0.0s done
+#13 DONE 0.2s
+
+#10 [backend internal] load metadata for docker.io/library/python:3.11-slim
+#10 DONE 2.4s
+
+#14 [backend internal] load .dockerignore
+#14 ...
+
+#15 [frontend internal] load build context
+#15 DONE 0.0s
+
+#14 [backend internal] load .dockerignore
+#14 transferring context: 564B 0.0s done
+#14 DONE 0.3s
+
+#16 [frontend build 1/6] FROM docker.io/library/node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
+#16 resolve docker.io/library/node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
+#16 ...
+
+#17 [backend internal] load build context
+#17 DONE 0.0s
+
+#16 [frontend build 1/6] FROM docker.io/library/node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
+#16 resolve docker.io/library/node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 0.7s done
+#16 DONE 0.8s
+
+#18 [frontend stage-1 1/3] FROM docker.io/library/nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
+#18 resolve docker.io/library/nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10 0.7s done
+#18 DONE 0.8s
+
+#15 [frontend internal] load build context
+#15 transferring context: 4.35kB 0.1s done
+#15 DONE 0.3s
+
+#19 [backend 1/8] FROM docker.io/library/python:3.11-slim@sha256:b7a9e5f6a93d6d4a31f129bbd4bdee69efccb6ded0fb230d78aafaf37af98377
+#19 resolve docker.io/library/python:3.11-slim@sha256:b7a9e5f6a93d6d4a31f129bbd4bdee69efccb6ded0fb230d78aafaf37af98377 0.3s done
+#19 DONE 0.4s
+
+#17 [backend internal] load build context
+#17 ...
+
+#20 [frontend stage-1 2/3] COPY nginx.conf /etc/nginx/conf.d/default.conf
+#20 CACHED
+
+#21 [frontend build 2/6] WORKDIR /src
+#21 CACHED
+
+#22 [frontend build 3/6] COPY package.json package-lock.json* ./
+#22 CACHED
+
+#23 [frontend build 4/6] RUN npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+#23 CACHED
+
+#24 [frontend build 5/6] COPY . .
+#24 CACHED
+
+#25 [frontend build 6/6] RUN npm run build
+#25 CACHED
+
+#17 [backend internal] load build context
+#17 ...
+
+#26 [frontend stage-1 3/3] COPY --from=build /src/dist /usr/share/nginx/html
+#26 CACHED
+
+#17 [backend internal] load build context
+#17 transferring context: 144.32kB 0.2s done
+#17 DONE 0.5s
+
+#27 [frontend] exporting to image
+#27 exporting layers 0.0s done
+#27 exporting manifest sha256:a583f52acc5c92ca2dc1f1cafd1a047055aee5ca9ace3a5c5bbc82cd28d5fa42 0.0s done
+#27 exporting config sha256:e191afe8ae277aad4a1d5f53572d7a853137468d6557fa9bc026fc771344e068 0.1s done
+#27 ...
+
+#28 [backend 2/8] RUN apt-get update     && apt-get install -y --no-install-recommends curl     && rm -rf /var/lib/apt/lists/*     && groupadd --gid 1000 app     && useradd --uid 1000 --gid app --create-home --shell /usr/sbin/nologin app
+#28 CACHED
+
+#29 [backend 3/8] WORKDIR /app
+#29 CACHED
+
+#30 [backend 4/8] COPY requirements.txt requirements-dev.txt ./
+#30 CACHED
+
+#31 [backend 5/8] RUN if [ "false" = "true" ]; then pip install -r requirements-dev.txt; else pip install -r requirements.txt; fi
+#31 CACHED
+
+#32 [backend 6/8] RUN python -m playwright install --with-deps --only-shell chromium && chmod -R a+rX /opt/ms-playwright
+#32 CACHED
+
+#27 [frontend] exporting to image
+#27 exporting attestation manifest sha256:49d41aa52de39f2cfec640eb0d173b0d2ed59c07c329cc40b825d72873ce2802
+#27 exporting attestation manifest sha256:49d41aa52de39f2cfec640eb0d173b0d2ed59c07c329cc40b825d72873ce2802 0.7s done
+#27 exporting manifest list sha256:ed771b4ed9d95de3aefa26d9d7536c7557f160577bd648989334171b0e0cab0b
+#27 exporting manifest list sha256:ed771b4ed9d95de3aefa26d9d7536c7557f160577bd648989334171b0e0cab0b 0.8s done
+#27 naming to docker.io/military-stt/central-frontend:1.0.0
+#27 naming to docker.io/military-stt/central-frontend:1.0.0 0.0s done
+#27 unpacking to docker.io/military-stt/central-frontend:1.0.0 0.1s done
+#27 DONE 2.1s
+
+#33 [backend 7/8] COPY --chown=app:app . .
+#33 DONE 3.1s
+
+#34 [backend 8/8] RUN chmod +x /app/docker-entrypoint.sh     && mkdir -p /storage/recordings /run/secrets     && chown -R app:app /storage /run/secrets
+#34 ...
+
+#35 [frontend] resolving provenance for metadata file
+#35 DONE 0.1s
+
+#34 [backend 8/8] RUN chmod +x /app/docker-entrypoint.sh     && mkdir -p /storage/recordings /run/secrets     && chown -R app:app /storage /run/secrets
+#34 DONE 2.1s
+
+#36 [backend] exporting to image
+#36 exporting layers
+#36 exporting layers 2.4s done
+#36 exporting manifest sha256:fbb5f3d82334704577f6450807824180e4e94aa42818dd428dbb37ad8f063786
+#36 exporting manifest sha256:fbb5f3d82334704577f6450807824180e4e94aa42818dd428dbb37ad8f063786 0.2s done
+#36 exporting config sha256:5a103cf0a6537394a74c01a26890ec36046b3cbb14a8434fd8602245e81015fa
+#36 exporting config sha256:5a103cf0a6537394a74c01a26890ec36046b3cbb14a8434fd8602245e81015fa 0.2s done
+#36 exporting attestation manifest sha256:d50b571261ce06e75b2abf4f40c9423d514feed21d3f951bc08e3093b271060c
+#36 exporting attestation manifest sha256:d50b571261ce06e75b2abf4f40c9423d514feed21d3f951bc08e3093b271060c 0.3s done
+#36 exporting manifest list sha256:fa4787fd097ecce5c49b24c33c27ab6d14f13d76f841438b8e0ee11d58ac508d
+#36 exporting manifest list sha256:fa4787fd097ecce5c49b24c33c27ab6d14f13d76f841438b8e0ee11d58ac508d 0.1s done
+#36 naming to docker.io/military-stt/central-backend:1.0.0
+#36 naming to docker.io/military-stt/central-backend:1.0.0 done
+#36 unpacking to docker.io/military-stt/central-backend:1.0.0
+#36 unpacking to docker.io/military-stt/central-backend:1.0.0 0.3s done
+#36 DONE 5.1s
+
+#37 [backend] resolving provenance for metadata file
+#37 DONE 0.0s
+ military-stt/central-backend:1.0.0  Built
+ military-stt/central-frontend:1.0.0  Built

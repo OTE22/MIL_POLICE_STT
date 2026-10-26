@@ -30,16 +30,18 @@ export function Recorder({
   disabled,
   pending,
   onReady,
+  microphoneOnly = false,
 }: {
   disabled: boolean;
   pending: PendingAudio | null;
   onReady: (audio: PendingAudio | null) => void;
+  microphoneOnly?: boolean;
 }) {
   const [mic, setMic] = useState<MicState>("idle");
   const [rec, setRec] = useState<RecState>("idle");
   const [elapsed, setElapsed] = useState(0);
   const [level, setLevel] = useState(0);
-  const [source, setSource] = useState<"file" | "microphone">(pending?.source === "BROWSER_RECORDING" ? "microphone" : "file");
+  const [source, setSource] = useState<"file" | "microphone">(microphoneOnly || pending?.source === "BROWSER_RECORDING" ? "microphone" : "file");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -248,7 +250,7 @@ export function Recorder({
       {source === "microphone" && <span className="rec-indicator" role="status"><span className={`rec-dot ${rec === "live" ? "live" : rec === "paused" ? "paused" : ""}`} />{recLabel}</span>}
     </div>
     <div className="card-body">
-      <div className="recorder-source-choice" aria-label="مصدر التسجيل">
+      <div className="recorder-source-choice" aria-label="مصدر التسجيل" hidden={microphoneOnly}>
         <button type="button" aria-pressed={source === "file"} disabled={disabled || capturing || !!pending} onClick={() => { setSource("file"); setFileError(null); }}><IconUpload /><span><strong>رفع ملف صوتي</strong><span>اختر تسجيلاً محفوظاً على جهازك</span></span></button>
         <button type="button" aria-pressed={source === "microphone"} disabled={disabled || capturing || !!pending} onClick={() => { setSource("microphone"); setFileError(null); }}><IconMic /><span><strong>تسجيل مباشر</strong><span>استخدم ميكروفون هذا الجهاز</span></span></button>
       </div>

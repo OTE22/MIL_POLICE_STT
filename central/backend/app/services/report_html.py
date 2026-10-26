@@ -10,6 +10,7 @@ from app.services import note_templates
 
 CATALOGUE = json.loads((Path(__file__).resolve().parents[1] / "assets/html_statement.json").read_text(encoding="utf-8"))
 CATALOGUE["note"] = json.loads((Path(__file__).resolve().parents[1] / "assets/html_note.json").read_text(encoding="utf-8"))
+CATALOGUE["revision"] = "investigation-html-2"
 FIELDS = {field["key"] for field in CATALOGUE["fields"]}
 NOTE_FIELDS = {field["key"] for field in CATALOGUE["note"]["fields"]}
 
@@ -24,6 +25,20 @@ def document_for(draft):
 def token_for(draft):
     encoded = json.dumps({"draft": str(draft.id), "revision": draft.revision, "document": document_for(draft)}, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def editable_document(document):
+    """Strip server-owned provenance before validating a copy for editing."""
+    import copy
+    result = copy.deepcopy(document)
+    for block in result["blocks"]:
+        for key in ("authorship", "dictation_sources", "person_snapshot", "template_snapshot"):
+            block.pop(key, None)
+        for entry in block.get("entries", []):
+            entry.pop("source_snapshot", None)
+        for finding in block.get("findings", []):
+            finding.pop("subject_snapshot", None)
+    return result
 
 
 def state_for(draft, db=None, session=None):
@@ -78,6 +93,7 @@ def prepare_document(body, draft, session, db, *, populate_untouched=True):
     if draft.session_id != session.id or document.get("session_id") not in (None, str(session.id)):
         raise ValueError("html_report_wrong_session")
     document["session_id"] = str(session.id)
+    document["revision"] = CATALOGUE["revision"]
     if document["investigator_id"] and document["investigator_id"] not in {str(i.investigator_id) for i in session.investigators}:
         raise ValueError("html_report_investigator_outside_session")
     if document["clerk_id"] and document["clerk_id"] not in {str(i.investigator_id) for i in session.investigators}:
@@ -85,8 +101,35 @@ def prepare_document(body, draft, session, db, *, populate_untouched=True):
     sources = {str(block.id): block for block in draft.qa_blocks}
     old_blocks = {block["id"]: block for block in document_for(draft)["blocks"]}
     previous = {entry["id"]: entry for block in document_for(draft)["blocks"] if block["type"] == "statement" for entry in block["entries"]}
+    participants = {str(p.participant_key) for p in session.subjects if not p.removed_at}
+    recordings = {str(r.id) for r in session.recordings if r.purpose == "INTERVIEW"}
+    documents = {str(d.id) for p in session.subjects if not p.removed_at for d in p.documents if not d.removed_at}
+    block_ids = {b["id"] for b in document["blocks"]}
+    def validate_references(refs, block_id):
+        for kind, allowed in [("participants", participants), ("recordings", recordings), ("documents", documents), ("blocks", block_ids - {block_id})]:
+            if not set(refs.get(kind, [])) <= allowed:
+                raise ValueError("html_report_reference_outside_session")
     for block in document["blocks"]:
         old = old_blocks.get(block["id"], {})
+        # Derived author metadata is never accepted from the browser.
+        if old.get("authorship"):
+            block["authorship"] = old["authorship"]
+        if old.get("dictation_sources"):
+            block["dictation_sources"] = old["dictation_sources"]
+        if "references" in block:
+            validate_references(block["references"], block["id"])
+        if block["type"] == "conclusion":
+            for finding in block["findings"]:
+                if finding["participant_key"] and finding["participant_key"] not in participants:
+                    raise ValueError("html_report_participant_outside_session")
+                if finding["participant_key"] and finding["unidentified_subject"].strip():
+                    raise ValueError("html_report_ambiguous_responsibility_subject")
+                validate_references(finding["references"], block["id"])
+                if finding["participant_key"]:
+                    from app.services.report_people import participant_values
+                    person = next(p for p in session.subjects if str(p.participant_key) == finding["participant_key"])
+                    finding["subject_snapshot"] = participant_values(person, db).get("statement_name", person.subject_name)
+            continue
         if block["type"] == "note":
             template_id = block.get("template_id")
             if template_id:
@@ -109,7 +152,7 @@ def prepare_document(body, draft, session, db, *, populate_untouched=True):
             prior_values = (old.get("person_snapshot") or {}).get("values", {}) if unchanged else {}
             # Reuse current facts only where the operator has not overridden the imported value.
             for key, value in person_values.items():
-                if populate_untouched and (key not in block["values"] or (key in prior_values and block["values"][key] == prior_values[key])):
+                if populate_untouched and (not old or not (draft.official_form or {}).get("html_review")) and (key not in block["values"] or (key in prior_values and block["values"][key] == prior_values[key])):
                     block["values"][key] = value
             block["person_snapshot"] = {"session_id": str(session.id), **normalized, "values": person_values,
                 "overrides": sorted(key for key, value in block["values"].items()

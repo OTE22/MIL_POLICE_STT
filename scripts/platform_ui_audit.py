@@ -93,7 +93,7 @@ try:
             page.wait_for_timeout(100)
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1"), f"Page overflow: {name}"
             text_issues = page.evaluate("""() => [...document.querySelectorAll('body *')].filter(e => {
-              const s=getComputedStyle(e); return e.getClientRects().length && s.visibility!=='hidden' && [...e.childNodes].some(n=>n.nodeType===3&&n.textContent.trim()) && parseFloat(s.fontSize)<14;
+              const s=getComputedStyle(e); return e.getClientRects().length && s.visibility!=='hidden' && [...e.childNodes].some(n=>n.nodeType===3&&n.textContent.trim()) && parseFloat(s.fontSize)<15;
             }).map(e=>({text:e.textContent.trim().slice(0,80),size:getComputedStyle(e).fontSize,cls:e.className}))""")
             axe_file = ROOT / "storage/test-artifacts/axe.min.js"
             violations = []
@@ -116,6 +116,13 @@ try:
             for width in (320, 768, 1024):
                 page.set_viewport_size(dict(width=width, height=1050))
                 assert page.evaluate("document.documentElement.scrollWidth <= innerWidth+1"), f"Overflow {name} at {width}"
+
+        page.set_viewport_size(dict(width=1440, height=1050))
+        page.goto(base + "/investigations")
+        page.evaluate("document.documentElement.dir = 'ltr'")
+        audit("investigations-ltr-desktop")
+        page.set_viewport_size(dict(width=390, height=844))
+        audit("investigations-ltr-mobile")
 
         page.set_viewport_size(dict(width=390, height=844))
         page.goto(base + "/")

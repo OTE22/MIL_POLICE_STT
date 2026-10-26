@@ -74,11 +74,15 @@ def fill_note(state):
     document["blocks"] = [{"id": str(uuid.uuid4()), "type": "note", "values": {
         "note_date": "2026-10-25", "note_time": "12:30", "note_text": "Reviewed evidence. \u0645\u0644\u0627\u062d\u0638\u0629",
         "closing_location": "Beirut", "closing_date": "2026-10-25"}}]
+    document["blocks"].append({"id": str(uuid.uuid4()), "type": "conclusion", "values": {
+        "facts": "Reviewed events and evidence", "inference": "Assessment from reviewed evidence",
+        "closing_location": "Beirut", "closing_date": "2026-10-25"},
+        "responsibility_mode": "NONE", "proposal_mode": "NONE", "findings": []})
     return document
 
 
 def save(client, token, path, state, document):
-    result = client.put(path, headers=auth(token), json={"expected_token": state["token"], "document": document})
+    result = client.put(path, headers=auth(token), json={"expected_token": state["token"], "document": __import__("app.services.report_html", fromlist=["editable_document"]).editable_document(document)})
     assert result.status_code == 200, result.text
     return result.json()
 
@@ -191,6 +195,11 @@ def test_upstream_changes_invalidate_review_and_stale_saves(client, investigator
     current = client.get(path, headers=auth(token)).json()
     assert current["sources_changed"] and not current["reviewed"]
     assert review(client, token, path, current).status_code == 409
+    assert review(client, token, path, current, True).status_code == 409
+    restored = client.put(f"/api/investigations/{session['id']}", headers=auth(token), json={
+        "expected_revision": changed.json()["revision"], "location": "Corrected location"})
+    assert restored.status_code == 200
+    current = client.get(path, headers=auth(token)).json()
     assert review(client, token, path, current, True).status_code == 200
 
 
@@ -207,7 +216,9 @@ def test_participant_ids_and_documents_survive_edits_and_removal(client, investi
     assert result.json()["subjects"][0]["id"] == subject["id"]
     payload["documents"] = []
     rejected = client.put(url, headers=auth(token), json={"expected_revision": result.json()["revision"], "subjects": [payload]})
-    assert rejected.status_code == 409
+    assert rejected.status_code == 200
+    assert rejected.json()["subjects"][0]["documents"][0]["id"] == document["id"]
+    result = rejected
     payload["removed_document_ids"] = [document["id"]]
     result = client.put(url, headers=auth(token), json={"expected_revision": result.json()["revision"], "subjects": [payload]})
     assert result.status_code == 200, result.text
@@ -284,6 +295,7 @@ def test_processing_retry_reuses_recording_and_resolves_only_its_failure(client,
     current = client.get(f"/api/investigations/{session['id']}", headers=auth(token)).json()
     assert len(current["recordings"]) == 1 and current["status"] == "COMPLETED"
     assert current["processing_summary"]["FAILED"] == current["processing_summary"]["COMPLETED"] == 1
+    assert current["unresolved_processing_failures"] == 0
     with SessionLocal() as db:
         assert unresolved_processing_failures(db, uuid.UUID(session["id"])) == 0
     another = create_session(client, token)
@@ -413,21 +425,21 @@ def test_report_revision_rejects_stale_save_after_content_changes_back(client, i
 
 def test_downstream_defaults_clear_and_explicit_overrides_keep_provenance(client, investigator):
     token = investigator["token"]
-    session = create_session(client, token, subjects=[{"subject_name": "Person", "statement_details": {"father_name": "Earlier", "phone": "555"}}])
+    session = create_session(client, token)
     participant = session["subjects"][0]
     path, state = html_draft(client, token, session)
     document = deepcopy(state["document"])
     document["blocks"] = [{"id": str(uuid.uuid4()), "type": "statement", "participant_key": participant["participant_key"],
-        "values": {"father_name": "Explicit override", "phone": "555"}, "entries": []}]
+        "values": {"father_name": "Explicit override", "phone": participant["statement_details"]["phone"]}, "entries": []}]
     state = save(client, token, path, state, document)
     updated = client.put(f"/api/investigations/{session['id']}", headers=auth(token), json={
         "expected_revision": session["revision"], "subjects": [{"participant_key": participant["participant_key"],
-            "subject_name": "Person", "statement_details": {"father_name": "Current"}}]})
+            "subject_name": participant["subject_name"], "statement_details": {**participant["statement_details"], "father_name": "Current", "phone": ""}, "field_exceptions": {"phone": {"status": "UNKNOWN", "reason": "Number no longer available"}}}]})
     assert updated.status_code == 200, updated.text
     result = save(client, token, path, state, document)
     block = result["document"]["blocks"][0]
     assert block["values"]["father_name"] == "Explicit override"
-    assert block["values"]["phone"] == ""
+    assert "Number no longer available" in block["values"]["phone"]
     assert block["person_snapshot"]["values"]["father_name"] == "Current"
     assert "father_name" in block["person_snapshot"]["overrides"]
     assert result["sources_changed"] and result["source_changes"]

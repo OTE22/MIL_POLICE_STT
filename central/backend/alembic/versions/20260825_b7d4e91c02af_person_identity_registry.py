@@ -18,6 +18,8 @@ Revises: a3f1c7b9e204
 Create Date: 2026-08-25
 """
 
+import unicodedata
+
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
@@ -26,6 +28,16 @@ revision = "b7d4e91c02af"
 down_revision = "a3f1c7b9e204"
 branch_labels = None
 depends_on = None
+
+
+def _normalize_reference(reference):
+    """Freeze the original normalization rule for replayable historical backfills."""
+    if reference is None:
+        return None
+    digits = {ord("٠") + index: str(index) for index in range(10)}
+    digits.update({ord("۰") + index: str(index) for index in range(10)})
+    value = unicodedata.normalize("NFKC", reference).translate(digits)
+    return " ".join(value.split()).upper() or None
 
 
 def upgrade() -> None:
@@ -67,11 +79,8 @@ def _backfill_identities() -> None:
 
     Matching and grouping move to identity_id, so a legacy row left without one would stop
     matching silently. Every existing reference is therefore resolved here, using the *same*
-    normalization function as the application - a second rule written in SQL would drift.
+    normalization rule in force when this migration was introduced.
     """
-    # Importing the app's normalizer keeps exactly one definition of "same reference".
-    from app.services.person_identity import normalize_reference
-
     conn = op.get_bind()
 
     # (normalized, display, name) from every table that carries a reference today.
@@ -89,7 +98,7 @@ def _backfill_identities() -> None:
             sa.text(f"SELECT {ref_col} AS ref, {name_col} AS name FROM {table} WHERE {ref_col} IS NOT NULL")
         ).mappings()
         for row in rows:
-            normalized = normalize_reference(row["ref"])
+            normalized = _normalize_reference(row["ref"])
             if not normalized:
                 continue
             name = (row["name"] or "").strip()
@@ -124,7 +133,7 @@ def _backfill_identities() -> None:
             sa.text(f"SELECT id, {ref_col} AS ref FROM {table} WHERE {ref_col} IS NOT NULL")
         ).mappings().all()
         for row in rows:
-            normalized = normalize_reference(row["ref"])
+            normalized = _normalize_reference(row["ref"])
             if not normalized:
                 continue
             conn.execute(

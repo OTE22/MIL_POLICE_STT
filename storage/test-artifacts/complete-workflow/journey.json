@@ -1,0 +1,15 @@
+[
+  {
+    "step": "Incomplete draft saved; direct processing and report preparation blocked",
+    "status": "PASS",
+    "session_id": "eb97a832-f861-4b53-9db6-b328070c3913"
+  },
+  {
+    "step": "Military and civilian intake completed once with explicit refusal and documents",
+    "status": "PASS"
+  },
+  {
+    "step": "Real local interview engine synchronized; identities and attribution reviewed; original evidence unchanged",
+    "status": "PASS",
+    "audio_sha256": "672f8a32e6ad75ab017274bd4357d317e1ca3369d9b1608a4b74ce47ca5da7bd"
+  },

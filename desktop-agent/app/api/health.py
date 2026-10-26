@@ -60,7 +60,7 @@ def health(request: Request) -> dict:
 
 @router.get("/capabilities")
 def capabilities(request: Request) -> dict:
-    return _capabilities(request)
+    return {**_capabilities(request), "report_dictation": True}
 
 
 @router.get("/model-status")

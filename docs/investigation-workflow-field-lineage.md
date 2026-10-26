@@ -40,6 +40,8 @@ Review can begin before issuance. Closure requires a current official version, c
 | Frontend/API control | Persistence / validation | Downstream effect |
 |---|---|---|
 | expected_revision | Compare under row lock to session/segment revision; stale returns 409 | Stops lost session, text and attribution updates |
+| recording_id on processing-token request | Existing recording UUID, same session, matching file metadata, no active attempt | Retries create another processing job while preserving the original recording/evidence owner |
+| processing_summary / unresolved_processing_failures | Derived from jobs; successful retry resolves the latest failure for that recording, cancellation does not | Current workflow blockers distinguish unresolved failures from historical attempts |
 | expected_token | SHA-256 of draft document and monotonic report revision; compare under draft/session lock | Stops stale report saves, including edits reverted to earlier wording, review, issuance and reopen |
 | expected_source_token | Canonical source digest; compare during review | Upstream changes require renewed review and explicit acknowledgment |
 | removed_participant_keys / removed_document_ids | Validate ownership; set removed_at, never infer from omission | Active lists exclude rows; original IDs and evidence remain |

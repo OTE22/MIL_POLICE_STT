@@ -140,7 +140,7 @@ class ProcessingResultIn(BaseModel):
 
 class ProcessingResultOut(BaseModel):
     job_id: uuid.UUID
-    transcript_id: uuid.UUID
+    transcript_id: uuid.UUID | None = None
     status: JobStatus
     duplicate: bool = False
     audio_upload_expected: bool = True

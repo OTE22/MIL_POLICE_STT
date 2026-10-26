@@ -16,7 +16,7 @@ TRANSITIONS = {
 
 def processing_summary(db, session_id):
     return {getattr(state, "value", state): count for state, count in db.execute(
-        select(LocalProcessingJob.status, func.count()).where(LocalProcessingJob.session_id == session_id)
+        select(LocalProcessingJob.status, func.count()).join(AudioRecording, AudioRecording.id == LocalProcessingJob.recording_id).where(LocalProcessingJob.session_id == session_id, AudioRecording.purpose == "INTERVIEW")
         .group_by(LocalProcessingJob.status)).all()}
 
 
@@ -24,9 +24,9 @@ def unresolved_processing_failures(db, session_id):
     # A successful retry resolves the failure for that recording; cancelling a retry
     # does not erase it. All original job rows remain available in the audit/history.
     from app.models import JobStatus
-    latest = db.execute(select(LocalProcessingJob.recording_id, LocalProcessingJob.status)
+    latest = db.execute(select(LocalProcessingJob.recording_id, LocalProcessingJob.status).join(AudioRecording, AudioRecording.id == LocalProcessingJob.recording_id)
         .where(LocalProcessingJob.session_id == session_id,
-               LocalProcessingJob.status.in_([JobStatus.FAILED, JobStatus.COMPLETED]))
+               LocalProcessingJob.status.in_([JobStatus.FAILED, JobStatus.COMPLETED]), AudioRecording.purpose == "INTERVIEW")
         .distinct(LocalProcessingJob.recording_id)
         .order_by(LocalProcessingJob.recording_id, LocalProcessingJob.created_at.desc(), LocalProcessingJob.id.desc())).all()
     return sum(state == JobStatus.FAILED for _, state in latest)
@@ -38,7 +38,7 @@ def evidence_blockers(db, session, *, verify_hashes=False):
         reasons.append("active_processing_jobs")
     if unresolved_processing_failures(db, session.id):
         reasons.append("unresolved_processing_failures")
-    recordings = db.scalars(select(AudioRecording).where(AudioRecording.session_id == session.id)).all()
+    recordings = db.scalars(select(AudioRecording).where(AudioRecording.session_id == session.id, AudioRecording.purpose == "INTERVIEW")).all()
     from app.services.storage import absolute_path
     for recording in recordings:
         path = absolute_path(recording.storage_path) if recording.storage_path else None
@@ -72,6 +72,9 @@ def evidence_changed(session):
 def transition(db, session, target, user):
     if target not in TRANSITIONS.get(session.workflow_state, set()):
         raise HTTPException(409, detail="invalid_workflow_transition")
+    if target in {"IN_PROGRESS", "AWAITING_REVIEW", "REVIEWED", "CLOSED"} and session.workflow_state not in {"CLOSED", "ARCHIVED"}:
+        from app.services.participant_requirements import require_ready
+        require_ready(session)
     if target in {"REVIEWED", "CLOSED"} and "reports.finalize" not in user.permission_codes:
         raise HTTPException(403, detail="forbidden")
     if target == "ARCHIVED" and "investigations.archive" not in user.permission_codes:
@@ -109,7 +112,7 @@ def source_snapshot(db, session):
     from app.models import PersonIdentity, SessionSpeaker, Transcript, TranscriptSourceMode
     from app.services.report_context import pin_transcripts
     from app.services.person_identity import resolve_identity
-    recording_ids = list(db.scalars(select(AudioRecording.id).where(AudioRecording.session_id == session.id)
+    recording_ids = list(db.scalars(select(AudioRecording.id).where(AudioRecording.session_id == session.id, AudioRecording.purpose == "INTERVIEW")
                                     .order_by(AudioRecording.created_at, AudioRecording.id)).all())
     people = {}
     def person(identity_id):
@@ -132,7 +135,7 @@ def source_snapshot(db, session):
              "subjects": sorted(subjects, key=lambda s: s["key"]), "investigators": sorted(investigators, key=lambda i: i["id"]),
              "speakers": speakers, "people": people,
              "recordings": [{"id": str(r.id), "sha256": r.sha256, "stored": bool(r.storage_path), "duration": str(r.duration_seconds)}
-                            for r in db.scalars(select(AudioRecording).where(AudioRecording.session_id == session.id).order_by(AudioRecording.id))],
+                            for r in db.scalars(select(AudioRecording).where(AudioRecording.session_id == session.id, AudioRecording.purpose == "INTERVIEW").order_by(AudioRecording.id))],
              "transcripts": pin_transcripts(db, recording_ids, TranscriptSourceMode.CORRECTED)}
     import json
     return json.loads(json.dumps(value, default=str))

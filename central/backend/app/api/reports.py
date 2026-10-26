@@ -96,6 +96,8 @@ def html_report_people(session: InvestigationSession = Depends(get_accessible_se
 @router.post("/investigations/{session_id}/report/html/statement-preview")
 def html_statement_preview(body: StatementSelection, session: InvestigationSession = Depends(get_accessible_session),
                            _: User = Depends(require_permission("reports.generate")), db: Session = Depends(get_db)):
+    from app.services.participant_requirements import require_ready
+    require_ready(session)
     draft = _require_draft(db, session)
     _guard_editable(draft)
     from app.services.workflow import guard_mutation
@@ -160,12 +162,14 @@ def create_html_report(request: Request,
     db.scalar(select(InvestigationSession).where(InvestigationSession.id == session.id).with_for_update())
     draft = get_draft(db, session.id)
     if draft is None:
+        from app.services.participant_requirements import require_ready
+        require_ready(session)
         from app.services.workflow import guard_mutation, source_token, source_snapshot
         guard_mutation(session)
         draft = create_draft(db, session.id, user.id)
         lead = next((i for i in session.investigators if i.assignment_role.value == "LEAD"), None)
         draft.official_form = {"source_token": source_token(db, session), "source_snapshot": source_snapshot(db, session), "html_report": {
-            "revision": "statement-html-1", "session_id": str(session.id), "subject": session.title,
+            "revision": report_html.CATALOGUE["revision"], "session_id": str(session.id), "subject": session.title,
             "investigator_id": str(lead.investigator_id) if lead else None, "clerk_id": None, "blocks": []}}
         record_audit(db, action=AuditAction.REPORT_DRAFT_CREATED, user_id=user.id,
                      entity_type="report_draft", entity_id=draft.id,
@@ -183,7 +187,7 @@ def preview_html(body: HtmlReportUpdate, session: InvestigationSession = Depends
     if draft.status == ReportStatus.FINAL:
         from app.services.report_storage import read_file, sha256_bytes
         report = db.scalar(select(GeneratedReport).where(GeneratedReport.draft_id == draft.id,
-            GeneratedReport.session_id == session.id, GeneratedReport.format_key == "statement-html-1")
+            GeneratedReport.session_id == session.id, GeneratedReport.format_key.in_(["statement-html-1", "investigation-html-2"]))
             .order_by(GeneratedReport.report_version.desc()).limit(1))
         html = read_file(report.html_path) if report and report.html_path else None
         if html is None:
@@ -205,6 +209,8 @@ def refresh_sources(body: TokenInput, request: Request,
     from app.services.report_context import completed_recordings
     from app.services.report_draft import set_recordings
     session = _lock_session(db, session)
+    from app.services.participant_requirements import require_ready
+    require_ready(session)
     guard_mutation(session)
     draft = _require_draft(db, session)
     _guard_editable(draft)
@@ -223,6 +229,10 @@ def review_html(body: ReviewInput, request: Request,
                 user: User = Depends(require_permission("reports.generate")), db: Session = Depends(get_db)):
     from app.services.report_finalize import content_blockers
     session = _lock_session(db, session)
+    from app.services.participant_requirements import require_ready
+    require_ready(session)
+    from app.services.report_finalize import require_lead
+    require_lead(session, user)
     guard_mutation(session)
     draft = _require_draft(db, session)
     _guard_editable(draft)
@@ -233,6 +243,8 @@ def review_html(body: ReviewInput, request: Request,
     if (draft.official_form or {}).get("source_token") not in (None, current) and not body.acknowledge_source_changes:
         raise HTTPException(409, detail="report_source_changes_need_review")
     reasons = content_blockers(session, report_html.document_for(draft))
+    from app.services.report_dictation import blockers
+    reasons.extend(blockers(db, session, draft))
     if reasons:
         raise HTTPException(422, detail={"code": "report_incomplete", "reasons": reasons})
     draft.official_form = {**(draft.official_form or {}), "source_token": current, "source_snapshot": source_snapshot(db, session),
@@ -283,7 +295,7 @@ def reopen_html(body: ReopenInput, request: Request, session: InvestigationSessi
 
 def _archive(db, session):
     rows = db.scalars(select(GeneratedReport).where(GeneratedReport.session_id == session.id,
-                     GeneratedReport.format_key == "statement-html-1").order_by(GeneratedReport.report_version.desc())).all()
+                     GeneratedReport.format_key.in_(["statement-html-1", "investigation-html-2"])).order_by(GeneratedReport.report_version.desc())).all()
     draft = get_draft(db, session.id)
     reasons = check_ready(db, session, draft) if draft else ["report_draft_not_found"]
     return {"reports": [{"id": str(r.id), "report_version": r.report_version, "report_number": r.report_number,
@@ -313,7 +325,7 @@ def issue_html(body: TokenInput, request: Request, session: InvestigationSession
 
 def _issued(db, session, report_id):
     report = db.get(GeneratedReport, report_id)
-    if report is None or report.session_id != session.id or report.format_key != "statement-html-1":
+    if report is None or report.session_id != session.id or report.format_key not in {"statement-html-1", "investigation-html-2"}:
         raise HTTPException(404, detail="report_not_found")
     return report
 
@@ -373,7 +385,16 @@ def save_html_report(body: HtmlReportUpdate, request: Request,
         document = report_html.prepare_document(body, draft, session, db)
     except ValueError as exc:
         raise HTTPException(422, detail=str(exc)) from exc
+    from app.services.participant_requirements import require_ready
+    require_ready(session)
     previous_document = report_html.document_for(draft)
+    old_blocks = {block["id"]: block for block in previous_document["blocks"]}
+    now = datetime.now(timezone.utc).isoformat()
+    for block in document["blocks"]:
+        previous = old_blocks.get(block["id"], {})
+        if {k: v for k, v in block.items() if k != "authorship"} != {k: v for k, v in previous.items() if k != "authorship"}:
+            block["authorship"] = {"created_by": (previous.get("authorship") or {}).get("created_by", str(user.id)),
+                                   "updated_by": str(user.id), "updated_at": now}
     draft.official_form = {**(draft.official_form or {}), "html_report": document}
     draft.updated_by = user.id
     draft.revision += 1
@@ -384,5 +405,52 @@ def save_html_report(body: HtmlReportUpdate, request: Request,
                  ip_address=client_ip(request))
     db.commit()
     return report_html.state_for(draft, db, session)
+
+
+class BatchStatements(TokenInput):
+    participant_keys: list[uuid.UUID] = Field(min_length=1, max_length=100)
+    allow_additional: bool = False
+
+
+@router.post("/investigations/{session_id}/report/html/prepare-statements")
+def prepare_statements(body: BatchStatements, session: InvestigationSession = Depends(get_accessible_session),
+                       _: User = Depends(require_permission("reports.generate")), db: Session = Depends(get_db)):
+    from app.services.participant_requirements import require_ready
+    require_ready(session)
+    guard_mutation(session)
+    draft = _require_draft(db, session)
+    _guard_editable(draft)
+    _check_token(body, draft)
+    if len(set(body.participant_keys)) != len(body.participant_keys):
+        raise HTTPException(422, detail="duplicate_participant_selection")
+    present = {block.get("participant_key") for block in report_html.document_for(draft)["blocks"] if block["type"] == "statement"}
+    if not body.allow_additional and any(str(key) in present for key in body.participant_keys):
+        raise HTTPException(409, detail="report_statement_already_present")
+    try:
+        return {"blocks": [report_html.statement_preview(db, draft, session, {"participant_key": str(key)}) for key in body.participant_keys]}
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
+
+
+@router.post("/investigations/{session_id}/report/html/preview-pdf")
+def preview_pdf(body: HtmlReportUpdate, session: InvestigationSession = Depends(get_accessible_session),
+                _: User = Depends(require_permission("reports.read", "reports.generate")), db: Session = Depends(get_db)):
+    from app.services.report_document import render, pdf_from_html
+    draft = _require_draft(db, session)
+    _check_token(body, draft)
+    if draft.status == ReportStatus.FINAL:
+        report = db.scalar(select(GeneratedReport).where(GeneratedReport.draft_id == draft.id)
+                           .order_by(GeneratedReport.report_version.desc()).limit(1))
+        from app.services.report_storage import read_file, sha256_bytes
+        data = read_file(report.pdf_path) if report else None
+        if data is None or sha256_bytes(data) != report.pdf_sha256:
+            raise HTTPException(409, detail="report_artifact_integrity_failed")
+    else:
+        try:
+            document = report_html.prepare_document(body, draft, session, db, populate_untouched=False)
+            data = pdf_from_html(render(document, session))
+        except ValueError as exc:
+            raise HTTPException(422, detail=str(exc)) from exc
+    return Response(data, media_type="application/pdf", headers={"Cache-Control": "no-store"})
 
 

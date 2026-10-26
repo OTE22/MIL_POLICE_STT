@@ -49,7 +49,6 @@ export function crumbsFor(pathname: string): Crumb[] {
   if (pathname.startsWith("/workstations")) return [{ label: T.workstations }];
   if (pathname.startsWith("/voice-enrollments")) return [{ label: T.voiceEnrollments }];
   if (pathname.startsWith("/audit")) return [{ label: T.audit }];
-  if (pathname.startsWith("/report-template")) return [{ label: T.templateTitle }];
   if (pathname.startsWith("/settings")) return [{ label: T.systemConfig }];
   if (pathname.startsWith("/change-password")) return [{ label: T.changePassword }];
   return [];

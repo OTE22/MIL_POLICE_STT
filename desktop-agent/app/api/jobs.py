@@ -69,7 +69,9 @@ async def create_job(
         raise _error(status.HTTP_401_UNAUTHORIZED, code, exc.message) from exc
 
     runtime_status = request.app.state.runtime.status()
-    if not runtime_status["loadable"] and not runtime_status["ready"]:
+    if claims.purpose == "REPORT_DICTATION" and runtime_status["stt"]["state"] in {"NOT_PROVISIONED", "ERROR"}:
+        raise _error(status.HTTP_503_SERVICE_UNAVAILABLE, "stt_model_missing")
+    if claims.purpose == "INTERVIEW" and not runtime_status["loadable"] and not runtime_status["ready"]:
         stt = runtime_status["stt"]
         dia = runtime_status["diarization"]
         code = "stt_model_missing" if stt["state"] in ("NOT_PROVISIONED", "ERROR") else "diarization_model_missing"
@@ -87,7 +89,8 @@ async def create_job(
         raise
     job.audio_metadata["size_bytes"] = size
     manager.enqueue(job)
-    request.app.state.runtime.load_in_background()
+    if claims.purpose == "INTERVIEW":
+        request.app.state.runtime.load_in_background()
     return job.public()
 
 

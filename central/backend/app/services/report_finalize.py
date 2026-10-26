@@ -30,11 +30,29 @@ def content_blockers(session, document):
         reasons.append("report_investigator_required")
     if not document["blocks"]:
         reasons.append("report_no_content")
+    if not any(b["type"] == "conclusion" for b in document["blocks"]):
+        reasons.append("report_conclusion_required")
     for block in document["blocks"]:
         values = block["values"]
         if not values.get("closing_date", "").strip() or not values.get("closing_location", "").strip():
             reasons.append("report_closing_details_required")
-        if block["type"] == "note":
+        if block["type"] == "conclusion":
+            if not values.get("facts", "").strip() or not values.get("inference", "").strip():
+                reasons.append("report_conclusion_incomplete")
+            if block["responsibility_mode"] == "UNREVIEWED" or (block["responsibility_mode"] == "FINDINGS" and not block["findings"]):
+                reasons.append("report_responsibilities_required")
+            if block["responsibility_mode"] == "NONE" and block["findings"]:
+                reasons.append("report_responsibility_conflict")
+            for finding in block["findings"]:
+                if not finding["text"].strip() or not (finding["participant_key"] or finding["unidentified_subject"].strip()):
+                    reasons.append("report_finding_incomplete")
+                if not any(finding["references"].get(k) for k in ("recordings", "documents", "blocks")):
+                    reasons.append("report_finding_evidence_required")
+            if block["proposal_mode"] == "UNREVIEWED" or (block["proposal_mode"] == "TEXT" and not values.get("proposals", "").strip()):
+                reasons.append("report_proposals_required")
+            if block["proposal_mode"] == "NONE" and values.get("proposals", "").strip():
+                reasons.append("report_proposals_conflict")
+        elif block["type"] == "note":
             if not values.get("note_text", "").strip():
                 reasons.append("report_note_empty")
         else:
@@ -53,6 +71,11 @@ def check_ready(db, session, draft, *, verify_evidence=False):
     if draft.status == ReportStatus.FINAL:
         return ["report_is_final"]
     reasons = content_blockers(session, report_html.document_for(draft)) + evidence_blockers(db, session, verify_hashes=verify_evidence)
+    from app.services.report_dictation import blockers
+    reasons.extend(blockers(db, session, draft, verify_hashes=verify_evidence))
+    from app.services.participant_requirements import readiness
+    if not readiness(session)["ready"]:
+        reasons.append("participant_details_incomplete")
     if session.workflow_state in {"CLOSED", "ARCHIVED"}:
         reasons.append("reopen_investigation_before_editing")
     if ((draft.official_form or {}).get("html_review") or {}).get("token") != review_token(db, session, draft):
@@ -61,6 +84,7 @@ def check_ready(db, session, draft, *, verify_evidence=False):
 
 
 def finalize(db, session, draft, user):
+    require_lead(session, user)
     guard_mutation(session)
     lock_source_people(db, session)
     reasons = check_ready(db, session, draft, verify_evidence=True)
@@ -81,6 +105,7 @@ def finalize(db, session, draft, user):
                 "review": (draft.official_form or {}).get("html_review"), "format_digest": format_digest(),
                 "issued_by": str(user.id), "issued_at": datetime.now(timezone.utc).isoformat(),
                 "sources": source_snapshot(db, session),
+                "dictation_provenance": dictation_snapshot(db, session),
                 "transcript_source_mode": draft.transcript_source_mode.value,
                 "transcript_pins": draft.pinned_transcripts, "selected_recording_ids": draft.selected_recording_ids}
     context = json.dumps(snapshot, sort_keys=True, ensure_ascii=False, default=str).encode()
@@ -90,7 +115,7 @@ def finalize(db, session, draft, user):
     atomic_write(prefix + ".pdf", pdf)
     atomic_write(prefix + ".context.json", context)
     report = GeneratedReport(id=report_id, session_id=session.id, draft_id=draft.id,
-                             report_version=version, report_number=number, format_key="statement-html-1",
+                             report_version=version, report_number=number, format_key=document["revision"],
                              html_path=prefix + ".html", html_sha256=sha256_bytes(html.encode()),
                              pdf_path=prefix + ".pdf", pdf_sha256=sha256_bytes(pdf),
                              context_path=prefix + ".context.json", context_sha256=sha256_bytes(context),
@@ -104,6 +129,19 @@ def finalize(db, session, draft, user):
     session.revision += 1
     db.flush()
     return report
+
+
+def require_lead(session, user):
+    if "reports.finalize" not in user.permission_codes or not any(
+        i.assignment_role.value == "LEAD" and i.investigator.user_id == user.id for i in session.investigators
+    ):
+        raise HTTPException(403, detail="report_lead_approval_required")
+
+
+def dictation_snapshot(db, session):
+    from app.services.report_dictation import rows
+    return [{"recording_id": str(r.id), "sha256": r.sha256, "context": r.report_context}
+            for r in rows(db, session.id) if (r.report_context or {}).get("status") == "ACCEPTED"]
 
 
 def verify(db, report):

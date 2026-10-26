@@ -1,6 +1,6 @@
 """Real API/UI acceptance against the explicitly isolated workflow-ui services only.
 
-Run inside the final backend image, after pytest releases the _test database.
+Run inside the final backend image against the separate workflow UI test database.
 Normal login is used; no administrator sessions are minted or live records accessed.
 """
 import hashlib
@@ -48,8 +48,11 @@ with sync_playwright() as playwright:
     page.goto(BASE + base + "/report")
     expect(page.get_by_test_id("html-report-editor")).to_be_visible()
     page.get_by_role("button", name="+ إضافة ملاحظة", exact=True).click()
+    assert not errors, errors
     catalogue = call("GET", "/report-forms/html-statement", token=token)
     label = next(field["label"] for field in catalogue["note"]["fields"] if field["key"] == "note_text")
+    page.screenshot(path=str(OUT / "editor-before-fill.png"), full_page=True)
+    (OUT / "editor-before-fill.html").write_text(page.content(), encoding="utf-8")
     page.get_by_label(label, exact=True).fill("ملاحظة اختبار واضحة. Evidence entered once and retained through issuance.")
     # SPA navigation must protect unsaved wording.
     page.once("dialog", lambda dialog: dialog.dismiss())
@@ -58,7 +61,7 @@ with sync_playwright() as playwright:
     page.get_by_role("button", name="حفظ المحضر", exact=True).click()
     expect(page.get_by_role("button", name="حفظ المحضر", exact=True)).to_be_disabled()
     expect(page.get_by_role("button", name="تنزيل HTML", exact=True)).to_be_enabled()
-    page.get_by_role("checkbox", name="راجعت نص المحضر وإفاداته وأسماء الأشخاص ونسبة الأقوال إلى أصحابها").check()
+    page.get_by_role("checkbox", name="راجعت بيانات المحضر ومحتواه ونسبة الأقوال إلى أصحابها", exact=True).check()
     page.get_by_role("button", name="حفظ تأكيد المراجعة", exact=True).click()
     issue = page.get_by_role("button", name="إصدار وحفظ HTML وPDF", exact=True)
     expect(issue).to_be_enabled()

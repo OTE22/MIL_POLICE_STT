@@ -160,6 +160,12 @@ def create_session(client, token, **overrides):
                 "person_type": "CIVILIAN",
                 "register_number": "725",
                 "caza_code": "BEIRUT",
+                "nationality_code": "LB", "place_of_registration": "Beirut",
+                "is_undocumented": True, "undocumented_reason": "NO_DOCUMENTS",
+                "statement_details": {"father_name": "Father", "mother_name": "Mother", "birth_year": "1990",
+                    "birth_place": "Beirut", "district": "Beirut", "residence": "Test address", "phone": "01000000",
+                    "family_status": "Single", "education": "Secondary", "occupation_statement": "Employee",
+                    "prior_record_statement": "Declares no prior convictions"},
             }
         ],
     }

@@ -52,6 +52,12 @@ from app.services.person_identity import (
 
 router = APIRouter(prefix="/investigations", tags=["investigations"])
 
+
+@router.get("/participant-requirements")
+def participant_requirements(_: User = Depends(get_current_user)):
+    from app.services.participant_requirements import REVISION, FIELDS
+    return {"revision": REVISION, "fields": FIELDS}
+
 def _next_session_number(db: Session) -> str:
     year = datetime.now(timezone.utc).year
     prefix = f"INV-{year}-"
@@ -97,7 +103,7 @@ def _lead_name(session: InvestigationSession) -> str | None:
 
 def _duration(db: Session, session_id: uuid.UUID) -> float | None:
     value = db.scalar(
-        select(func.sum(AudioRecording.duration_seconds)).where(AudioRecording.session_id == session_id)
+        select(func.sum(AudioRecording.duration_seconds)).where(AudioRecording.session_id == session_id, AudioRecording.purpose == "INTERVIEW")
     )
     return float(value) if value is not None else None
 
@@ -121,18 +127,22 @@ def serialize_session(db: Session, s: InvestigationSession) -> InvestigationOut:
     creator = db.get(User, s.created_by)
     creator_name = creator.profile.full_name if creator and creator.profile else (creator.username if creator else None)
     recordings = db.scalars(
-        select(AudioRecording).where(AudioRecording.session_id == s.id).order_by(AudioRecording.created_at.desc())
+        select(AudioRecording).where(AudioRecording.session_id == s.id, AudioRecording.purpose == "INTERVIEW").order_by(AudioRecording.created_at.desc())
     ).all()
     latest_job = db.scalar(
         select(LocalProcessingJob)
-        .where(LocalProcessingJob.session_id == s.id)
+        .join(AudioRecording, AudioRecording.id == LocalProcessingJob.recording_id)
+        .where(LocalProcessingJob.session_id == s.id, AudioRecording.purpose == "INTERVIEW")
         .order_by(LocalProcessingJob.created_at.desc())
         .limit(1)
     )
     has_transcript = db.scalar(select(Transcript.id).where(Transcript.session_id == s.id).limit(1)) is not None
-    from app.services.workflow import processing_summary
+    from app.services.workflow import processing_summary, unresolved_processing_failures
+    from app.services.participant_requirements import readiness
     return InvestigationOut(
+        intake_readiness=readiness(s),
         revision=s.revision, workflow_state=s.workflow_state, processing_summary=processing_summary(db, s.id),
+        unresolved_processing_failures=unresolved_processing_failures(db, s.id),
         id=s.id,
         session_number=s.session_number,
         title=s.title,
@@ -261,13 +271,15 @@ def _apply_subjects(
             if carried is None or field in item.model_fields_set:
                 setattr(subject, field, getattr(item, field))
         subject.identity_id = identity.id
+        if "field_exceptions" in item.model_fields_set:
+            from app.services.participant_requirements import stamp_exceptions
+            subject.field_exceptions = stamp_exceptions(item.field_exceptions, subject.field_exceptions, user.id)
         docs = {doc.id: doc for doc in subject.documents if doc.removed_at is None}
         submitted = {d.id for d in item.documents if d.id}
         removed = set(item.removed_document_ids)
         if not (submitted | removed) <= docs.keys() or submitted & removed:
             raise HTTPException(422, detail="invalid_document_reference")
-        if docs.keys() - submitted - removed:
-            raise HTTPException(409, detail="explicit_document_removal_required")
+        # Omission is a partial update, never removal; only removed_document_ids retires evidence.
         for doc_id in removed:
             docs[doc_id].removed_at = datetime.now(timezone.utc)
         for doc_in in item.documents:
@@ -330,6 +342,7 @@ def _duplicate_sessions(db: Session, subject: Subject) -> list[str]:
 def _subject_out(db: Session, subject: Subject) -> SubjectOut:
     identity = resolve_identity(db, db.get(PersonIdentity, subject.identity_id)) if subject.identity_id else None
     return SubjectOut(
+        field_exceptions=subject.field_exceptions or {},
         identity_name=identity.person_name if identity else None,
         **{f: getattr(subject, f) for f in SUBJECT_FIELDS},
         id=subject.id,

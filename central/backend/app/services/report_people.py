@@ -12,7 +12,7 @@ def canonical_id(db, value):
 
 
 def details_token(subject):
-    payload = [str(subject.session_id), str(subject.participant_key), str(subject.identity_id), subject.statement_details or {}]
+    payload = [str(subject.session_id), str(subject.participant_key), str(subject.identity_id), subject.statement_details or {}, subject.field_exceptions or {}]
     return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
@@ -26,6 +26,14 @@ def participant_values(subject, db=None):
                   civil_register=" / ".join(v for v in [subject.register_number, subject.place_of_registration] if v))
     if not values.get("occupation_statement"):
         values["occupation_statement"] = " — ".join(v for v in [subject.rank, subject.unit, subject.department] if v)
+    from app.services.participant_requirements import report_exception
+    for key in DETAIL_KEYS:
+        if not values.get(key):
+            values[key] = report_exception(subject, key)
+    for target, source in [("statement_rank", "rank"), ("statement_service_number", "military_id")]:
+        values[target] = values[target] or report_exception(subject, source)
+    if not values["civil_register"]:
+        values["civil_register"] = report_exception(subject, "register_number") or ("مكتوم القيد" if subject.is_unregistered else "")
     return values
 
 

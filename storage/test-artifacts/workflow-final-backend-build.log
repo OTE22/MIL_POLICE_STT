@@ -1,0 +1,77 @@
+#1 [internal] load local bake definitions
+#1 reading from stdin 746B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.32kB 0.1s done
+#2 DONE 0.1s
+
+#3 resolve image config for docker-image://docker.io/docker/dockerfile:1.7
+#3 DONE 1.4s
+
+#4 docker-image://docker.io/docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+#4 resolve docker.io/docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e 0.1s done
+#4 CACHED
+
+#5 [internal] load metadata for docker.io/library/python:3.11-slim
+#5 ...
+
+#6 [auth] library/python:pull token for registry-1.docker.io
+#6 DONE 0.0s
+
+#5 [internal] load metadata for docker.io/library/python:3.11-slim
+#5 DONE 1.3s
+
+#7 [internal] load .dockerignore
+#7 transferring context: 564B done
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 DONE 0.0s
+
+#9 [1/8] FROM docker.io/library/python:3.11-slim@sha256:b7a9e5f6a93d6d4a31f129bbd4bdee69efccb6ded0fb230d78aafaf37af98377
+#9 resolve docker.io/library/python:3.11-slim@sha256:b7a9e5f6a93d6d4a31f129bbd4bdee69efccb6ded0fb230d78aafaf37af98377
+#9 resolve docker.io/library/python:3.11-slim@sha256:b7a9e5f6a93d6d4a31f129bbd4bdee69efccb6ded0fb230d78aafaf37af98377 0.0s done
+#9 DONE 0.1s
+
+#8 [internal] load build context
+#8 transferring context: 9.93kB 0.0s done
+#8 DONE 0.0s
+
+#10 [2/8] RUN apt-get update     && apt-get install -y --no-install-recommends curl     && rm -rf /var/lib/apt/lists/*     && groupadd --gid 1000 app     && useradd --uid 1000 --gid app --create-home --shell /usr/sbin/nologin app
+#10 CACHED
+
+#11 [3/8] WORKDIR /app
+#11 CACHED
+
+#12 [4/8] COPY requirements.txt requirements-dev.txt ./
+#12 CACHED
+
+#13 [5/8] RUN if [ "false" = "true" ]; then pip install -r requirements-dev.txt; else pip install -r requirements.txt; fi
+#13 CACHED
+
+#14 [6/8] RUN python -m playwright install --with-deps --only-shell chromium && chmod -R a+rX /opt/ms-playwright
+#14 CACHED
+
+#15 [7/8] COPY --chown=app:app . .
+#15 DONE 0.1s
+
+#16 [8/8] RUN chmod +x /app/docker-entrypoint.sh     && mkdir -p /storage/recordings /run/secrets     && chown -R app:app /storage /run/secrets
+#16 DONE 0.3s
+
+#17 exporting to image
+#17 exporting layers
+#17 exporting layers 0.2s done
+#17 exporting manifest sha256:d9cd3ac52d931722297fc5b0a9185604f72bb726c89805d9dad7f7d49d8eaf77 0.0s done
+#17 exporting config sha256:b0e2e2bad8bc7b1945b0e4f882297255e848dfa51d8ce53685ff4a124397cd91 0.0s done
+#17 exporting attestation manifest sha256:b57b2ae3973cdc473da159ca009a7f9ef90b699da52cc0382e8ca236a54e0310 0.1s done
+#17 exporting manifest list sha256:f63177f8960565d071591e83aaf49c94410a3dbab5d4d85c8814aec6c9af165f
+#17 exporting manifest list sha256:f63177f8960565d071591e83aaf49c94410a3dbab5d4d85c8814aec6c9af165f 0.0s done
+#17 naming to docker.io/military-stt/central-backend:1.0.0 done
+#17 unpacking to docker.io/military-stt/central-backend:1.0.0
+#17 unpacking to docker.io/military-stt/central-backend:1.0.0 0.2s done
+#17 DONE 0.7s
+
+#18 resolving provenance for metadata file
+#18 DONE 0.0s
+ military-stt/central-backend:1.0.0  Built

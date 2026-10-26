@@ -76,7 +76,7 @@ def completed_recordings(db: Session, session_id: uuid.UUID) -> list[AudioRecord
     )
     rows = db.scalars(
         select(AudioRecording)
-        .where(AudioRecording.session_id == session_id)
+        .where(AudioRecording.session_id == session_id, AudioRecording.purpose == "INTERVIEW")
         .order_by(AudioRecording.created_at)
     ).all()
     return [r for r in rows if r.id in with_transcripts]

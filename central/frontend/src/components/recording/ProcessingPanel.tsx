@@ -65,7 +65,7 @@ export function ProcessingPanel({
       .jobs()
       .then((jobs) => {
         if (cancelled) return;
-        const mine = jobs.find((j) => j.session_id === session.id && !["COMPLETED", "FAILED", "CANCELLED"].includes(j.state));
+        const mine = jobs.find((j) => j.session_id === session.id && (j.purpose ?? "INTERVIEW") === "INTERVIEW" && !["COMPLETED", "FAILED", "CANCELLED"].includes(j.state));
         if (mine) { setJob(mine); onBusyChange(true); }
       })
       .catch(() => undefined);
@@ -103,7 +103,7 @@ export function ProcessingPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job?.job_id, job?.state, job?.sync_state]);
 
-  const startProcessing = async () => {
+  const startProcessing = async (retryRecordingId?: string) => {
     if (!pending) return;
     setError(null);
     completedNotified.current = false;
@@ -115,7 +115,7 @@ export function ProcessingPanel({
         mime_type: pending.mimeType,
         size_bytes: pending.blob.size,
         source: pending.source,
-        recording_id: pending.sessionId === session.id ? pending.recordingId : undefined,
+        recording_id: retryRecordingId ?? (pending.sessionId === session.id ? pending.recordingId : undefined),
       });
       onAuthorized(pending, token.recording_id);
     } catch (err) {
@@ -152,7 +152,8 @@ export function ProcessingPanel({
     }
   };
 
-  const canStart = !!pending && agent.availability === "available" && !!agent.caps?.ready && !agent.caps?.busy && !uploading && (!job || ["COMPLETED", "FAILED", "CANCELLED"].includes(job.state));
+  const intakeReady = session.intake_readiness?.ready !== false || !!pending?.recordingId;
+  const canStart = intakeReady && !!pending && agent.availability === "available" && !!agent.caps?.ready && !agent.caps?.busy && !uploading && (!job || ["COMPLETED", "FAILED", "CANCELLED"].includes(job.state));
   const progress = uploading ? uploadPct * 0.1 : job ? Math.max(job.progress, 0.1) : 0;
   const stateLabel = uploading ? t("state_RECEIVING_AUDIO") : job ? (job.state === "COMPLETED" && job.sync_state !== "SYNCED" ? t(`state_${job.sync_state}`, t("state_SYNCING")) : t(`state_${job.state}`)) : "";
   const startHint = !pending ? "اختر ملفاً أو أوقف التسجيل المباشر لتجهيز الصوت أولاً."
@@ -250,6 +251,7 @@ export function ProcessingPanel({
         {history.length > 0 && (
           <details className="processing-history">
             <summary>{T.jobHistory} ({history.length})</summary>
+            <p>لإعادة محاولة سابقة، اختر الملف الأصلي أولاً ثم اضغط إعادة المعالجة في سطرها.</p>
             <div className="table-wrap" tabIndex={0} role="region" aria-label="جدول البيانات — مرّر أفقياً لعرض جميع الأعمدة">
               <table className="table">
                 <thead>
@@ -257,6 +259,7 @@ export function ProcessingPanel({
                     <th>{T.time}</th>
                     <th>{T.status}</th>
                     <th>{T.agentId}</th>
+                    <th>التسجيل وإعادة المحاولة</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -268,6 +271,11 @@ export function ProcessingPanel({
                         {h.error_message && <div className="small muted ltr">{h.error_message}</div>}
                       </td>
                       <td className="ltr small">{h.workstation_agent_id ?? T.none}</td>
+                      <td>{session.recordings.find(recording => recording.id === h.recording_id)?.original_filename ?? "التسجيل المرتبط"}
+                        {["FAILED", "CANCELLED"].includes(h.status) && history.find(item => item.recording_id === h.recording_id)?.id === h.id &&
+                          <button className="btn btn-sm" type="button" disabled={!canStart}
+                            onClick={() => void startProcessing(h.recording_id)}>إعادة المعالجة للتسجيل نفسه</button>}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

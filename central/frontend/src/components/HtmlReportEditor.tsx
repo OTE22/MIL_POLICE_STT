@@ -1,186 +1,217 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { ApiError, http } from "@/api/client";
+import { getToken, http } from "@/api/client";
 import type { Investigation, ReportDraft } from "@/api/types";
 import { Alert, Field, Loading } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
-import { ReportIssuance } from "@/components/ReportIssuance";
-import { NoteTemplateControls } from "@/components/NoteTemplateControls";
-import { blockLabel, editableDocument, newEntry, newNote, newStatement, selectionKey, selectionPayload,
-  type HtmlReportDocument, type HtmlReportState, type ReportBlock, type StatementBlock, type StatementCatalogue, type ReportPersonOption, type NoteTemplate } from "@/lib/html-report";
+import { useReportDraft } from "@/lib/useReportDraft";
+import { ReportIssuance } from "./ReportIssuance";
+import { IntakeReadiness } from "./IntakeReadiness";
+import { ReportDictation, type DictationTarget } from "./ReportDictation";
+import { attention, ReportSectionEditor } from "./ReportSectionEditor";
+import { blockLabel, editableDocument, newEntry, newNote, newConclusion, selectionPayload,
+  type HtmlReportState, type ReportBlock, type StatementBlock, type StatementCatalogue, type ReportPersonOption, type NoteTemplate } from "@/lib/html-report";
 
-export function HtmlReportEditor({ session, draft, editable, onStatusChange, onDirtyChange }: {
+export function HtmlReportEditor({ session, editable, onStatusChange, onDirtyChange }: {
   session: Investigation; draft: ReportDraft; editable: boolean; onStatusChange: () => void;
   onDirtyChange: (id: string, dirty: boolean) => void;
 }) {
-  const { can } = useAuth();
-  const [saved, setSaved] = useState<HtmlReportState | null>(null);
-  const [document, setDocument] = useState<HtmlReportDocument | null>(null);
+  const { can, user } = useAuth();
+  const path = `/investigations/${session.id}/report/html`;
+  const store = useReportDraft(path, editable);
+  const { saved, document, dirty, saving, change, accept, flush } = store;
   const [catalogue, setCatalogue] = useState<StatementCatalogue | null>(null);
   const [people, setPeople] = useState<ReportPersonOption[]>([]);
   const [templates, setTemplates] = useState<NoteTemplate[]>([]);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [focusField, setFocusField] = useState<string | null>(null);
   const [preview, setPreview] = useState("");
+  const [previewError, setPreviewError] = useState(false);
+  const [pdf, setPdf] = useState<string | null>(null);
+  const [mode, setMode] = useState<"write" | "review">("write");
+  const [mobilePane, setMobilePane] = useState<"outline" | "edit" | "preview">("edit");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [picker, setPicker] = useState(false);
+  const [chosen, setChosen] = useState<string[]>([]);
+  const [additional, setAdditional] = useState(false);
   const [removed, setRemoved] = useState<{ block: ReportBlock; index: number } | null>(null);
+  const [comparison, setComparison] = useState<{ current: StatementBlock; proposed: StatementBlock } | null>(null);
+  const [dictation, setDictation] = useState<DictationTarget | null>(null);
+  const [conflictChoices, setConflictChoices] = useState<Record<string, "local" | "server">>({});
+  const [headerChoice, setHeaderChoice] = useState<"local" | "server">("local");
   const frame = useRef<HTMLIFrameElement>(null);
-  const path = `/investigations/${session.id}/report/html`;
+  const scroll = useRef(0);
+  const selectedRef = useRef(selected); selectedRef.current = selected;
+  const disabled = !editable || busy || saved?.status === "FINAL" || !!store.conflict;
+  const intakeBlocked = session.intake_readiness?.ready === false;
+  const voiceAllowed = can("reports.generate") && session.investigators.some(i => i.id === user?.profile?.id);
+  const isLead = can("reports.finalize") && session.investigators.some(i => i.id === user?.profile?.id && i.assignment_role === "LEAD");
+  const active = document?.blocks.find(b => b.id === selected);
+  const issues = document?.blocks.flatMap(attention) ?? [];
+  const select = (id: string, field?: string) => { setSelected(id); setFocusField(field ?? null); setMobilePane("edit"); setMode("write"); };
   useEffect(() => {
-    let cancelled = false;
+    let stopped = false;
     void Promise.all([http.get<HtmlReportState>(path), http.get<StatementCatalogue>("/report-forms/html-statement"),
       http.get<{ session_id: string; options: ReportPersonOption[] }>(`${path}/people`), http.get<NoteTemplate[]>("/report-forms/note-templates")])
-      .then(([state, template, participants, noteTemplates]) => { if (!cancelled) {
+      .then(([state, form, participants, notes]) => {
+        if (stopped) return;
         if (state.document.session_id !== session.id || participants.session_id !== session.id) throw new Error("session mismatch");
-        setSaved(state); setDocument(state.document); setCatalogue(template); setPeople(participants.options); setTemplates(noteTemplates); setSelectedId(state.document.blocks[0]?.id ?? null);
-      } })
-      .catch(() => { if (!cancelled) setError("تعذر تحميل محضر HTML. أعد تحميل الصفحة."); });
-    return () => { cancelled = true; };
-  }, [path]);
-  const dirty = !!document && !!saved && JSON.stringify(editableDocument(document)) !== JSON.stringify(editableDocument(saved.document));
-  useEffect(() => { onDirtyChange("html-report", dirty || busy); }, [dirty, busy, onDirtyChange]);
+        accept(state); setCatalogue(form); setPeople(participants.options); setTemplates(notes); setSelected(state.document.blocks[0]?.id ?? null);
+      }).catch(() => { if (!stopped) setError("تعذر تحميل المحضر. تحقق من الاتصال وأعد تحميل الصفحة."); });
+    return () => { stopped = true; };
+  }, [path, accept]);
+  useEffect(() => { onDirtyChange("html-report", dirty || saving || busy || !!dictation); }, [dirty, saving, busy, dictation, onDirtyChange]);
   useEffect(() => () => onDirtyChange("html-report", false), [onDirtyChange]);
   useEffect(() => {
-    const warn = (event: BeforeUnloadEvent) => { if (dirty) { event.preventDefault(); event.returnValue = ""; } };
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [dirty]);
-  useEffect(() => {
-    if (!document || !saved) return;
-    let cancelled = false;
+    if (!document || !saved || saving) return;
+    let stopped = false;
     const timer = window.setTimeout(() => {
       void http.post<{ html: string }>(`${path}/preview`, { expected_token: saved.token, document: editableDocument(document) })
-        .then(value => { if (!cancelled) setPreview(value.html); })
-        .catch(() => { if (!cancelled) setError("\u062a\u0639\u0630\u0631 \u062a\u062d\u062f\u064a\u062b \u0645\u0639\u0627\u064a\u0646\u0629 \u0627\u0644\u0645\u062d\u0636\u0631"); });
-    }, 350);
-    return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [document, saved?.token, path]);
-  const disabled = !editable || busy || saved?.status === "FINAL";
-  const active = document?.blocks.find(block => block.id === selectedId);
-  const activeFields = active?.type === "note" ? catalogue?.note.fields : catalogue?.fields;
-  const change = (fn: (value: HtmlReportDocument) => HtmlReportDocument) => { setPreview(""); setDocument(value => value ? fn(value) : value); setNotice(""); };
-  const updateBlock = (id: string, fn: (block: ReportBlock) => ReportBlock) => change(value => ({ ...value, blocks: value.blocks.map(block => block.id === id ? fn(block) : block) }));
-  const updateStatement = (id: string, fn: (block: StatementBlock) => StatementBlock) => updateBlock(id, block => block.type === "statement" ? fn(block) : block);
-  const choosePerson = async (block: StatementBlock, option: Pick<ReportPersonOption, "participant_key" | "identity_id" | "speaker_id"> | null) => {
-    if ((Object.values(block.values).some(Boolean) || block.entries.some(e => e.question || e.answer)) &&
-      !window.confirm("ستُعبّأ هذه الإفادة مجدداً من بيانات وأجوبة الشخص في هذه الجلسة، وتُستبدل تعديلات هذه الكتلة. للإبقاء عليها أضف إفادة جديدة. هل تريد المتابعة؟")) return;
-    if (!option) { updateStatement(block.id, () => ({ ...newStatement(), id: block.id })); return; }
+        .then(value => { if (!stopped) { scroll.current = frame.current?.contentWindow?.scrollY ?? scroll.current; setPreview(value.html); setPreviewError(false); } })
+        .catch(() => { if (!stopped) setPreviewError(true); });
+    }, 450);
+    return () => { stopped = true; window.clearTimeout(timer); };
+  }, [document, saved?.token, saving, path]);
+  useEffect(() => {
+    if (!focusField || !selected) return;
+    const element = window.document.getElementById(`report-field-${selected}-${focusField}`);
+    if (element) {
+      for (let parent: HTMLElement | null = element; parent; parent = parent.parentElement) if (parent instanceof HTMLDetailsElement) parent.open = true;
+      element.scrollIntoView({ block: "center", behavior: "smooth" }); element.focus();
+    }
+    setFocusField(null);
+  }, [selected, focusField, mode]);
+  useEffect(() => {
+    frame.current?.contentDocument?.querySelectorAll("[data-block-id]").forEach(element => element.classList.toggle("selected", element.getAttribute("data-block-id") === selected));
+  }, [selected, preview]);
+  useEffect(() => { setPdf(null); }, [saved?.token, saved?.source_token]);
+  useEffect(() => () => { if (pdf) URL.revokeObjectURL(pdf); }, [pdf]);
+  const frameLoaded = () => {
+    const doc = frame.current?.contentDocument;
+    if (!doc) return;
+    frame.current?.contentWindow?.scrollTo(0, scroll.current);
+    doc.querySelectorAll<HTMLElement>("[data-block-id]").forEach(element => {
+      element.classList.toggle("selected", element.dataset.blockId === selectedRef.current);
+      const activate = (event: Event) => {
+        const target = event.target as HTMLElement;
+        const entry = target.closest<HTMLElement>("[data-entry-id]")?.dataset.entryId;
+        select(element.dataset.blockId!, entry ? `answer-${entry}` : target.closest<HTMLElement>("[data-field]")?.dataset.field);
+      };
+      element.addEventListener("click", activate);
+      element.addEventListener("keydown", event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); activate(event); } });
+    });
+  };
+  const operation = async (fn: () => Promise<void>) => {
     setBusy(true); setError("");
-    try {
-      const filled = await http.post<StatementBlock>(`${path}/statement-preview`, selectionPayload(option));
-      updateStatement(block.id, () => ({ ...filled, id: block.id }));
-      setNotice(filled.entries.length ? `أُدرجت ${filled.entries.length} فقرة س/ج بترتيب تسجيلات هذه الجلسة وتوقيتها.`
-        : "عُبّئت بيانات الشخص. لا توجد أجوبة مدرجة له في مسودة هذه الجلسة؛ راجع ربط المتحدثين ومصادر المحضر أو اكتب إفادة يدوية.");
-    } catch { setError("تعذرت التعبئة من هذه الجلسة. تحقق من ربط الشخص بالمتحدث ثم أعد المحاولة."); }
+    try { await fn(); } catch (err) { setError(err instanceof Error ? err.message : "تعذر إتمام الإجراء؛ احتُفظ بتعديلاتك."); }
     finally { setBusy(false); }
   };
-  const save = async () => {
-    if (!document || !saved) return;
-    setBusy(true); setError("");
-    try {
-      const state = await http.put<HtmlReportState>(path, { expected_token: saved.token, document: editableDocument(document) });
-      setPreview(""); setSaved(state); setDocument(state.document); setNotice("تم حفظ المحضر بإفاداته وملاحظاته ضمن هذه الجلسة.");
-    } catch (err) {
-      setError(err instanceof ApiError && err.code === "html_report_changed"
-        ? "تغيّر المحضر في نافذة أخرى. لم تُحفظ تعديلاتك فوقه. احتفظ بالنص وأعد تحميل الصفحة."
-        : "تعذر حفظ المحضر. تحقق من الحقول وربط الأشخاص ومصادر الأجوبة بهذه الجلسة ثم أعد المحاولة.");
-    } finally { setBusy(false); }
+  const replace = (block: ReportBlock) => change(v => ({ ...v, blocks: v.blocks.map(b => b.id === block.id ? block : b) }));
+  const insert = (blocks: ReportBlock[]) => {
+    change(value => { const next = [...value.blocks]; const index = selected ? next.findIndex(b => b.id === selected) + 1 : next.length;
+      next.splice(index, 0, ...blocks); return { ...value, blocks: next }; });
+    if (blocks[0]) select(blocks[0].id, blocks[0].type === "note" ? "note_text" : undefined);
   };
-  const download = () => {
-    if (!saved || !preview) return;
-    const html = preview;
-    const url = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
-    const link = window.document.createElement("a"); link.href = url; link.download = `report-${session.session_number}.html`; link.click();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  const defaults = () => ({ closing_date: session.session_date ?? "", closing_location: session.location ?? "" });
+  const addConclusion = () => {
+    const existing = document?.blocks.find(b => b.type === "conclusion");
+    if (existing) { select(existing.id, "facts"); return; }
+    const block = newConclusion(); block.values = defaults();
+    change(v => ({ ...v, blocks: [...v.blocks, block] })); select(block.id, "facts");
   };
-  const move = (id: string, direction: number) => change(value => {
-    const blocks = [...value.blocks]; const index = blocks.findIndex(b => b.id === id); const target = index + direction;
-    if (index < 0 || target < 0 || target >= blocks.length) return value;
-    [blocks[index], blocks[target]] = [blocks[target], blocks[index]];
-    return { ...value, blocks };
+  const prepare = () => operation(async () => {
+    const state = await flush();
+    const response = await http.post<{ blocks: StatementBlock[] }>(`${path}/prepare-statements`, { expected_token: state.token, participant_keys: chosen, allow_additional: additional });
+    insert(response.blocks.map(b => ({ ...b, entries: b.entries.length ? b.entries : [newEntry()] })));
+    setPicker(false); setChosen([]); setAdditional(false);
   });
-  return <div className="html-report-editor" dir="rtl" data-testid="html-report-editor">
-    <div className="page-header"><div><h1>المحضر — إفادات وملاحظات</h1><p><Link to={`/investigations/${session.id}`}>{session.title}</Link> · <span className="num">{session.session_number}</span></p></div>
-</div>
-    {saved && <ReportIssuance sessionId={session.id} state={saved} blocked={dirty || busy}
-      onState={state => { setPreview(""); setSaved(state); setDocument(state.document); }} onStatusChange={onStatusChange} />}
-    {error && <Alert kind="danger">{error}</Alert>}
-    {notice && <Alert kind="info">{notice}</Alert>}
-    {!document || !catalogue ? <Loading /> : <>
-      <div className="card"><div className="card-body">
-        <div className="form-grid"><Field label="موضوع المحضر"><input className="input" value={document.subject} placeholder={draft.case_subject || session.title} disabled={disabled} onChange={e => change(value => ({ ...value, subject: e.target.value }))} /></Field>
-          <Field label="المحقق المسؤول"><select className="select" value={document.investigator_id ?? ""} disabled={disabled} onChange={e => change(value => ({ ...value, investigator_id: e.target.value || null }))}>
-            <option value="">اختر من محققي الجلسة</option>{session.investigators.map(i => <option key={i.id} value={i.id}>{[i.rank, i.full_name].filter(Boolean).join(" ")}</option>)}</select></Field>
-          <Field label="الكاتب العدلي"><select className="select" value={document.clerk_id ?? ""} disabled={disabled} onChange={e => change(value => ({ ...value, clerk_id: e.target.value || null }))}>
-            <option value="">اختر من فريق هذه الجلسة</option>{session.investigators.map(i => <option key={i.id} value={i.id}>{[i.rank, i.full_name].filter(Boolean).join(" ")}</option>)}</select></Field></div>
-        <div className="flex gap wrap mt-16">
-          <button className="btn btn-primary" disabled={disabled} onClick={() => {
-            const block = newStatement(); block.values = { closing_date: session.session_date ?? "", closing_location: session.location ?? "" };
-            change(value => ({ ...value, blocks: [...value.blocks, block] })); setSelectedId(block.id);
-          }}>+ إضافة إفادة</button>
-          <button className="btn btn-primary" disabled={disabled} onClick={() => {
-            const block = newNote(); block.values = { closing_date: session.session_date ?? "", closing_location: session.location ?? "", note_date: session.session_date ?? "", note_time: session.start_time ?? "" };
-            change(value => ({ ...value, blocks: [...value.blocks, block] })); setSelectedId(block.id);
-          }}>+ إضافة ملاحظة</button>
-          <button className="btn" disabled={disabled || !dirty} onClick={() => void save()}>{busy ? "جارٍ الحفظ…" : "حفظ المحضر"}</button>
-          <button className="btn" disabled={busy || dirty || !document.blocks.length || !preview} onClick={download}>تنزيل HTML</button>
-          <button className="btn" disabled={busy || dirty || !document.blocks.length || !preview} onClick={() => frame.current?.contentWindow?.print()}>طباعة / حفظ PDF</button>
-          <span className="small muted">{dirty ? "تغييرات غير محفوظة" : "المعاينة مطابقة للبيانات المحفوظة"} · {document.blocks.filter(b => b.type === "statement").length} إفادة · {document.blocks.filter(b => b.type === "note").length} ملاحظة</span>
+  const compare = () => operation(async () => {
+    if (active?.type !== "statement") return;
+    await flush();
+    const proposed = await http.post<StatementBlock>(`${path}/statement-preview`, selectionPayload({ participant_key: active.participant_key ?? null, identity_id: active.identity_id ?? null, speaker_id: active.speaker_id }));
+    setComparison({ current: active, proposed });
+  });
+  const openPdf = () => operation(async () => {
+    const state = await flush();
+    const response = await fetch(`/api${path}/preview-pdf`, { method: "POST", headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ expected_token: state.token, document: editableDocument(state.document) }) });
+    if (!response.ok) throw new Error("تعذر إنشاء PDF. بقيت المسودة محفوظة؛ أعد المحاولة.");
+    setPdf(URL.createObjectURL(await response.blob())); setMode("review");
+  });
+  const move = (id: string, delta: number) => change(v => {
+    const blocks = [...v.blocks], index = blocks.findIndex(b => b.id === id), next = index + delta;
+    if (next < 0 || next >= blocks.length) return v;
+    [blocks[index], blocks[next]] = [blocks[next], blocks[index]]; return { ...v, blocks };
+  });
+  const showBlock = (block?: ReportBlock) => block ? <><p>{Object.values(block.values).join(" · ")}</p>{block.type === "statement" && block.entries.map(e => <p className="preserve-lines" key={e.id}>{e.question}<br />{e.answer}</p>)}{block.type === "conclusion" && <><p>المسؤوليات: {block.responsibility_mode} — الاقتراحات: {block.proposal_mode}</p>{block.findings.map(f => <p key={f.id}>{f.subject_snapshot || f.unidentified_subject} {f.text}</p>)}</>}<details><summary>كل الحقول والمراجع</summary><pre>{JSON.stringify(block, null, 2)}</pre></details></> : <p>أزيل القسم</p>;
+  return <div className="html-report-editor report-studio" dir="rtl" data-testid="html-report-editor">
+    <header className="page-header"><div><h1>محضر التحقيق</h1><p><Link to={`/investigations/${session.id}`}>{session.title}</Link> · <bdi>{session.session_number}</bdi></p></div>
+      <div className="report-save-state" role="status" aria-live="polite">{store.error ? "تعذر الحفظ" : saving ? "جارٍ الحفظ…" : dirty ? "تغييرات بانتظار الحفظ" : "تم الحفظ"}</div></header>
+    <IntakeReadiness session={session} />
+    {(error || store.error) && <Alert kind="danger">{error || store.error}{store.error && !store.conflict && <button className="btn" onClick={() => void store.retry().catch(() => undefined)}>إعادة محاولة الحفظ</button>}</Alert>}
+    {!document || !catalogue || !saved ? <Loading /> : <>
+      <section className="card card-body report-context"><div className="form-grid">
+        <Field label="موضوع المحضر"><input className="input" value={document.subject} disabled={disabled} onChange={e => change(v => ({ ...v, subject: e.target.value }))} /></Field>
+        <Field label="المحقق المسؤول"><select className="select" value={document.investigator_id ?? ""} disabled={disabled} onChange={e => change(v => ({ ...v, investigator_id: e.target.value || null }))}>
+          <option value="">اختر المحقق</option>{session.investigators.map(i => <option key={i.id} value={i.id}>{[i.rank, i.full_name].filter(Boolean).join(" ")}</option>)}</select></Field>
+        <Field label="الكاتب العدلي"><select className="select" value={document.clerk_id ?? ""} disabled={disabled} onChange={e => change(v => ({ ...v, clerk_id: e.target.value || null }))}>
+          <option value="">اختر الكاتب عند التكليف</option>{session.investigators.map(i => <option key={i.id} value={i.id}>{[i.rank, i.full_name].filter(Boolean).join(" ")}</option>)}</select></Field>
+      </div><div className="report-toolbar">
+        <button className="btn btn-primary" disabled={disabled || intakeBlocked} onClick={() => { setPicker(true); setChosen([]); }}>إضافة إفادة</button>
+        <button className="btn btn-primary" disabled={disabled || intakeBlocked} onClick={() => { const b = newNote(); b.values = { ...defaults(), note_date: "", note_time: "" }; insert([b]); }}>إضافة ملاحظة</button>
+        <button className="btn btn-primary" disabled={disabled || intakeBlocked} onClick={addConclusion}>خلاصة التحقيق</button>
+        <button className="btn" disabled={disabled || !dirty || saving} onClick={() => void store.retry().catch(() => undefined)}>حفظ الآن</button>
+        <button className="btn" aria-pressed={mode === "write"} onClick={() => setMode("write")}>الكتابة</button>
+        <button className="btn" disabled={busy || !!store.error} onClick={() => void openPdf()}>معاينة PDF والمراجعة</button>
+      </div></section>
+      {picker && <section className="card card-body" aria-label="اختيار أصحاب الإفادات"><h2>اختر أصحاب الإفادات</h2><p>تُستورد بيانات الأشخاص وأقوالهم المراجعة من هذه الجلسة في خطوة واحدة.</p>
+        <label className="checkbox"><input type="checkbox" checked={additional} onChange={e => { setAdditional(e.target.checked); setChosen([]); }} />إضافة إفادة أخرى لشخص لديه إفادة محفوظة</label>
+        {people.filter(p => p.participant_key).map(p => {
+          const exists = document.blocks.some(b => b.type === "statement" && b.participant_key === p.participant_key);
+          return <label className="checkbox" key={p.key}><input type="checkbox" disabled={disabled || (exists && !additional)} checked={chosen.includes(p.participant_key!)} onChange={e => setChosen(v => e.target.checked ? [...v, p.participant_key!] : v.filter(k => k !== p.participant_key))} />{p.label} {exists && <span className="muted">— له إفادة</span>}</label>;
+        })}<div className="flex gap wrap"><button className="btn btn-primary" disabled={disabled || !chosen.length} onClick={() => void prepare()}>تجهيز الإفادات المحددة ({chosen.length})</button><button className="btn" onClick={() => setPicker(false)}>إلغاء</button></div>
+      </section>}
+      {store.conflict && <section className="card card-body" aria-label="مصالحة تعارض الحفظ"><h2>قارن النسختين واختر لكل قسم</h2>
+        <div className="report-compare"><p>نسختي: {document.subject}</p><p>المحفوظة: {store.conflict.document.subject}</p></div>
+        <Field label="عنوان المحضر والتكليفات"><select className="select" value={headerChoice} onChange={e => setHeaderChoice(e.target.value as "local" | "server")}><option value="local">بيانات نسختي الحالية</option><option value="server">بيانات النسخة المحفوظة</option></select></Field>
+        {[...new Set([...document.blocks.map(b => b.id), ...store.conflict.document.blocks.map(b => b.id)])].map(id => <div key={id}>
+          <div className="report-compare"><div><h3>نسختي</h3>{showBlock(document.blocks.find(b => b.id === id))}</div><div><h3>المحفوظة</h3>{showBlock(store.conflict!.document.blocks.find(b => b.id === id))}</div></div>
+          <select className="select" aria-label="النسخة المعتمدة للقسم" value={conflictChoices[id] ?? ""} onChange={e => setConflictChoices(v => ({ ...v, [id]: e.target.value as "local" | "server" }))}><option value="" disabled>اختر بعد المقارنة</option><option value="local">استخدام نسختي لهذا القسم</option><option value="server">استخدام النسخة المحفوظة لهذا القسم</option></select>
+        </div>)}<button className="btn btn-primary" disabled={[...new Set([...document.blocks.map(b => b.id), ...store.conflict.document.blocks.map(b => b.id)])].some(id => !conflictChoices[id])}
+          onClick={() => { store.reconcile(conflictChoices, headerChoice); setConflictChoices({}); }}>اعتماد الاختيارات وحفظ النسخة الموحّدة</button>
+      </section>}
+      {comparison && <section className="card card-body" aria-label="مقارنة الإفادة بالمصدر"><h2>الإفادة الحالية والمصدر المراجع</h2>
+        <div className="report-compare"><div><h3>النص الحالي</h3>{showBlock(comparison.current)}</div><div><h3>المصدر</h3>{showBlock(comparison.proposed)}</div></div>
+        <button className="btn btn-primary" disabled={disabled} onClick={() => { replace({ ...comparison.proposed, id: comparison.current.id, identity_checked: false, attestation_confirmed: false,
+          entries: comparison.proposed.entries.length ? comparison.proposed.entries : [newEntry()] }); setComparison(null); }}>قبول استبدال هذه الإفادة بالمصدر</button><button className="btn" onClick={() => setComparison(null)}>الاحتفاظ بالنص الحالي</button>
+      </section>}
+      {removed && <Alert kind="info">أزيل القسم من المسودة. <button className="btn" disabled={disabled} onClick={() => { change(v => { const blocks = [...v.blocks]; blocks.splice(Math.min(removed.index, blocks.length), 0, removed.block); return { ...v, blocks }; }); select(removed.block.id); setRemoved(null); }}>تراجع عن الإزالة</button></Alert>}
+      {mode === "review" ? <section className="report-review"><h2>المعاينة النهائية — PDF</h2><p>هذه المعاينة تستخدم محرّك الإصدار نفسه. النسخة غير الصادرة تحمل علامة مسودة.</p>
+        {pdf && <><a className="btn" href={pdf} download={`draft-${session.session_number}.pdf`}>تنزيل المعاينة PDF</a><iframe className="report-pdf-frame" src={pdf} title="معاينة PDF النهائية" /></>}
+        {!pdf && <button className="btn" onClick={() => void openPdf()}>إنشاء المعاينة الحالية</button>}
+        {issues.length > 0 && <div className="card card-body"><h3>أكمل قبل الإصدار</h3>{issues.map((issue, i) => <button className="btn report-attention" key={`${issue.block}-${issue.field}-${i}`} onClick={() => select(issue.block, issue.field)}>{issue.label} — {blockLabel(document.blocks.find(b => b.id === issue.block)!, document.blocks.findIndex(b => b.id === issue.block))}</button>)}</div>}
+        <ReportIssuance sessionId={session.id} state={saved} blocked={dirty || busy || saving || !!dictation || !pdf} canApprove={isLead} onState={accept} onStatusChange={onStatusChange} />
+      </section> : <>
+        <nav className="report-mobile-tabs" aria-label="أجزاء مساحة المحضر">{([['outline', 'الأقسام'], ['edit', 'الكتابة'], ['preview', 'المحضر']] as const).map(([key, label]) => <button className="btn" key={key} aria-pressed={mobilePane === key} onClick={() => setMobilePane(key)}>{label}</button>)}</nav>
+        <div className={`report-studio-grid show-${mobilePane}`}>
+          <aside className="card report-outline" aria-label="أقسام المحضر"><div className="card-head">أقسام المحضر <span>{document.blocks.length}</span></div><div className="card-body">
+            {!document.blocks.length && <p>ابدأ باختيار أصحاب الإفادات، ثم أضف الملاحظات والخلاصة.</p>}
+            {document.blocks.map((block, index) => <div className={`report-outline-item ${selected === block.id ? "selected" : ""}`} key={block.id}>
+              <button className="btn btn-ghost" aria-current={selected === block.id ? "true" : undefined} onClick={() => select(block.id)}>{blockLabel(block, index)}{attention(block).length > 0 && <span className="report-needs">يحتاج استكمالاً</span>}</button>
+              <div className="flex gap"><button className="btn btn-sm" aria-label={`نقل ${blockLabel(block, index)} لأعلى`} disabled={disabled || index === 0} onClick={() => move(block.id, -1)}>↑</button><button className="btn btn-sm" aria-label={`نقل ${blockLabel(block, index)} لأسفل`} disabled={disabled || index === document.blocks.length - 1} onClick={() => move(block.id, 1)}>↓</button>
+                <button className="btn btn-sm" disabled={disabled} onClick={() => { setRemoved({ block, index }); change(v => ({ ...v, blocks: v.blocks.filter(b => b.id !== block.id) })); setSelected(document.blocks[index + 1]?.id ?? document.blocks[index - 1]?.id ?? null); }}>إزالة</button></div>
+            </div>)}{!document.blocks.some(b => b.type === "conclusion") && <button className="btn report-attention" disabled={disabled || intakeBlocked} onClick={addConclusion}>أضف خلاصة التحقيق</button>}
+          </div></aside>
+          <section className="card report-paper"><div className="card-head">المحضر — اضغط القسم لتعديله</div>{previewError && <p role="status">تعذر تحديث المعاينة؛ آخر معاينة ناجحة باقية.</p>}
+            <iframe ref={frame} title="محضر التحقيق — اضغط للتعديل" srcDoc={preview} onLoad={frameLoaded} sandbox="allow-same-origin allow-modals" /></section>
+          <section className="card report-edit-panel"><div className="card-head">{active ? blockLabel(active, document.blocks.indexOf(active)) : "الكتابة"}</div><div className="card-body">
+            {active ? <ReportSectionEditor key={active.id} block={active} blocks={document.blocks} session={session} catalogue={catalogue} templates={templates} disabled={disabled} canManage={can("reports.templates.manage")} voiceAllowed={voiceAllowed}
+              onChange={replace} onTemplate={t => setTemplates(v => [...v, t])} onVoice={target => { if (!dictation) setDictation(target); else setError("أكمل التسجيل المفتوح أو أغلقه قبل تغيير حقل الإملاء."); }} onRefresh={() => void compare()} /> : <p className="muted">اختر قسماً من المحضر أو أضف إفادة أو ملاحظة.</p>}
+          </div></section>
         </div>
-        <p className="small muted mt-8">أضف إفادة لكل شخص وملاحظة لكل إجراء، ورتّبها حسب تسلسل المحضر. الحقول الصفراء تنتظر التعبئة. الملف المحفوظ هنا مسودة HTML قابلة للطباعة.</p>
-        <p className="small muted">هذا المحضر يخص جلسة واحدة. الشخص نفسه يمكن أن يشارك في جلسات مختلفة؛ إفاداته وأجوبته وملاحظات كل جلسة تبقى مستقلة تماماً.</p>
-        {!editable && <Alert kind="info">هذا المحضر صادر أو متاح للقراءة فقط. إعادة فتح المسودة تتم من شاشة المحاضر الصادرة.</Alert>}
-      </div></div>
-      {removed && <Alert kind="info">أزيلت {removed.block.type === "note" ? "ملاحظة" : "إفادة"} من المسودة. <button className="btn btn-sm" disabled={disabled} onClick={() => {
-        change(value => { const blocks = [...value.blocks]; blocks.splice(Math.min(removed.index, blocks.length), 0, removed.block); return { ...value, blocks }; });
-        setSelectedId(removed.block.id); setRemoved(null);
-      }}>تراجع عن الإزالة</button></Alert>}
-      <div className="html-report-workspace">
-        <section className="card html-report-fields"><div className="card-head">الإفادات والملاحظات والحقول المتغيرة</div><div className="card-body">
-          <div className="html-statement-list">{document.blocks.map((block, index) => <div className={`html-statement-item ${block.id === selectedId ? "selected" : ""}`} key={block.id}>
-            <button className="btn btn-ghost" onClick={() => setSelectedId(block.id)}>{blockLabel(block, index)}</button>
-            <div className="flex"><button className="btn btn-sm" aria-label={`نقل ${blockLabel(block, index)} لأعلى`} disabled={disabled || index === 0} onClick={() => move(block.id, -1)}>↑</button><button className="btn btn-sm" aria-label={`نقل ${blockLabel(block, index)} لأسفل`} disabled={disabled || index === document.blocks.length - 1} onClick={() => move(block.id, 1)}>↓</button>
-              <button className="btn btn-sm" disabled={disabled} onClick={() => { setRemoved({ block, index }); change(value => ({ ...value, blocks: value.blocks.filter(b => b.id !== block.id) })); if (selectedId === block.id) setSelectedId(null); }}>إزالة</button></div>
-          </div>)}</div>
-          {active ? <>
-            {active.type === "statement" && <>
-              <Field label="صاحب الإفادة — من أشخاص هذه الجلسة"><select className="select" disabled={disabled} value={selectionKey(active)} onChange={e => {
-                const option = people.find(p => p.key === e.target.value) || null;
-                void choosePerson(active, option);
-              }}><option value="">إفادة تُملأ يدوياً</option>{people.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
-                {selectionKey(active) && !people.some(p => p.key === selectionKey(active)) && <option value={selectionKey(active)}>اختيار محفوظ — راجع ربط الشخص بهذه الجلسة</option>}
-              </select></Field>
-              <p className="small muted">الاختيار يعبّئ البيانات وس/ج تلقائياً. <Link to={`/investigations/${session.id}?tab=details`} target="_blank" rel="noreferrer">تعديل بيانات صاحب الإفادة في الجلسة</Link></p>
-            </>}
-            {active.type === "note" && <p className="small muted">اكتب المراجعة أو القرار أو الإجراء في نص الملاحظة. لكل ملاحظة تاريخها وتوقيعاتها، ويمكن نقلها بين الإفادات باستخدام الأسهم.</p>}
-            {active.type === "note" && <NoteTemplateControls key={active.id} block={active} templates={templates} disabled={disabled} canManage={can("reports.templates.manage")}
-              onChange={block => updateBlock(active.id, () => block)} onCreated={template => setTemplates(current => [...current, template])} />}
-            {[...new Set((activeFields || []).map(field => field.group))].map(group => <details open key={group} className="html-field-group"><summary>{group}</summary><div className="form-grid">
-              {(activeFields || []).filter(field => field.group === group).map(field => <Field key={field.key} label={field.label} full={field.multiline}>
-                {field.multiline ? <textarea className="textarea" rows={field.key === "note_text" ? 8 : 3} maxLength={field.key === "note_text" ? 40000 : 10000} disabled={disabled} readOnly={active.type === "note" && !!active.template_id && field.key === "note_text"} value={active.values[field.key] ?? ""} aria-label={field.label} onChange={e => updateBlock(active.id, block => ({ ...block, values: { ...block.values, [field.key]: e.target.value } }))} />
-                  : <input className="input" disabled={disabled} value={active.values[field.key] ?? ""} aria-label={field.label} maxLength={2000} onChange={e => updateBlock(active.id, block => ({ ...block, values: { ...block.values, [field.key]: e.target.value } }))} />}
-              </Field>)}
-            </div></details>)}
-            {active.type === "statement" && <>
-            <div className="html-field-group"><b>عبارات الوقائع</b><label className="checkbox"><input type="checkbox" disabled={disabled} checked={active.identity_checked} onChange={e => updateStatement(active.id, b => ({ ...b, identity_checked: e.target.checked }))} />إدراج عبارة التحقق من الوثائق وإعادتها بعد حصول ذلك</label>
-              <label className="checkbox"><input type="checkbox" disabled={disabled} checked={active.attestation_confirmed} onChange={e => updateStatement(active.id, b => ({ ...b, attestation_confirmed: e.target.checked }))} />إدراج عبارة تلاوة الإفادة وتصديقها والتوقيع عليها بعد حصول ذلك</label></div>
-            <div className="flex gap wrap"><h3>نص الإفادة — س.ج</h3><button className="btn btn-sm" disabled={disabled || !selectionKey(active)} onClick={() => void choosePerson(active, { participant_key: active.participant_key || null, identity_id: active.identity_id || null, speaker_id: active.speaker_id })}>إعادة التعبئة من هذه الجلسة</button></div>
-            {active.entries.map((entry, index) => <div className="html-answer-editor" key={entry.id}>
-              <b>الفقرة {index + 1}</b><Field label="السؤال (اختياري)"><textarea className="textarea" rows={2} disabled={disabled} value={entry.question} onChange={e => updateStatement(active.id, b => ({ ...b, entries: b.entries.map(row => row.id === entry.id ? { ...row, question: e.target.value } : row) }))} /></Field>
-              <Field label="الجواب / نص الإفادة"><textarea className="textarea" rows={4} disabled={disabled} value={entry.answer} onChange={e => updateStatement(active.id, b => ({ ...b, entries: b.entries.map(row => row.id === entry.id ? { ...row, answer: e.target.value } : row) }))} /></Field>
-              {entry.source_block_ids.length > 0 && <p className="small muted">مرتبط بمصدره في النص المنقح. التعديل هنا يغيّر مسودة المحضر.
-                {(entry.source_snapshot || []).map(source => <span className="source-time" key={source.block_id}> التسجيل {source.source_recording_ids.map(id => session.recordings.findIndex(r => r.id === id) + 1 || "؟").join("، ")} · <span dir="ltr">{source.start_seconds?.toFixed(3) ?? "—"}–{source.end_seconds?.toFixed(3) ?? "—"}</span> ثانية</span>)}
-              </p>}
-              <button className="btn btn-sm" disabled={disabled} onClick={() => updateStatement(active.id, b => ({ ...b, entries: b.entries.filter(row => row.id !== entry.id) }))}>إزالة الفقرة</button>
-            </div>)}
-            <button className="btn" disabled={disabled} onClick={() => updateStatement(active.id, b => ({ ...b, entries: [...b.entries, newEntry()] }))}>+ إضافة سؤال / جواب</button>
-            </>}
-          </> : <p className="muted">اختر إفادة أو ملاحظة لتعبئة حقولها، أو أضف واحدة جديدة.</p>}
-        </div></section>
-        <section className="card html-report-preview"><div className="card-head">معاينة HTML المباشرة</div><div className="card-body flex gap wrap">
-        </div><iframe ref={frame} title="معاينة محضر الإفادات والملاحظات" srcDoc={preview} sandbox="allow-same-origin allow-modals" /></section>
-      </div>
+      </>}
+      {voiceAllowed && <ReportDictation sessionId={session.id} target={dictation} disabled={disabled} flush={flush} onState={accept} onClose={() => setDictation(null)} onBusy={setBusy} />}
     </>}
   </div>;
 }

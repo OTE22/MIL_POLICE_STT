@@ -15,6 +15,13 @@ const reasons: Record<string, string> = {
   unresolved_processing_failures: "توجد معالجة فاشلة لم تُستكمل بنجاح. أعد محاولة معالجة التسجيل قبل المراجعة أو الإصدار أو الإقفال",
   original_audio_integrity_failed: "أحد التسجيلات الأصلية لا يطابق بصمته المحفوظة. يجب مراجعة سلامة الدليل قبل الإصدار أو الإقفال",
   exactly_one_lead_required: "عيّن محققاً رئيسياً واحداً", reopen_investigation_before_editing: "أعد فتح جلسة التحقيق أولاً",
+  participant_details_incomplete: "استكمل بيانات الأشخاص في إعداد الجلسة",
+  report_conclusion_required: "أضف خلاصة التحقيق", report_conclusion_incomplete: "أكمل الوقائع والاستنتاج",
+  report_responsibilities_required: "أكمل المسؤوليات أو اختر لا يوجد", report_proposals_required: "أكمل الاقتراحات أو اختر لا يوجد",
+  report_finding_incomplete: "أكمل نص نتيجة المسؤولية والشخص المعني", report_finding_evidence_required: "اربط كل نتيجة مسؤولية بدليل أو قسم داعم",
+  report_responsibility_conflict: "راجع التعارض بين لا يوجد ونتائج المسؤولية", report_proposals_conflict: "راجع التعارض بين لا يوجد ونص الاقتراحات",
+  report_dictation_pending: "راجع الإملاءات الصوتية وأدرجها أو استبعدها قبل الإصدار", dictation_audio_missing: "انتظر حفظ تسجيل الإملاء الأصلي",
+  dictation_audio_integrity_failed: "تسجيل الإملاء لا يطابق بصمته المحفوظة",
 };
 export const reportReason = (value: string) => reasons[value] ?? "تحتاج بيانات المحضر أو مصادره إلى مراجعة قبل المتابعة";
 
@@ -23,9 +30,10 @@ const sourceFields: Record<string, string> = { title: "الموضوع", location
 const sourceValue = (value: unknown) => value == null ? "—" : typeof value === "boolean" ? (value ? "نعم" : "لا") : String(value);
 
 interface Archive { reports: { id: string; report_version: number; report_number: string; created_at: string }[] }
-export function ReportIssuance({ sessionId, state, blocked, onState, onStatusChange }: {
+export function ReportIssuance({ sessionId, state, blocked, onState, onStatusChange, canApprove = false }: {
   sessionId: string; state: HtmlReportState; blocked: boolean;
   onState: (state: HtmlReportState) => void; onStatusChange: () => void;
+  canApprove?: boolean;
 }) {
   const { can } = useAuth();
   const [archive, setArchive] = useState<Archive>({ reports: [] });
@@ -66,10 +74,10 @@ export function ReportIssuance({ sessionId, state, blocked, onState, onStatusCha
       <button className="btn" disabled={blocked || busy} onClick={() => void action(`${base}/report/html/refresh-sources`, {})}>تحديث مصادر الاستيراد دون تغيير الإفادات المحفوظة</button>
       <label className="checkbox"><input type="checkbox" checked={reviewed} disabled={blocked || busy} onChange={e => setReviewed(e.target.checked)} />راجعت بيانات المحضر ومحتواه ونسبة الأقوال إلى أصحابها</label>
       {state.sources_changed && <label className="checkbox"><input type="checkbox" checked={ack} onChange={e => setAck(e.target.checked)} />راجعت تغييرات المصدر وأؤكد ملاءمة النص المحفوظ</label>}
-      <button className="btn" disabled={blocked || busy || !reviewed || (state.sources_changed && !ack)} onClick={() => void action(`${base}/report/html/review`, {
+      <button className="btn" disabled={blocked || busy || !canApprove || !reviewed || (state.sources_changed && !ack)} onClick={() => void action(`${base}/report/html/review`, {
         expected_source_token: state.source_token, content_reviewed: true, acknowledge_source_changes: ack,
       })}>حفظ تأكيد المراجعة</button>
-      {can("reports.finalize") && <button className="btn btn-primary" disabled={blocked || busy || state.blocked_reasons.length > 0}
+      {can("reports.finalize") && <button className="btn btn-primary" disabled={blocked || busy || !canApprove || state.blocked_reasons.length > 0}
         onClick={() => void action(`${base}/reports`, {}, true)}>إصدار وحفظ HTML وPDF</button>}
     </>}
     {state.status === "FINAL" && can("reports.generate") && <>

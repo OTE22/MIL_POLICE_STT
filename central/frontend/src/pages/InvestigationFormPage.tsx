@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { ApiError, http } from "@/api/client";
 import type { AssignmentRole, Investigation, Profile, Subject } from "@/api/types";
@@ -21,6 +21,7 @@ export function InvestigationFormPage() {
   const { id } = useParams();
   const isEdit = Boolean(id);
   const navigate = useNavigate();
+  const route = useLocation();
   const toast = useToast();
   const { user, can } = useAuth();
 
@@ -46,6 +47,21 @@ export function InvestigationFormPage() {
      inferred - otherwise removing one person and adding another in the same save is
      indistinguishable from losing the first one's identity. */
   const [removedKeys, setRemovedKeys] = useState<string[]>([]);
+  useEffect(() => {
+    if (!loaded || !route.hash) return;
+    const focus = () => {
+      const target = document.getElementById(decodeURIComponent(route.hash.slice(1)));
+      if (!target) return false;
+      for (let p: HTMLElement | null = target; p; p = p.parentElement) if (p instanceof HTMLDetailsElement) p.open = true;
+      target.scrollIntoView({ block: "center" });
+      (target.matches("input,textarea,select") ? target : target.querySelector<HTMLElement>("input,textarea,select") ?? target).focus();
+      return true;
+    };
+    if (focus()) return;
+    const observer = new MutationObserver(() => { if (focus()) observer.disconnect(); });
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [loaded, route.hash]);
 
   useEffect(() => {
     void http.get<Profile[]>("/investigators").then((list) => {
@@ -94,6 +110,8 @@ export function InvestigationFormPage() {
         // the rebuild, so it is not sent at all - carrying it would work once and then start
         // issuing a second reference for the same person.
         participant_key: s.participant_key ?? null,
+        statement_details: s.statement_details ?? {},
+        field_exceptions: s.field_exceptions ?? {},
         subject_name: clean(s.subject_name),
         identity_id: s.identity_id ?? null,
         person_type: s.person_type,
@@ -157,7 +175,7 @@ export function InvestigationFormPage() {
           <div className="form-grid">
             <div className="section-title">{T.sessionInfo}</div>
             <Field label={T.title} required full>
-              <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} required maxLength={300} />
+              <input id="session-title" className="input" value={title} onChange={(e) => setTitle(e.target.value)} required maxLength={300} />
             </Field>
             {!isEdit && (
               <Field label={T.sessionNumber} hint="يُولَّد تلقائياً عند تركه فارغاً">
@@ -176,7 +194,7 @@ export function InvestigationFormPage() {
               <textarea className="textarea" value={description} onChange={(e) => setDescription(e.target.value)} maxLength={8000} />
             </Field>
 
-            <div className="section-title">{T.investigatorsLabel}</div>
+            <div id="session-investigators" tabIndex={-1} className="section-title">{T.investigatorsLabel}</div>
             <div className="field full">
               {assignments.map((a, i) => (
                 <div className="assignment-row mb-16" key={i}>
@@ -241,10 +259,10 @@ export function InvestigationFormPage() {
 
             <div className="section-title">{T.locationAndTime}</div>
             <Field label={T.location}>
-              <input className="input" value={location} onChange={(e) => setLocation(e.target.value)} maxLength={300} />
+              <input id="session-location" className="input" value={location} onChange={(e) => setLocation(e.target.value)} maxLength={300} />
             </Field>
             <Field label={T.sessionDate}>
-              <input className="input" type="date" value={sessionDate} onChange={(e) => setSessionDate(e.target.value)} />
+              <input id="session-session_date" className="input" type="date" value={sessionDate} onChange={(e) => setSessionDate(e.target.value)} />
             </Field>
             <Field label={T.startTime}>
               <input className="input" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />

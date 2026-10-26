@@ -100,16 +100,6 @@
     "violations": []
   },
   {
-    "screen": "templates-desktop",
-    "tiny_text": [],
-    "violations": []
-  },
-  {
-    "screen": "templates-mobile",
-    "tiny_text": [],
-    "violations": []
-  },
-  {
     "screen": "users-desktop",
     "tiny_text": [],
     "violations": []
@@ -170,6 +160,16 @@
     "violations": []
   },
   {
+    "screen": "investigations-ltr-desktop",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
+    "screen": "investigations-ltr-mobile",
+    "tiny_text": [],
+    "violations": []
+  },
+  {
     "screen": "navigation-mobile",
     "tiny_text": [],
     "violations": []
@@ -201,41 +201,6 @@
   },
   {
     "screen": "enrollment-mobile",
-    "tiny_text": [],
-    "violations": []
-  },
-  {
-    "screen": "legacy-report-desktop",
-    "tiny_text": [],
-    "violations": []
-  },
-  {
-    "screen": "m53-form-desktop",
-    "tiny_text": [],
-    "violations": []
-  },
-  {
-    "screen": "m53-form-mobile",
-    "tiny_text": [],
-    "violations": []
-  },
-  {
-    "screen": "note-template-mobile",
-    "tiny_text": [],
-    "violations": []
-  },
-  {
-    "screen": "voice-modal-desktop",
-    "tiny_text": [],
-    "violations": []
-  },
-  {
-    "screen": "template-designer-desktop",
-    "tiny_text": [],
-    "violations": []
-  },
-  {
-    "screen": "template-designer-mobile",
     "tiny_text": [],
     "violations": []
   },

@@ -17,6 +17,7 @@ import { ActivityTimeline } from "@/components/audit/ActivityTimeline";
 import { SpeakersPanel } from "@/components/transcript/SpeakersPanel";
 import { InvestigationDetails } from "@/components/InvestigationDetails";
 import { InvestigationGuide } from "@/components/InvestigationGuide";
+import { IntakeReadiness } from "@/components/IntakeReadiness";
 import "@/styles/investigation-workspace.css";
 
 type Tab = "details" | "recording" | "transcript" | "speakers" | "activity";
@@ -168,6 +169,7 @@ export function InvestigationDetailPage() {
       </div>
 
       <div id="investigation-tab-content" role="tabpanel" aria-labelledby={`investigation-tab-${tab}`}>
+      <IntakeReadiness session={session} />
       {tab === "details" && <><InvestigationGuide session={session} transcript={transcript} /><InvestigationDetails session={session} canViewDocuments={can("subjects.documents.view")} /></>}
 
       {tab === "recording" && (
@@ -188,7 +190,7 @@ export function InvestigationDetailPage() {
               <Alert kind="warning">{T.err_session_archived}</Alert>
             ) : (
               <>
-                <Recorder disabled={processingBusy} pending={pending} onReady={setPending} />
+                <Recorder disabled={processingBusy || session.intake_readiness?.ready === false} pending={pending} onReady={setPending} />
                 <ProcessingPanel session={session} pending={pending} agent={agent} onCompleted={onCompleted} onBusyChange={setProcessingBusy}
                   onAuthorized={(audio, recordingId) => setPending(current => current?.blob === audio.blob ? { ...current, recordingId, sessionId: session.id } : current)} />
               </>

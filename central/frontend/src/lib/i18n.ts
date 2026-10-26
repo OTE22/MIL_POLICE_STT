@@ -573,7 +573,6 @@ export const T = {
 
   err_report_is_final: "هذا المحضر صادر ولا يمكن تعديله.",
   err_report_too_large: "عدد الأسئلة يتجاوز الحد المسموح.",
-  templateTitle: "القالب الرسمي للمحضر",
 
   voiceDuplicateNames: "يوجد أكثر من شخص بهذا الاسم",
   voiceConsolidate: "دمج السجلات",

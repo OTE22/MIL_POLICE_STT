@@ -65,6 +65,7 @@ class JobRecord:
     warnings: list[str] = field(default_factory=list)
     audio_metadata: dict[str, Any] = field(default_factory=dict)
     cancel_requested: bool = False
+    purpose: str = "INTERVIEW"
 
     def public(self) -> dict[str, Any]:
         d = asdict(self)
@@ -136,6 +137,8 @@ class JobStore:
         self._conn.execute("PRAGMA synchronous=NORMAL")
         with self._lock:
             self._conn.executescript(_SCHEMA)
+            if "purpose" not in {row[1] for row in self._conn.execute("PRAGMA table_info(jobs)")}:
+                self._conn.execute("ALTER TABLE jobs ADD COLUMN purpose TEXT NOT NULL DEFAULT 'INTERVIEW'")
 
     # ---------------------------------------------------------------- settings
     def get_setting(self, key: str) -> str | None:

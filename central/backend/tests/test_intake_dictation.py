@@ -1,0 +1,141 @@
+"""Expanded intake/report/voice boundary checks; synthetic sync is not real-engine proof."""
+import hashlib
+import io
+import uuid
+import wave
+from copy import deepcopy
+from sqlalchemy import select, func
+from app.db.session import SessionLocal
+from app.models import AudioRecording, Transcript, SessionSpeaker, LocalProcessingJob, Subject
+from app.services.report_html import editable_document
+from conftest import auth, create_session, sample_result
+
+
+def draft(client, token, session):
+    path = f"/api/investigations/{session['id']}/report/html"
+    response = client.post(path, headers=auth(token))
+    assert response.status_code == 200, response.text
+    state = response.json()
+    document = state["document"]
+    document["blocks"] = [
+        {"id": str(uuid.uuid4()), "type": "note", "values": {"note_text": "Existing note", "closing_date": "2026-10-26", "closing_location": "Beirut"}},
+        {"id": str(uuid.uuid4()), "type": "conclusion", "values": {"facts": "Evidence reviewed", "inference": "Assessment", "closing_date": "2026-10-26", "closing_location": "Beirut"},
+         "responsibility_mode": "NONE", "proposal_mode": "NONE", "findings": []}]
+    response = client.put(path, headers=auth(token), json={"expected_token": state["token"], "document": document})
+    assert response.status_code == 200, response.text
+    return path, response.json()
+
+
+def wav_bytes():
+    stream = io.BytesIO()
+    with wave.open(stream, "wb") as output:
+        output.setnchannels(1); output.setsampwidth(2); output.setframerate(16000)
+        output.writeframes(b"\0\0" * 48000)
+    return stream.getvalue()
+
+
+def start(client, token, session, state, **overrides):
+    body = {"expected_token": state["token"], "block_id": state["document"]["blocks"][0]["id"],
+        "field": "note_text", "original_filename": "dictation.wav", "mime_type": "audio/wav",
+        "size_bytes": len(wav_bytes()), "source": "BROWSER_RECORDING"}
+    body.update(overrides)
+    return client.post(f"/api/investigations/{session['id']}/report/dictations", headers=auth(token), json=body)
+
+
+def test_incomplete_draft_persists_but_new_work_is_blocked(client, investigator):
+    token = investigator["token"]
+    session = create_session(client, token, subjects=[{"subject_name": "Incomplete", "person_type": "MILITARY"}])
+    assert session["intake_readiness"]["ready"] is False
+    issues = session["intake_readiness"]["issues"]
+    assert {"father_name", "prior_record_statement", "rank", "unit", "military_id", "security_branch"} <= {i["field"] for i in issues}
+    assert all(i["participant_key"] == session["subjects"][0]["participant_key"] for i in issues)
+    base = f"/api/investigations/{session['id']}"
+    for suffix, body in [("/report/html", {}), ("/local-processing-token", {
+        "original_filename": "new.wav", "mime_type": "audio/wav", "size_bytes": 1000})]:
+        result = client.post(base + suffix, headers=auth(token), json=body)
+        assert result.status_code == 409, result.text
+        assert result.json()["detail"]["code"] == "participant_details_incomplete"
+
+
+def test_exceptions_are_validated_stamped_and_never_written_into_facts(client, investigator):
+    token = investigator["token"]
+    session = create_session(client, token, subjects=[{"subject_name": "Recorded designation", "person_type": "CIVILIAN"}])
+    person = session["subjects"][0]
+    exceptions = {i["field"]: {"status": "REFUSED", "reason": "Declined during intake", "by": "forged"}
+                  for i in session["intake_readiness"]["issues"] if i["participant_key"]}
+    base = f"/api/investigations/{session['id']}"
+    def save(values):
+        return client.put(base, headers=auth(token), json={"expected_revision": session["revision"], "subjects": [
+            {"participant_key": person["participant_key"], "subject_name": person["subject_name"], "field_exceptions": values}]})
+    invalid = deepcopy(exceptions); invalid["birth_year"]["reason"] = 123
+    assert save(invalid).status_code == 422
+    invalid = deepcopy(exceptions); invalid["father_name"]["status"] = "NOT_APPLICABLE"
+    assert save(invalid).status_code == 422
+    result = save(exceptions)
+    assert result.status_code == 200, result.text
+    assert result.json()["intake_readiness"]["ready"]
+    saved = result.json()["subjects"][0]
+    assert saved["statement_details"] == {}
+    assert saved["field_exceptions"]["father_name"]["by"] == investigator["user"]["id"]
+    assert saved["field_exceptions"]["father_name"]["at"]
+    assert saved["id"] == person["id"]
+
+
+def test_dictation_never_creates_testimony_and_requires_explicit_acceptance(client, investigator):
+    token = investigator["token"]
+    session = create_session(client, token)
+    path, state = draft(client, token, session)
+    result = start(client, token, session, state)
+    assert result.status_code == 200, result.text
+    issued = result.json()
+    voicepath = path.removesuffix("/html") + "/dictations"
+    refreshed = client.get(path, headers=auth(token)).json()
+    assert "report_dictation_pending" in refreshed["blocked_reasons"]
+    payload = sample_result(); payload["audio"]["sha256"] = hashlib.sha256(wav_bytes()).hexdigest()
+    result_path = f"/api/local-processing/{issued['job_id']}"
+    synced = client.post(result_path + "/result", headers=auth(issued["processing_token"]), json=payload)
+    assert synced.status_code == 200, synced.text
+    assert synced.json()["transcript_id"] is None
+    assert client.post(result_path + "/result", headers=auth(issued["processing_token"]), json=payload).json()["duplicate"]
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(Transcript)) == 0
+        assert db.scalar(select(func.count()).select_from(SessionSpeaker)) == 0
+        assert db.scalar(select(AudioRecording).where(AudioRecording.id == uuid.UUID(issued["recording_id"]))).purpose == "REPORT_DICTATION"
+    session_view = client.get(f"/api/investigations/{session['id']}", headers=auth(token)).json()
+    assert session_view["recordings"] == [] and session_view["processing_summary"] == {}
+    row = client.get(voicepath, headers=auth(token)).json()[0]
+    accept_body = {"expected_token": state["token"], "expected_text_token": row["text_token"], "text": "Reviewed dictation", "mode": "APPEND"}
+    assert client.post(voicepath + f"/{row['id']}/accept", headers=auth(token), json=accept_body).status_code == 409
+    uploaded = client.post(result_path + "/audio", headers=auth(issued["processing_token"]), files={"file": ("dictation.wav", wav_bytes(), "audio/wav")})
+    assert uploaded.status_code == 201, uploaded.text
+    accepted = client.post(voicepath + f"/{row['id']}/accept", headers=auth(token), json=accept_body)
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["document"]["blocks"][0]["values"]["note_text"] == "Existing note\nReviewed dictation"
+    assert "report_dictation_pending" not in accepted.json()["blocked_reasons"]
+    duplicate = client.post(voicepath + f"/{row['id']}/accept", headers=auth(token), json=accept_body)
+    assert duplicate.status_code == 200 and duplicate.json()["token"] == accepted.json()["token"]
+    assert client.post(path, headers=auth(token)).status_code == 200
+
+
+def test_dictation_cannot_target_fixed_words_or_another_session(client, investigator, investigator2):
+    token = investigator["token"]
+    session = create_session(client, token)
+    _, state = draft(client, token, session)
+    assert start(client, token, session, state, field="attestation").status_code == 422
+    assert start(client, token, session, state, block_id=str(uuid.uuid4())).status_code == 409
+    assert start(client, investigator2["token"], session, state).status_code == 404
+
+
+def test_batch_statements_and_conclusion_reference_scope(client, investigator):
+    token = investigator["token"]
+    session = create_session(client, token)
+    path, state = draft(client, token, session)
+    key = session["subjects"][0]["participant_key"]
+    response = client.post(path + "/prepare-statements", headers=auth(token), json={"expected_token": state["token"], "participant_keys": [key]})
+    assert response.status_code == 200, response.text
+    block = response.json()["blocks"][0]
+    assert block["values"]["prior_record_statement"] == session["subjects"][0]["statement_details"]["prior_record_statement"]
+    document = editable_document(state["document"])
+    document["blocks"][1]["references"]["recordings"] = [str(uuid.uuid4())]
+    response = client.put(path, headers=auth(token), json={"expected_token": state["token"], "document": document})
+    assert response.status_code == 422

@@ -132,6 +132,7 @@ class Subject(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     subject_name: Mapped[str] = mapped_column(String(200), nullable=False)
     # Facts at this participation, never implicitly copied from another session.
     statement_details: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    field_exceptions: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
 
     # ---- identity classification -----------------------------------------
     person_type: Mapped[PersonType] = mapped_column(

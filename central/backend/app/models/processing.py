@@ -16,6 +16,9 @@ from app.models.enums import JobStatus, RecordingSource, RecordingUploadStatus, 
 class AudioRecording(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "audio_recordings"
 
+    purpose: Mapped[str] = mapped_column(String(30), nullable=False, default="INTERVIEW", server_default="INTERVIEW")
+    report_context: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
     session_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("investigation_sessions.id", ondelete="CASCADE"),

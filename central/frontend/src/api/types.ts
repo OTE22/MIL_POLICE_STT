@@ -142,6 +142,7 @@ export interface SubjectDocument {
 }
 
 export interface Subject {
+  field_exceptions?: Record<string, { status: string; reason: string; by?: string; at?: string }>;
   identity_name?: string | null;
   removed_document_ids?: string[];
   statement_details?: Record<string, string>;
@@ -188,9 +189,11 @@ export interface Recording {
 }
 
 export interface Investigation {
+  intake_readiness?: { revision: string; ready: boolean; issues: IntakeIssue[] };
   revision: number;
   workflow_state: string;
   processing_summary: Record<string, number>;
+  unresolved_processing_failures?: number;
   id: string;
   session_number: string;
   title: string;
@@ -227,6 +230,8 @@ export interface InvestigationListItem {
   duration_seconds: number | null;
   created_at: string;
 }
+
+export interface IntakeIssue { code: string; participant_key: string | null; person_name?: string; field: string; label: string; target: string }
 
 export interface Paged<T> {
   items: T[];
@@ -554,6 +559,7 @@ export interface AgentCapabilities {
 }
 
 export interface AgentJob {
+  purpose?: "INTERVIEW" | "REPORT_DICTATION";
   job_id: string;
   session_id: string;
   state: AgentState;

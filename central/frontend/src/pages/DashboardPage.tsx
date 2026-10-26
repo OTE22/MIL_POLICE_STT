@@ -71,7 +71,7 @@ export function DashboardPage() {
       <section className="dashboard-workflow" aria-label="مسار العمل">
         <Link to="/investigations"><span className="workflow-icon"><IconFolder /></span><div><h3>إدارة التحقيقات</h3><p>البيانات والمشاركون والتسجيلات</p></div><IconChevronLeft /></Link>
         {can("voice.identify") && <Link to="/voice-enrollments"><span className="workflow-icon"><IconWave /></span><div><h3>الهويات الصوتية</h3><p>مراجعة الأشخاص وعينات الصوت</p></div><IconChevronLeft /></Link>}
-        {can("reports.templates.manage") && <Link to="/report-template"><span className="workflow-icon"><IconFile /></span><div><h3>قوالب المحاضر</h3><p>إعداد نماذج التوثيق والطباعة</p></div><IconChevronLeft /></Link>}
+        {can("reports.generate") && <Link to="/investigations"><span className="workflow-icon"><IconFile /></span><div><h3>محاضر التحقيق</h3><p>اختر جلسة لإعداد المحضر ومراجعته وإصدار HTML وPDF</p></div><IconChevronLeft /></Link>}
       </section>
 
       <div className="card">

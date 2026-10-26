@@ -81,6 +81,10 @@ class JobPipeline:
         started = time.time()
         try:
             audio_meta, processing_path, duration = self._stage_preprocess(job)
+            if job.purpose == "REPORT_DICTATION":
+                self._run_dictation(job, audio_meta, processing_path, duration, started)
+                self._stage_sync(job)
+                return job
             turns, speech = self._stage_diarize(job, processing_path, duration)
             segments, timings = self._stage_transcribe(job, processing_path, turns, speech, duration)
             voice, voice_diagnostics = self._stage_identify_speakers(job, processing_path, segments, turns, speech)
@@ -101,6 +105,33 @@ class JobPipeline:
             log.exception("unexpected pipeline error for %s", job.job_id)
             self._fail(job, "agent_processing", str(exc)[:300], job.state)
         return job
+
+    def _run_dictation(self, job, audio_meta, wav, duration, started):
+        """Transcribe one author's dictation without diarization or voice embeddings."""
+        import soundfile as sf
+        self._set_state(job, "TRANSCRIBING", 0.2, "transcribing report dictation")
+        self._runtime.transcription.load()
+        self._runtime.vad.load()
+        speech = self._runtime.vad.detect(wav, duration)
+        if not speech:
+            raise PipelineFailure("no_speech_detected", "no speech in dictation", "TRANSCRIBING")
+        samples, sr = sf.read(str(wav), dtype="float32", always_2d=False)
+        if samples.ndim > 1:
+            samples = samples.mean(axis=1)
+        segments = []
+        for region in speech:
+            start = region.start_seconds
+            while start < region.end_seconds:
+                self._check_cancel(job)
+                end = min(start + 25, region.end_seconds)
+                result = self._runtime.transcription.transcribe(samples[int(start * sr):int(end * sr)], sr)
+                if result.text.strip():
+                    segments.append(TranscriptSegment("SPEAKER_00", start, end, result.text.strip(), confidence=result.confidence))
+                start = end
+                self._progress(job, min(0.9, 0.2 + 0.7 * end / max(duration, 1)))
+        if not segments:
+            raise PipelineFailure("no_speech_detected", "no text in dictation", "TRANSCRIBING")
+        self._stage_finalize(job, audio_meta, duration, [], segments, {}, started)
 
     def _fail(self, job: JobRecord, code: str, message: str, stage: str) -> None:
         job.state = "FAILED"
@@ -353,7 +384,7 @@ class JobPipeline:
                             f"Voice identification failed for {label}. "
                             "Check the voice model and retry processing this recording."
                         )
-        if len(labels) >= self._runtime.max_speakers:
+        if job.purpose == "INTERVIEW" and len(labels) >= self._runtime.max_speakers:
             warnings.append(
                 f"The diarization model supports at most {self._runtime.max_speakers} speakers; "
                 f"{len(labels)} were detected. Additional speakers may be merged."
@@ -363,22 +394,23 @@ class JobPipeline:
         if self._runtime.transcription.device == "cpu":
             warnings.append("Processed on CPU.")
         stt_info = self._runtime.transcription.info()
-        dia_info = self._runtime.diarization.info()
+        dia_info = self._runtime.diarization.info() if job.purpose == "INTERVIEW" else None
         result = {
             "idempotency_key": job.idempotency_key or uuid.uuid4().hex,
             "language": self._settings.stt_language,
             "stt_provider": stt_info.provider,
             "stt_model": stt_info.model,
             "stt_model_revision": stt_info.revision,
-            "diarization_provider": dia_info.provider,
-            "diarization_model": dia_info.model,
-            "diarization_model_revision": dia_info.revision,
+            "diarization_provider": dia_info.provider if dia_info else "not_applicable",
+            "diarization_model": dia_info.model if dia_info else "report_dictation",
+            "diarization_model_revision": dia_info.revision if dia_info else None,
             "vad_model": self._runtime.vad.model_name if self._settings.vad_enabled else None,
             "agent_version": __version__,
             "processing_device": self._runtime.transcription.device,
             "speaker_count": len(labels),
             "warnings": warnings,
             "processing_metadata": {
+                "purpose": job.purpose,
                 "agent_id": self._ws_info().get("agent_id"),
                 "device_name": self._settings.device_name,
                 "duration_seconds": round(duration, 3),
@@ -398,10 +430,10 @@ class JobPipeline:
                     "max_seconds": self._settings.segment_max_seconds,
                     "context_padding_seconds": self._settings.segment_context_padding_seconds,
                 },
-                "diarization_streaming": dia_info.extra.get("streaming"),
+                "diarization_streaming": dia_info.extra.get("streaming") if dia_info else False,
                 "speaker_identification": {
                     **(voice_diagnostics or {}),
-                    "enabled": self._settings.speaker_id_enabled,
+                    "enabled": job.purpose == "INTERVIEW" and self._settings.speaker_id_enabled,
                     "embeddings": len((voice or {}).get("speakers", {})),
                     "model": (voice or {}).get("model"),
                 },

@@ -223,7 +223,9 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
             # visible here - but get_current_user also put the user on request.state,
             # and the scope crosses tasks.
             state_user = getattr(request.state, "user", None)
-            username = getattr(state_user, "username", None) or _request_user.get()
+            # A rolled-back request may expire/detach ORM attributes. Logging must not
+            # trigger a reload and mask the original exception during teardown.
+            username = getattr(state_user, "__dict__", {}).get("username") or _request_user.get()
             # Health polling would drown INFO; it is still there at DEBUG.
             level = logging.DEBUG if request.url.path == "/api/health" else logging.INFO
             access_log.log(

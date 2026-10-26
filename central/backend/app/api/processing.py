@@ -128,6 +128,9 @@ def create_processing_token(
     guard_mutation(session)
     if session.status == SessionStatus.ARCHIVED:
         raise HTTPException(status.HTTP_409_CONFLICT, detail="session_archived")
+    if not body.recording_id:
+        from app.services.participant_requirements import require_ready
+        require_ready(session)
     try:
         validate_declared(body.original_filename, body.mime_type, body.size_bytes)
     except InvalidAudioError as exc:
@@ -137,7 +140,7 @@ def create_processing_token(
 
     if body.recording_id:
         recording = db.get(AudioRecording, body.recording_id)
-        if recording is None or recording.session_id != session.id:
+        if recording is None or recording.session_id != session.id or recording.purpose != "INTERVIEW":
             raise HTTPException(404, detail="recording_not_found")
         if (recording.original_filename != sanitize_filename(body.original_filename)
                 or recording.mime_type != body.mime_type.split(";")[0].strip().lower()
@@ -218,7 +221,8 @@ def list_session_jobs(
 ) -> list[JobOut]:
     jobs = db.scalars(
         select(LocalProcessingJob)
-        .where(LocalProcessingJob.session_id == session.id)
+        .join(AudioRecording, AudioRecording.id == LocalProcessingJob.recording_id)
+        .where(LocalProcessingJob.session_id == session.id, AudioRecording.purpose == "INTERVIEW")
         .order_by(LocalProcessingJob.created_at.desc())
     ).all()
     return [_job_out(j) for j in jobs]
@@ -277,6 +281,9 @@ def get_agent_job(
     job = db.scalar(select(LocalProcessingJob).where(LocalProcessingJob.id == job_id).with_for_update(of=LocalProcessingJob).execution_options(populate_existing=True))
     if job is None or job.token_nonce != claims.get("jti"):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="job_not_found")
+    recording = db.get(AudioRecording, job.recording_id)
+    if recording is None or recording.purpose != claims.get("purpose", "INTERVIEW"):
+        raise HTTPException(403, detail="processing_token_purpose_mismatch")
     return job, claims
 
 
@@ -382,6 +389,10 @@ def submit_result(
     session = db.scalar(select(InvestigationSession).where(InvestigationSession.id == job.session_id)
                         .with_for_update().execution_options(populate_existing=True))
     from app.services.workflow import guard_mutation, evidence_changed
+    recording = db.get(AudioRecording, job.recording_id)
+    if recording and recording.purpose == "REPORT_DICTATION":
+        from app.services.report_dictation import receive_result
+        return receive_result(db, session, recording, job, body, user_id)
     existing = db.scalar(select(Transcript).where(Transcript.job_id == job.id))
     if existing is not None:
         if job.idempotency_key == body.idempotency_key:
@@ -544,7 +555,8 @@ async def upload_original_audio(
     session = db.scalar(select(InvestigationSession).where(
         InvestigationSession.id == job.session_id).with_for_update())
     from app.services.workflow import guard_mutation, evidence_changed
-    guard_mutation(session)
+    if recording.purpose == "INTERVIEW":
+        guard_mutation(session)
     try:
         ext = validate_declared(file.filename or recording.original_filename, file.content_type or recording.mime_type, recording.size_bytes or 1)
         rel, size, sha256 = await store_upload(file, job.session_id, recording.id, ext)
@@ -562,7 +574,8 @@ async def upload_original_audio(
     recording.size_bytes = size
     recording.storage_path = rel
     recording.upload_status = RecordingUploadStatus.UPLOADED
-    evidence_changed(session)
+    if recording.purpose == "INTERVIEW":
+        evidence_changed(session)
     record_audit(db, action=AuditAction.RECORDING_UPLOADED, user_id=user_id, entity_type="audio_recording", entity_id=recording.id, metadata={"session_id": job.session_id, "size_bytes": size, "sha256": sha256})
     db.commit()
     return {"recording_id": str(recording.id), "duplicate": False, "sha256": sha256, "size_bytes": size}

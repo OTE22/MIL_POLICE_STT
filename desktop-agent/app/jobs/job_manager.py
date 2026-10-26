@@ -33,6 +33,7 @@ class JobManager:
         self._queue: queue.Queue[str] = queue.Queue()
         self._stop = threading.Event()
         self._worker: threading.Thread | None = None
+        self._cleanup_worker: threading.Thread | None = None
         self._current: str | None = None
         self._agent_id = self._load_agent_id()
         self.sync = SyncWorker(settings, store, client, self.workstation_info)
@@ -91,11 +92,19 @@ class JobManager:
         self._worker = threading.Thread(target=self._run, name="job-worker", daemon=True)
         self._worker.start()
         self.sync.start()
-        threading.Thread(target=self._cleanup_loop, name="cleanup", daemon=True).start()
+        self._cleanup_worker = threading.Thread(target=self._cleanup_loop, name="cleanup", daemon=True)
+        self._cleanup_worker.start()
 
-    def stop(self) -> None:
+    def stop(self) -> bool:
         self._stop.set()
-        self.sync.stop()
+        sync_drained = self.sync.stop()
+        for worker in (self._worker, self._cleanup_worker):
+            if worker and worker is not threading.current_thread():
+                worker.join(timeout=30)
+        drained = sync_drained and not any(w and w.is_alive() for w in (self._worker, self._cleanup_worker))
+        if not drained:
+            log.warning("Shutdown retains open job storage for an active worker; unfinished jobs recover on restart")
+        return drained
 
     @property
     def busy(self) -> bool:
@@ -125,6 +134,7 @@ class JobManager:
             session_id=claims.session_id,
             recording_id=claims.recording_id,
             user_id=claims.user_id,
+            purpose=claims.purpose,
             state="CREATED",
             original_filename=sanitize_filename(filename),
             original_path=str(original),
@@ -195,6 +205,8 @@ class JobManager:
                 job_id = self._queue.get(timeout=1.0)
             except queue.Empty:
                 continue
+            if self._stop.is_set():
+                break
             job = self._store.get(job_id)
             if job is None or job.state in TERMINAL_STATES:
                 continue

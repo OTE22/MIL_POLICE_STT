@@ -1,0 +1,90 @@
+{
+  "agent_id": "agent-214ffac69c234296",
+  "agent_version": "1.0.0",
+  "device_name": "isolated-workflow-acceptance",
+  "processing_device": "cpu",
+  "cuda_available": false,
+  "gpu_name": null,
+  "torch_version": "2.8.0+cpu",
+  "cuda_version": null,
+  "ffmpeg_available": true,
+  "ffmpeg_version": "ffmpeg version 7.1.5-0+deb13u1 Copyright (c) 2000-2026 the FFmpeg developers",
+  "stt": {
+    "name": "stt",
+    "provider": "cohere_local",
+    "model": "CohereLabs/cohere-transcribe-arabic-07-2026",
+    "revision": "c3e911b42149bf7a1e53d5cef9878aee87515a23",
+    "state": "READY",
+    "error": null,
+    "loaded_at": "2026-10-26T20:27:40.533003+00:00",
+    "extra": {
+      "device": "cpu",
+      "dtype": "float32",
+      "language": "ar"
+    }
+  },
+  "diarization": {
+    "name": "diarization",
+    "provider": "nvidia_sortformer",
+    "model": "nvidia/Nemotron-3-Diarization",
+    "revision": "f667ed73aee57d40cc39428eb768b4fd87a0a29e",
+    "state": "READY",
+    "error": null,
+    "loaded_at": "2026-10-26T20:25:01.503568+00:00",
+    "extra": {
+      "device": "cpu",
+      "max_speakers": 8,
+      "streaming": {
+        "chunk_len": 340,
+        "chunk_right_context": 40,
+        "fifo_len": 40,
+        "spkcache_update_period": 300,
+        "spkcache_len": 264
+      }
+    }
+  },
+  "vad": {
+    "name": "vad",
+    "provider": "silero_vad",
+    "model": "snakers4/silero-vad",
+    "revision": "silero-vad 6.2.1",
+    "state": "READY",
+    "error": null,
+    "loaded_at": "2026-10-26T20:22:33.241940+00:00",
+    "extra": {
+      "enabled": true
+    }
+  },
+  "speaker_id": {
+    "name": "speaker_id",
+    "provider": "nemo_speakernet",
+    "model": "nvidia/speakerverification_speakernet",
+    "revision": "1.16.0",
+    "state": "READY",
+    "error": null,
+    "loaded_at": "2026-10-26T20:27:50.305853+00:00",
+    "extra": {
+      "device": "cpu",
+      "embedding_dim": 256,
+      "enabled": true,
+      "min_seconds": 2.0
+    }
+  },
+  "max_speakers": 8,
+  "supported_formats": [
+    "m4a",
+    "mp3",
+    "wav",
+    "webm"
+  ],
+  "max_upload_bytes": 2147483648,
+  "ready": true,
+  "loadable": true,
+  "loading": false,
+  "busy": false,
+  "current_job_id": null,
+  "central_sync_enabled": true,
+  "central_url": "http://workflow-ui-backend:8000",
+  "public_key_installed": false,
+  "report_dictation": true
+}

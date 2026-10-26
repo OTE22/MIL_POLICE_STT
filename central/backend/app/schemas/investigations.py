@@ -88,7 +88,17 @@ class SubjectIn(PersonInput):
     # Latin script is deliberately accepted: a passport or UNHCR paper may carry the only
     # spelling there is, and transliterating it would be inventing evidence.
     subject_name: str = Field(min_length=1, max_length=200)
-    statement_details: dict[str, str] = Field(default_factory=dict, max_length=10)
+    statement_details: dict[str, str] = Field(default_factory=dict, max_length=11)
+    field_exceptions: dict[str, dict] = Field(default_factory=dict, max_length=30)
+
+    @field_validator("field_exceptions")
+    @classmethod
+    def valid_exceptions(cls, values):
+        from app.services.participant_requirements import valid_exception
+        if any(not valid_exception(key, value) or set(value) - {"status", "reason", "by", "at", "revision"}
+               for key, value in values.items()):
+            raise ValueError("invalid_field_exception")
+        return values
 
     @field_validator("statement_details")
     @classmethod
@@ -166,6 +176,7 @@ class SubjectOut(BaseModel):
     identity_id: uuid.UUID | None = None
     subject_name: str | None
     statement_details: dict[str, str] = Field(default_factory=dict)
+    field_exceptions: dict[str, dict] = Field(default_factory=dict)
     person_type: PersonType
     military_id: str | None
     rank: str | None
@@ -278,9 +289,11 @@ class RecordingOut(BaseModel):
 
 
 class InvestigationOut(BaseModel):
+    intake_readiness: dict = Field(default_factory=dict)
     revision: int = 0
     workflow_state: str = "DRAFT"
     processing_summary: dict[str, int] = Field(default_factory=dict)
+    unresolved_processing_failures: int = 0
     id: uuid.UUID
     session_number: str
     title: str

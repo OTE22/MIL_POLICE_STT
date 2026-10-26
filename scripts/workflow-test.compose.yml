@@ -1,0 +1,8 @@
+# Test image only. Does not replace or restart the running application.
+services:
+  backend:
+    image: military-stt/workflow-backend-test:20261026
+    build:
+      dockerfile: Dockerfile.test
+      args:
+        INSTALL_DEV: "true"

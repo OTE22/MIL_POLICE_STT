@@ -5,6 +5,7 @@ import type { Investigation, ReportDraft } from "@/api/types";
 import { useAuth } from "@/lib/auth";
 import { HtmlReportEditor } from "@/components/HtmlReportEditor";
 import { Alert, Loading } from "@/components/ui";
+import { IntakeReadiness } from "@/components/IntakeReadiness";
 
 export function ReportComposerPage() {
   const { id } = useParams();
@@ -23,9 +24,11 @@ export function ReportComposerPage() {
   const load = useCallback(async () => {
     try {
       const investigation = await http.get<Investigation>(`/investigations/${id}`);
+      setSession(investigation);
       try { await http.get(`/investigations/${id}/report/html`); }
       catch (error) {
         if (!(error instanceof ApiError) || error.status !== 404 || !can("reports.generate")) throw error;
+        if (investigation.intake_readiness?.ready === false) return;
         await http.post(`/investigations/${id}/report/html`, {});
       }
       setDraft(await http.get<ReportDraft>(`/investigations/${id}/report`));
@@ -34,6 +37,7 @@ export function ReportComposerPage() {
   }, [id, can]);
   useEffect(() => { void load(); }, [load]);
   if (error) return <Alert kind="danger">{error}</Alert>;
+  if (session && !draft && session.intake_readiness?.ready === false) return <IntakeReadiness session={session} />;
   if (!session || !draft) return <Loading />;
   return <HtmlReportEditor key={`${session.id}-${draft.status}`} session={session} draft={draft}
     editable={can("reports.generate") && draft.status !== "FINAL" && !["CLOSED", "ARCHIVED"].includes(session.workflow_state)}

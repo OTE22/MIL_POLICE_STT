@@ -6,7 +6,6 @@ import { formatBytes, formatDate, formatDateTime, formatDuration, formatTime } f
 import { T, t } from "@/lib/i18n";
 import { countryName } from "@/lib/countries";
 import { documentSummary, subjectIdentitySummary } from "@/components/subjects/SubjectFields";
-import { ParticipantStatementDetails } from "@/components/subjects/ParticipantStatementDetails";
 import { Alert, Badge } from "@/components/ui";
 import { IconFile, IconUsers, IconFolder } from "@/components/Icons";
 
@@ -48,7 +47,7 @@ export function InvestigationDetails({ session, canViewDocuments }: { session: I
                 </span>
               </div>
               <div className="muted small">{subjectIdentitySummary(s)}</div>
-              {s.participant_key && <ParticipantStatementDetails sessionId={session.id} participantKey={s.participant_key} />}
+              {s.participant_key && <Link className="btn" to={`/investigations/${session.id}/edit#participant-${s.participant_key}-father_name`}>بيانات الإفادة في إعداد الجلسة</Link>}
               <dl className="dl mt-8">
                 {s.person_type === "MILITARY" && (
                   <>

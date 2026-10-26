@@ -44,6 +44,7 @@ class ProcessingClaims:
     accept_by: datetime
     expires_at: datetime
     raw: str
+    purpose: str = "INTERVIEW"
 
 
 class PublicKeyProvider:
@@ -119,6 +120,8 @@ class ProcessingTokenValidator:
 
         if claims.get("allowed_action") != ALLOWED_ACTION:
             raise TokenValidationError("token_invalid", "unexpected allowed_action")
+        if claims.get("purpose", "INTERVIEW") not in {"INTERVIEW", "REPORT_DICTATION"}:
+            raise TokenValidationError("token_invalid", "unexpected processing purpose")
         now = datetime.now(timezone.utc)
         try:
             accept_by = datetime.fromtimestamp(int(claims["accept_by"]), tz=timezone.utc)
@@ -146,4 +149,5 @@ class ProcessingTokenValidator:
             accept_by=accept_by,
             expires_at=expires_at,
             raw=token,
+            purpose=claims.get("purpose", "INTERVIEW"),
         )

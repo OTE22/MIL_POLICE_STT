@@ -68,9 +68,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
-            manager.stop()
-            client.close()
-            store.close()
+            if manager.stop():
+                client.close()
+                store.close()
 
     app = FastAPI(title="Military STT AI - Local AI Agent", version=__version__, docs_url=None, redoc_url=None, lifespan=lifespan)
 

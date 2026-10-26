@@ -12,6 +12,13 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class ReportReferences(StrictModel):
+    participants: list[uuid.UUID] = Field(default_factory=list, max_length=100)
+    recordings: list[uuid.UUID] = Field(default_factory=list, max_length=100)
+    documents: list[uuid.UUID] = Field(default_factory=list, max_length=100)
+    blocks: list[uuid.UUID] = Field(default_factory=list, max_length=100)
+
+
 class StatementEntry(StrictModel):
     id: uuid.UUID
     question: str = Field(default="", max_length=20000)
@@ -41,6 +48,7 @@ class StatementBlock(StrictModel):
 class NoteBlock(StrictModel):
     id: uuid.UUID
     type: Literal["note"]
+    references: ReportReferences = Field(default_factory=ReportReferences)
     template_id: uuid.UUID | None = None
     template_values: dict[str, str] = Field(default_factory=dict, max_length=20)
     values: dict[str, str] = Field(default_factory=dict, max_length=len(NOTE_FIELDS))
@@ -60,12 +68,38 @@ class NoteBlock(StrictModel):
         return values
 
 
-ReportBlock = Annotated[StatementBlock | NoteBlock, Field(discriminator="type")]
+class ResponsibilityFinding(StrictModel):
+    id: uuid.UUID
+    participant_key: uuid.UUID | None = None
+    unidentified_subject: str = Field(default="", max_length=1000)
+    text: str = Field(default="", max_length=40000)
+    references: ReportReferences = Field(default_factory=ReportReferences)
+
+
+class ConclusionBlock(StrictModel):
+    id: uuid.UUID
+    type: Literal["conclusion"]
+    values: dict[str, str] = Field(default_factory=dict, max_length=7)
+    responsibility_mode: Literal["UNREVIEWED", "FINDINGS", "NONE"] = "UNREVIEWED"
+    proposal_mode: Literal["UNREVIEWED", "TEXT", "NONE"] = "UNREVIEWED"
+    findings: list[ResponsibilityFinding] = Field(default_factory=list, max_length=100)
+    references: ReportReferences = Field(default_factory=ReportReferences)
+
+    @field_validator("values")
+    @classmethod
+    def valid_values(cls, values):
+        keys = {"facts", "inference", "proposals", "closing_date", "closing_location", "investigator_name", "clerk_name"}
+        if set(values) - keys or any(len(value) > 40000 for value in values.values()):
+            raise ValueError("Unknown or oversized conclusion field")
+        return values
+
+
+ReportBlock = Annotated[StatementBlock | NoteBlock | ConclusionBlock, Field(discriminator="type")]
 
 
 class HtmlReportDocument(StrictModel):
     session_id: uuid.UUID | None = None
-    revision: Literal["statement-html-1"] = CATALOGUE["revision"]
+    revision: Literal["statement-html-1", "investigation-html-2"] = "investigation-html-2"
     subject: str = Field(default="", max_length=500)
     investigator_id: uuid.UUID | None = None
     clerk_id: uuid.UUID | None = None
@@ -73,7 +107,10 @@ class HtmlReportDocument(StrictModel):
 
     @model_validator(mode="after")
     def bounded_unique_content(self):
+        if sum(b.type == "conclusion" for b in self.blocks) > 1:
+            raise ValueError("Only one investigation conclusion is permitted")
         identifiers = [str(b.id) for b in self.blocks] + [str(e.id) for b in self.blocks if b.type == "statement" for e in b.entries]
+        identifiers += [str(f.id) for b in self.blocks if b.type == "conclusion" for f in b.findings]
         if len(set(identifiers)) != len(identifiers):
             raise ValueError("Duplicate block or entry ID")
         text = self.model_dump_json()

@@ -6,6 +6,7 @@
    Nothing here is mandatory — a session can be saved for an unidentified person. */
 
 import { useRef, useState } from "react";
+import { ParticipantIntakeFields } from "./ParticipantIntakeFields";
 
 import { ApiError, api, getToken } from "@/api/client";
 import type {
@@ -339,7 +340,7 @@ export function SubjectFields({
           <>
             {/* Service numbers are unique only within their security branch. */}
             <Field label={T.securityBranch} required>
-              <select className="select" required value={subject.security_branch ?? ""} onChange={(e) => set("security_branch", (e.target.value || null) as SecurityBranch | null)}>
+              <select className="select" value={subject.security_branch ?? ""} onChange={(e) => set("security_branch", (e.target.value || null) as SecurityBranch | null)}>
                 <option value="">{T.none}</option>
                 {BRANCHES.map((b) => (
                   <option key={b} value={b}>
@@ -352,7 +353,7 @@ export function SubjectFields({
               <input className="input" value={subject.rank ?? ""} onChange={(e) => set("rank", e.target.value)} maxLength={100} />
             </Field>
             <Field label={T.militaryId} required>
-              <input className="input" dir="ltr" required value={subject.military_id ?? ""} onChange={(e) => set("military_id", e.target.value)} maxLength={64} data-testid="military-id" />
+              <input className="input" dir="ltr" value={subject.military_id ?? ""} onChange={(e) => set("military_id", e.target.value)} maxLength={64} data-testid="military-id" />
             </Field>
             <Field label={T.unit}>
               <input className="input" value={subject.unit ?? ""} onChange={(e) => set("unit", e.target.value)} maxLength={200} />
@@ -467,6 +468,7 @@ export function SubjectFields({
         </Field>
       </div>
 
+      <ParticipantIntakeFields subject={subject} onChange={onChange} />
       {/* ---- documents ---------------------------------------------------- */}
       <div className="doc-section">
         <div className="flex between">
