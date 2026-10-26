@@ -1,0 +1,5 @@
+time="2026-10-26T23:23:02+02:00" level=warning msg="Found orphan containers ([military-stt-central-workflow-ui-agent-1 military-stt-central-workflow-ui-backend-1 military-stt-central-workflow-ui-frontend-1]) for this project. If you removed or renamed this service in your compose file, you can run this command with the --remove-orphans flag to clean it up."
+........................................................................ [ 20%]
+........................................................................ [ 40%]
+........................................................................ [ 61%]
+..................

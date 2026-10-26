@@ -61,6 +61,9 @@ class Transcript(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     speaker_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     warnings: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     processing_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    review_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     session: Mapped["InvestigationSession"] = relationship(  # noqa: F821

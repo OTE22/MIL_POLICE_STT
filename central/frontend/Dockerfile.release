@@ -1,0 +1,5 @@
+# dist must come from a successful npm run build. No dependencies are downloaded here.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY dist /usr/share/nginx/html

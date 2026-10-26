@@ -182,6 +182,30 @@ function SpeakerTurnRow({ turn, speakers, activeId, query, canEdit, canPlay, onS
 }
 
 export function TranscriptViewer({ transcript, onChange }: { transcript: Transcript; onChange: (tr: Transcript) => void }) {
+  const toast = useToast();
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [recordings, setRecordings] = useState<{ id: string; recording_id: string; recording_name: string | null; created_at: string; reviewed: boolean }[]>([]);
+  const [switchBusy, setSwitchBusy] = useState(false);
+  const transcriptPath = `/investigations/${transcript.session_id}/transcript?recording_id=${transcript.recording_id}`;
+  useEffect(() => {
+    let cancelled = false;
+    void http.get<typeof recordings>(`/investigations/${transcript.session_id}/transcripts`)
+      .then(rows => { if (!cancelled) setRecordings(rows); }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [transcript.session_id, transcript.id, transcript.reviewed]);
+  const review = async () => {
+    setReviewBusy(true);
+    try {
+      const current = await http.get<Transcript>(transcriptPath);
+      if (current.id !== transcript.id || current.current_review_token !== transcript.current_review_token) {
+        onChange(current); toast.error("تغيّر النص أو المتحدثون. راجع النسخة الحالية قبل التأكيد."); return;
+      }
+      await http.post(`/investigations/${transcript.session_id}/transcripts/${transcript.id}/review`, { expected_token: current.current_review_token });
+      onChange(await http.get<Transcript>(transcriptPath));
+      toast.success("تم توثيق مراجعة النص ونسبة الأقوال إلى المتحدثين.");
+    } catch { toast.error("تعذر تأكيد المراجعة. تحقق من اكتمال بيانات الجلسة وأعد المحاولة."); }
+    finally { setReviewBusy(false); }
+  };
   const { can } = useAuth();
   const [query, setQuery] = useState("");
   const [speakerFilter, setSpeakerFilter] = useState("");
@@ -239,14 +263,29 @@ export function TranscriptViewer({ transcript, onChange }: { transcript: Transcr
     setCurrentTime(seconds);
   };
 
-  const onSaved = (updated: Segment) =>
-    onChange({ ...transcript, segments: transcript.segments.map((s) => (s.id === updated.id ? updated : s)) });
+  const onSaved = (updated: Segment) => {
+    onChange({ ...transcript, reviewed: false, segments: transcript.segments.map((s) => (s.id === updated.id ? updated : s)) });
+    void http.get<Transcript>(transcriptPath).then(onChange).catch(() => undefined);
+  };
 
   return (
     <section className="transcript-workspace" data-testid="transcript-workspace">
       <header className="workspace-heading"><div><span className="workspace-eyebrow">مراجعة النص المفرغ</span><h2>راجع الحوار، مقطعاً بمقطع</h2><p>استمع إلى التسجيل، وابحث في الحديث، وصحّح النص عند الحاجة.</p></div>
         <Link className="btn" to={`/investigations/${transcript.session_id}?tab=speakers`}><IconUsers />مراجعة المتحدثين<IconChevronLeft /></Link>
       </header>
+      {recordings.length > 1 && <div className="card card-body"><label className="field">التسجيل المراد مراجعته
+        <select className="select" value={transcript.recording_id} disabled={switchBusy || reviewBusy} onChange={async event => {
+          setSwitchBusy(true);
+          try {
+            onChange(await http.get<Transcript>(`/investigations/${transcript.session_id}/transcript?recording_id=${event.target.value}`));
+            setQuery(""); setSpeakerFilter(""); setCurrentTime(0);
+          } catch { toast.error("تعذّر تحميل نص التسجيل. أعد المحاولة."); }
+          finally { setSwitchBusy(false); }
+        }}>{recordings.map(row => <option key={row.id} value={row.recording_id}>{row.recording_name || formatDateTime(row.created_at)} — {row.reviewed ? "تمت المراجعة" : "بحاجة إلى مراجعة"}</option>)}</select>
+      </label></div>}
+      <div className="card card-body"><p>{transcript.reviewed ? "تمت مراجعة هذه النسخة من النص ونسبة الأقوال إلى المتحدثين." : "قبل استيراد الإفادات إلى المحضر، راجع النص والمتحدثين ثم أكّد المراجعة. أي تعديل لاحق يستلزم مراجعة جديدة."}</p>
+        {can("transcripts.edit") && <button className="btn btn-primary" disabled={reviewBusy || transcript.reviewed} onClick={() => void review()}>تأكيد مراجعة النص والمتحدثين</button>}
+      </div>
       <div className="transcript-summary" aria-label="ملخص النص"><span><IconFile /><strong>{transcript.segments.length}</strong> مقاطع نصية</span><span><IconUsers /><strong>{speakerOptions.length}</strong> متحدثون في النص</span><span><IconEdit /><strong>{editedCount}</strong> مقاطع معدّلة</span><span className="transcript-summary-hint">التعديلات تحفظ النص الأصلي للمقارنة</span></div>
     <div className="transcript-layout">
       <div className="card" data-testid="transcript">

@@ -436,7 +436,8 @@ def test_downstream_defaults_clear_and_explicit_overrides_keep_provenance(client
         "expected_revision": session["revision"], "subjects": [{"participant_key": participant["participant_key"],
             "subject_name": participant["subject_name"], "statement_details": {**participant["statement_details"], "father_name": "Current", "phone": ""}, "field_exceptions": {"phone": {"status": "UNKNOWN", "reason": "Number no longer available"}}}]})
     assert updated.status_code == 200, updated.text
-    result = save(client, token, path, state, document)
+    assert client.put(path, headers=auth(token), json={"expected_token": state["token"], "document": document}).status_code == 409
+    result = client.get(path, headers=auth(token)).json()
     block = result["document"]["blocks"][0]
     assert block["values"]["father_name"] == "Explicit override"
     assert "Number no longer available" in block["values"]["phone"]

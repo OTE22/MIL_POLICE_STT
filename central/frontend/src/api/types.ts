@@ -458,6 +458,10 @@ export interface EnrollmentCandidate {
 }
 
 export interface Transcript {
+  current_review_token: string;
+  reviewed: boolean;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
   id: string;
   session_id: string;
   recording_id: string;
@@ -559,6 +563,7 @@ export interface AgentCapabilities {
 }
 
 export interface AgentJob {
+  recording_id: string;
   purpose?: "INTERVIEW" | "REPORT_DICTATION";
   job_id: string;
   session_id: string;

@@ -106,6 +106,7 @@ def finalize(db, session, draft, user):
                 "issued_by": str(user.id), "issued_at": datetime.now(timezone.utc).isoformat(),
                 "sources": source_snapshot(db, session),
                 "dictation_provenance": dictation_snapshot(db, session),
+                "transcript_reviews": transcript_review_snapshot(db, draft),
                 "transcript_source_mode": draft.transcript_source_mode.value,
                 "transcript_pins": draft.pinned_transcripts, "selected_recording_ids": draft.selected_recording_ids}
     context = json.dumps(snapshot, sort_keys=True, ensure_ascii=False, default=str).encode()
@@ -142,6 +143,14 @@ def dictation_snapshot(db, session):
     from app.services.report_dictation import rows
     return [{"recording_id": str(r.id), "sha256": r.sha256, "context": r.report_context}
             for r in rows(db, session.id) if (r.report_context or {}).get("status") == "ACCEPTED"]
+
+
+def transcript_review_snapshot(db, draft):
+    from app.services.report_context import latest_transcript_for_recording
+    return [{"transcript_id": str(t.id), "recording_id": str(t.recording_id), "review_sha256": t.review_token,
+             "reviewed_by": str(t.reviewed_by) if t.reviewed_by else None, "reviewed_at": t.reviewed_at}
+            for identifier in draft.selected_recording_ids or []
+            if (t := latest_transcript_for_recording(db, uuid.UUID(str(identifier)))) is not None]
 
 
 def verify(db, report):

@@ -141,6 +141,7 @@ def update_participant_statement_details(participant_key: uuid.UUID, body: State
     from app.services.workflow import evidence_changed
     evidence_changed(session)
     subject.statement_details = body.values
+    report_html.refresh_untouched_people(db, session, user.id)
     record_audit(db, action=AuditAction.INVESTIGATION_UPDATED, user_id=user.id,
                  entity_type="investigation_session", entity_id=session.id,
                  metadata={"participant_key": str(participant_key), "fields": sorted(body.values)}, ip_address=client_ip(request))

@@ -9,7 +9,7 @@ def test_server_renderer_preserves_order_escapes_input_and_embeds_fonts():
     session = SimpleNamespace(session_number="TEST-HTML", title="Report", investigators=[])
     first = {"id": "one", "type": "statement", "values": {"statement_name": "First"},
              "identity_checked": False, "attestation_confirmed": False,
-             "entries": [{"question": "Where?", "answer": '<script>alert("test")</script> & text'}]}
+             "entries": [{"id": "entry-one", "question": "Where?", "answer": '<script>alert("test")</script> & text'}]}
     note = {"id": "two", "type": "note", "values": {"note_text": "ملاحظة اختبار", "note_date": "2026-10-25"}}
     second = {**deepcopy(first), "id": "three", "values": {"statement_name": "Second"}}
     document = {"revision": CATALOGUE["revision"], "subject": "HTML", "investigator_id": None,
@@ -33,7 +33,7 @@ def test_long_bilingual_document_generates_paginated_pdf():
                 "investigator_id": None, "clerk_id": None, "blocks": [{
                     "id": "long-statement", "type": "statement", "identity_checked": False,
                     "attestation_confirmed": False, "values": {"statement_name": "اسم صاحب الإفادة"},
-                    "entries": [{"question": f"السؤال {index} / Question {index}",
+                    "entries": [{"id": f"entry-{index}", "question": f"السؤال {index} / Question {index}",
                                  "answer": "إفادة واضحة قابلة للقراءة. Reviewed evidence remains traceable. " * 8}
                                 for index in range(40)]}]}
     pdf = pdf_from_html(render(document, session))

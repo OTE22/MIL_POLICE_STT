@@ -139,3 +139,123 @@ def test_batch_statements_and_conclusion_reference_scope(client, investigator):
     document["blocks"][1]["references"]["recordings"] = [str(uuid.uuid4())]
     response = client.put(path, headers=auth(token), json={"expected_token": state["token"], "document": document})
     assert response.status_code == 422
+
+
+def test_transcript_review_is_explicit_revision_bound_and_required_for_import(client, investigator, investigator2):
+    from report_test_helpers import _interview, _create
+    token = investigator["token"]
+    session = _interview(client, token)
+    base = f"/api/investigations/{session['id']}"
+    prepared = _create(client, token, session["id"])
+    transcript = client.get(base + "/transcript", headers=auth(token)).json()
+    assert transcript["reviewed"]
+    options = client.get(base + "/transcripts", headers=auth(token)).json()
+    assert options[0]["id"] == transcript["id"] and options[0]["reviewed"]
+    selected_path = base + "/transcript?recording_id=" + transcript["recording_id"]
+    assert client.get(selected_path, headers=auth(token)).json()["id"] == transcript["id"]
+    assert client.get(base + "/transcript?recording_id=" + str(uuid.uuid4()), headers=auth(token)).status_code == 404
+    assert client.get(selected_path, headers=auth(investigator2["token"])).status_code == 404
+    selection = {"speaker_id": prepared["qa_blocks"][0]["answer_speaker_id"]}
+    assert client.post(base + "/report/html/statement-preview", headers=auth(token), json=selection).status_code == 200
+    segment = transcript["segments"][1]
+    edited = client.patch(f"/api/transcript-segments/{segment['id']}", headers=auth(token), json={
+        "expected_revision": segment["revision"], "edited_text": "Reviewed correction"})
+    assert edited.status_code == 200
+    current = client.get(base + "/transcript", headers=auth(token)).json()
+    assert not current["reviewed"] and current["segments"][1]["original_text"] == segment["original_text"]
+    review_path = base + f"/transcripts/{transcript['id']}/review"
+    assert client.post(review_path, headers=auth(token), json={"expected_token": transcript["current_review_token"]}).status_code == 409
+    assert client.post(review_path, headers=auth(investigator2["token"]), json={"expected_token": current["current_review_token"]}).status_code == 404
+    blocked = client.post(base + "/report/html/statement-preview", headers=auth(token), json=selection)
+    assert blocked.status_code == 422 and blocked.json()["detail"] == "html_report_transcript_review_required"
+    assert client.post(review_path, headers=auth(token), json={"expected_token": current["current_review_token"]}).status_code == 200
+    # Direct edits of fixed template wording are not a review action; imports retain original evidence.
+    assert client.get(base + "/transcript", headers=auth(token)).json()["reviewed"]
+
+
+def test_dictation_destination_change_and_dismissal_preserve_machine_result(client, investigator):
+    token = investigator["token"]
+    session = create_session(client, token)
+    path, state = draft(client, token, session)
+    issued = start(client, token, session, state).json()
+    voicepath = path.removesuffix("/html") + "/dictations"
+    initial = client.get(voicepath, headers=auth(token)).json()[0]
+    document = editable_document(state["document"])
+    document["blocks"][0]["values"]["note_text"] = "New wording while dictation is processing"
+    changed = client.put(path, headers=auth(token), json={"expected_token": state["token"], "document": document})
+    assert changed.status_code == 200
+    row = client.get(voicepath, headers=auth(token)).json()[0]
+    assert row["destination_changed"] and row["text_token"] != initial["text_token"]
+    assert client.post(voicepath + f"/{row['id']}/dismiss", headers=auth(token), json={"reason": "   "}).status_code == 422
+    assert client.post(voicepath + f"/{row['id']}/dismiss", headers=auth(token), json={"reason": "Investigator discarded duplicate narration"}).status_code == 200
+    payload = sample_result()
+    result = client.post(f"/api/local-processing/{issued['job_id']}/result", headers=auth(issued["processing_token"]), json=payload)
+    assert result.status_code == 200
+    row = client.get(voicepath, headers=auth(token)).json()[0]
+    assert row["status"] == "DISMISSED" and row["machine_text"]
+    assert client.get(path, headers=auth(token)).json()["document"]["blocks"][0]["values"]["note_text"] == "New wording while dictation is processing"
+
+
+def test_every_recording_remains_reviewable_and_speakers_resolve_merged_identity(client, investigator):
+    from report_test_helpers import _interview, _submit
+    from app.models import PersonIdentity
+    token = investigator['token']
+    session = _interview(client, token)
+    base = f"/api/investigations/{session['id']}"
+    first = client.get(base + '/transcript', headers=auth(token)).json()
+    _submit(client, token, session['id'], [('SPEAKER_00', 'Another question'), ('SPEAKER_01', 'Another answer')])
+    second = client.get(base + '/transcript', headers=auth(token)).json()
+    assert second['id'] != first['id'] and not second['reviewed']
+    rows = client.get(base + '/transcripts', headers=auth(token)).json()
+    assert len(rows) == 2 and rows[0]['id'] == second['id']
+    selected = client.get(base + '/transcript?recording_id=' + first['recording_id'], headers=auth(token)).json()
+    assert selected['id'] == first['id'] and selected['reviewed']
+    with SessionLocal() as db:
+        survivor = PersonIdentity(person_name='Canonical surviving person')
+        db.add(survivor); db.flush()
+        old = PersonIdentity(person_name='Historical alias', merged_into_id=survivor.id)
+        db.add(old); db.flush()
+        speaker = db.scalar(select(SessionSpeaker).where(SessionSpeaker.recording_id == uuid.UUID(first['recording_id'])))
+        speaker.identity_id = old.id
+        survivor_id = str(survivor.id)
+        speaker_id = str(speaker.id)
+        db.commit()
+    selected = client.get(base + '/transcript?recording_id=' + first['recording_id'], headers=auth(token)).json()
+    speaker = next(row for row in selected['speakers'] if row['id'] == speaker_id)
+    assert speaker['identity_id'] == survivor_id and speaker['identity_name'] == 'Canonical surviving person'
+    assert not selected['reviewed']
+
+
+def test_canonical_changes_update_only_untouched_unreviewed_draft_facts(client, investigator):
+    from conftest import update_session
+    token = investigator["token"]
+    session = create_session(client, token)
+    path, state = draft(client, token, session)
+    person = session["subjects"][0]
+    block = client.post(path + "/statement-preview", headers=auth(token), json={"participant_key": person["participant_key"]}).json()
+    document = editable_document(state["document"])
+    document["blocks"].insert(0, {**block, "values": {**block["values"], "education": "Explicit report override"}})
+    saved = client.put(path, headers=auth(token), json={"expected_token": state["token"], "document": editable_document(document)})
+    assert saved.status_code == 200, saved.text
+    current = saved.json()
+    result = update_session(client, path.removesuffix("/report/html"), headers=auth(token), json={"subjects": [{
+        "participant_key": person["participant_key"], "subject_name": person["subject_name"],
+        "statement_details": {**person["statement_details"], "father_name": "Corrected father", "education": "Updated education"}}]})
+    assert result.status_code == 200, result.text
+    changed = client.get(path, headers=auth(token)).json()
+    assert changed["token"] != current["token"]
+    assert changed["document"]["blocks"][0]["values"]["father_name"] == "Corrected father"
+    assert changed["document"]["blocks"][0]["values"]["education"] == "Explicit report override"
+    # A reviewed draft is frozen even when the source is corrected later.
+    from app.models import ReportDraft
+    with SessionLocal() as db:
+        row = db.scalar(select(ReportDraft).where(ReportDraft.session_id == uuid.UUID(session["id"])))
+        row.official_form = {**row.official_form, "html_review": {"token": "prior-reviewed-version"}}
+        db.commit()
+    result = update_session(client, path.removesuffix("/report/html"), headers=auth(token), json={"subjects": [{
+        "participant_key": person["participant_key"], "subject_name": person["subject_name"],
+        "statement_details": {**person["statement_details"], "father_name": "Later correction"}}]})
+    assert result.status_code == 200
+    final = client.get(path, headers=auth(token)).json()
+    assert final["document"]["blocks"][0]["values"]["father_name"] == "Corrected father"
+    assert final["sources_changed"] and not final["reviewed"]

@@ -64,6 +64,10 @@ def _interview(client, token):
             )
             row.speaker_role = role
         db.commit()
+    transcript = client.get(f"/api/investigations/{s['id']}/transcript", headers=auth(token)).json()
+    reviewed = client.post(f"/api/investigations/{s['id']}/transcripts/{transcript['id']}/review",
+                           headers=auth(token), json={"expected_token": transcript["current_review_token"]})
+    assert reviewed.status_code == 200, reviewed.text
     return s
 
 

@@ -172,6 +172,12 @@ def _subject_for(reference: str, name: str) -> dict:
         "person_type": "MILITARY",
         "security_branch": "ARMY",
         "military_id": military_id,
+        "rank": "Test rank", "unit": "Test unit",
+        "is_undocumented": True, "undocumented_reason": "NO_DOCUMENTS",
+        "statement_details": {"father_name": "Father", "mother_name": "Mother", "birth_year": "1990",
+            "birth_place": "Beirut", "district": "Beirut", "residence": "Test address", "phone": "01000000",
+            "family_status": "Single", "education": "Secondary", "occupation_statement": "Test service",
+            "prior_record_statement": "Declares no prior convictions"},
     }
 
 

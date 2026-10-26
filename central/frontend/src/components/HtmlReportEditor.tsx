@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { getToken, http } from "@/api/client";
+import { ApiError, getToken, http } from "@/api/client";
+import { errorMessage } from "@/lib/i18n";
 import type { Investigation, ReportDraft } from "@/api/types";
 import { Alert, Field, Loading } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
@@ -104,7 +105,7 @@ export function HtmlReportEditor({ session, editable, onStatusChange, onDirtyCha
   };
   const operation = async (fn: () => Promise<void>) => {
     setBusy(true); setError("");
-    try { await fn(); } catch (err) { setError(err instanceof Error ? err.message : "تعذر إتمام الإجراء؛ احتُفظ بتعديلاتك."); }
+    try { await fn(); } catch (err) { setError(err instanceof ApiError ? errorMessage(err.code) : err instanceof Error ? err.message : "تعذر إتمام الإجراء؛ احتُفظ بتعديلاتك."); }
     finally { setBusy(false); }
   };
   const replace = (block: ReportBlock) => change(v => ({ ...v, blocks: v.blocks.map(b => b.id === block.id ? block : b) }));
@@ -121,14 +122,20 @@ export function HtmlReportEditor({ session, editable, onStatusChange, onDirtyCha
     change(v => ({ ...v, blocks: [...v.blocks, block] })); select(block.id, "facts");
   };
   const prepare = () => operation(async () => {
-    const state = await flush();
+    let state = await flush();
+    if (state.sources_changed) {
+      state = await http.post<HtmlReportState>(`${path}/refresh-sources`, { expected_token: state.token });
+      accept(state);
+    }
     const response = await http.post<{ blocks: StatementBlock[] }>(`${path}/prepare-statements`, { expected_token: state.token, participant_keys: chosen, allow_additional: additional });
     insert(response.blocks.map(b => ({ ...b, entries: b.entries.length ? b.entries : [newEntry()] })));
     setPicker(false); setChosen([]); setAdditional(false);
   });
   const compare = () => operation(async () => {
     if (active?.type !== "statement") return;
-    await flush();
+    const state = await flush();
+    // Refresh the import catalogue only. Existing statement wording remains unchanged.
+    accept(await http.post<HtmlReportState>(`${path}/refresh-sources`, { expected_token: state.token }));
     const proposed = await http.post<StatementBlock>(`${path}/statement-preview`, selectionPayload({ participant_key: active.participant_key ?? null, identity_id: active.identity_id ?? null, speaker_id: active.speaker_id }));
     setComparison({ current: active, proposed });
   });

@@ -16,7 +16,7 @@
     "revision": "c3e911b42149bf7a1e53d5cef9878aee87515a23",
     "state": "READY",
     "error": null,
-    "loaded_at": "2026-10-26T20:27:40.533003+00:00",
+    "loaded_at": "2026-10-26T20:59:35.903872+00:00",
     "extra": {
       "device": "cpu",
       "dtype": "float32",
@@ -30,7 +30,7 @@
     "revision": "f667ed73aee57d40cc39428eb768b4fd87a0a29e",
     "state": "READY",
     "error": null,
-    "loaded_at": "2026-10-26T20:25:01.503568+00:00",
+    "loaded_at": "2026-10-26T20:58:14.659572+00:00",
     "extra": {
       "device": "cpu",
       "max_speakers": 8,
@@ -50,7 +50,7 @@
     "revision": "silero-vad 6.2.1",
     "state": "READY",
     "error": null,
-    "loaded_at": "2026-10-26T20:22:33.241940+00:00",
+    "loaded_at": "2026-10-26T20:56:12.715709+00:00",
     "extra": {
       "enabled": true
     }
@@ -62,7 +62,7 @@
     "revision": "1.16.0",
     "state": "READY",
     "error": null,
-    "loaded_at": "2026-10-26T20:27:50.305853+00:00",
+    "loaded_at": "2026-10-26T20:59:52.869453+00:00",
     "extra": {
       "device": "cpu",
       "embedding_dim": 256,
@@ -85,6 +85,6 @@
   "current_job_id": null,
   "central_sync_enabled": true,
   "central_url": "http://workflow-ui-backend:8000",
-  "public_key_installed": false,
+  "public_key_installed": true,
   "report_dictation": true
 }

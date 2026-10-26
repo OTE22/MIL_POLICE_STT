@@ -30,8 +30,7 @@ def render(document, session, *, issued=False, version=None, number=None, highli
         def clause(key):
             return re.sub(r"\{([a-z_]+)\}", lambda m: field(m[1]), escape(template["clauses"].get(key, "")))
         if block["type"] == "conclusion":
-            content = row("خلاصة تحقيق عدلي", classes="statement-heading")
-            content += row(field("facts"), "١ ـ الوقائع:", "conclusion-body", "facts")
+            content = row(field("facts"), "١ ـ الوقائع:", "conclusion-body", "facts")
             content += row(field("inference"), "٢ ـ الاستنتاج:", "conclusion-body", "inference")
             findings = []
             for finding in block["findings"]:

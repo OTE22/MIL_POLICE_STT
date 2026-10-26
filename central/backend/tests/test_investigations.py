@@ -64,6 +64,10 @@ def test_update_investigation_and_explicit_workflow_transitions(client, investig
     saved = update_session(client, path, json={"title": "Updated title", "location": None}, headers=auth(token))
     assert saved.status_code == 200 and saved.json()["location"] is None
     assert update_session(client, path, json={"status": "COMPLETED"}, headers=auth(token)).status_code == 409
+    blocked = client.post(path + "/workflow", headers=auth(token), json={
+        "expected_revision": saved.json()["revision"], "state": "IN_PROGRESS", "reason": "Begin investigation"})
+    assert blocked.status_code == 409 and blocked.json()["detail"]["code"] == "participant_details_incomplete"
+    saved = update_session(client, path, json={"location": "Test location"}, headers=auth(token))
     moved = client.post(path + "/workflow", headers=auth(token), json={
         "expected_revision": saved.json()["revision"], "state": "IN_PROGRESS", "reason": "Begin investigation"})
     assert moved.status_code == 200 and moved.json()["workflow_state"] == "IN_PROGRESS"

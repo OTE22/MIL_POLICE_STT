@@ -1,0 +1,82 @@
+{
+  "idempotency_key": "725f7124c51e48558b05a92564e51cd6",
+  "language": "ar",
+  "stt_provider": "cohere_local",
+  "stt_model": "CohereLabs/cohere-transcribe-arabic-07-2026",
+  "stt_model_revision": "c3e911b42149bf7a1e53d5cef9878aee87515a23",
+  "diarization_provider": "not_applicable",
+  "diarization_model": "report_dictation",
+  "diarization_model_revision": null,
+  "vad_model": "snakers4/silero-vad@silero-vad 6.2.1",
+  "agent_version": "1.0.0",
+  "processing_device": "cpu",
+  "speaker_count": 1,
+  "warnings": [
+    "Processed on CPU."
+  ],
+  "processing_metadata": {
+    "purpose": "REPORT_DICTATION",
+    "agent_id": "agent-214ffac69c234296",
+    "device_name": "isolated-workflow-acceptance",
+    "duration_seconds": 10.14,
+    "diarization_turns": 0,
+    "overlap_turns": 0,
+    "segments": 3,
+    "timings": {
+      "total_seconds": 27.18
+    },
+    "vad": {
+      "enabled": true,
+      "threshold": 0.5,
+      "min_speech_ms": 250,
+      "min_silence_ms": 300
+    },
+    "segmenting": {
+      "min_turn_seconds": 0.3,
+      "merge_gap_seconds": 0.7,
+      "max_seconds": 28.0,
+      "context_padding_seconds": 0.3
+    },
+    "diarization_streaming": false,
+    "speaker_identification": {
+      "enabled": false,
+      "embeddings": 0,
+      "model": null
+    }
+  },
+  "audio": {
+    "original_filename": "recording-2026-10-26T21-06-38-696Z.webm",
+    "mime_type": "audio/webm",
+    "size_bytes": 140580,
+    "duration_seconds": 10.14,
+    "sha256": "5dc86c0786e9c0f14187cc1f8cba6eeb02190142e3b13d8ee5ddc304034ec5d4"
+  },
+  "voice_identification": null,
+  "segments": [
+    {
+      "speaker_label": "SPEAKER_00",
+      "start_seconds": 0.2,
+      "end_seconds": 0.7,
+      "text": "كدب",
+      "confidence": null,
+      "is_overlap": false
+    },
+    {
+      "speaker_label": "SPEAKER_00",
+      "start_seconds": 1.6,
+      "end_seconds": 7.2,
+      "text": "وصلت من العمل في السادسة والنصف وتناولت العشاء مع عائلتي",
+      "confidence": null,
+      "is_overlap": false
+    },
+    {
+      "speaker_label": "SPEAKER_00",
+      "start_seconds": 7.4,
+      "end_seconds": 9.1,
+      "text": "ثم شاهدت التلفاز",
+      "confidence": null,
+      "is_overlap": false
+    }
+  ],
+  "completed_at": "2026-10-26T21:07:06.631157+00:00"
+}

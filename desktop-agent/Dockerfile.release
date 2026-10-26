@@ -1,0 +1,6 @@
+# Reuse the verified offline speech runtime when requirements have not changed.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+RUN echo 'b472040a9099d257be688a8447a5905df4851ce6c0c20a09ddf8322bc7f086ed  /agent/requirements.txt' | sha256sum -c -
+RUN echo 'e901faf6691894b6f42b2f8c8c5003bbc0090a1370a8dfaa50bc8b897900a0d1  /agent/requirements-cpu.txt' | sha256sum -c -
+COPY --chown=agent:agent app /agent/app

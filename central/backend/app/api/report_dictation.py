@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.api.reports import _require_draft, _guard_editable, _lock_session, _check_token, _audit, TokenInput
@@ -36,6 +36,13 @@ class AcceptInput(TokenInput):
 
 class DismissInput(BaseModel):
     reason: str = Field(min_length=3, max_length=2000)
+
+    @field_validator("reason")
+    @classmethod
+    def meaningful_reason(cls, value):
+        if len(value.strip()) < 3:
+            raise ValueError("dictation_dismiss_reason_required")
+        return value.strip()
 
 
 def _recording(db, session, recording_id):

@@ -524,6 +524,8 @@ def update_investigation(
         # New participant/document UUIDs and server timestamps must exist in the audit
         # snapshot. A failed flush rolls back all changes without touching evidence files.
         db.flush()
+        from app.services.report_html import refresh_untouched_people
+        refresh_untouched_people(db, session, user.id)
         record_audit(
             db,
             action=AuditAction.INVESTIGATION_UPDATED,

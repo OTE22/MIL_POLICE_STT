@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { http } from "@/api/client";
 import type { Subject } from "@/api/types";
 import { Alert, Field } from "@/components/ui";
@@ -8,6 +8,7 @@ let catalogue: Promise<{ fields: Requirement[] }> | null = null;
 const labels: Record<string, string> = { UNKNOWN: "غير معلوم", REFUSED: "امتنع عن التصريح", NOT_APPLICABLE: "لا ينطبق" };
 
 export function ParticipantIntakeFields({ subject, onChange }: { subject: Subject; onChange: (value: Subject) => void }) {
+  const newPersonId = useId();
   const [fields, setFields] = useState<Requirement[]>([]);
   const [error, setError] = useState(false);
   useEffect(() => {
@@ -40,7 +41,7 @@ export function ParticipantIntakeFields({ subject, onChange }: { subject: Subjec
     {error && <Alert kind="danger">تعذر تحميل متطلبات البيانات. أعد تحميل الصفحة.</Alert>}
     <div className="form-grid">{visible.map(f => {
       const exception = subject.field_exceptions?.[f.key];
-      return <div className="field" id={`participant-${subject.participant_key ?? "new"}-${f.key}`} key={f.key} tabIndex={-1}>
+      return <div className="field" id={`participant-${subject.participant_key ?? newPersonId}-${f.key}`} key={f.key} tabIndex={-1}>
         {f.owner === "statement_details" ? <Field label={f.label} required>
           <textarea className="textarea" rows={f.key === "occupation_statement" || f.key === "prior_record_statement" ? 2 : 1}
             value={value(f)} disabled={!!exception} maxLength={2000} onChange={e => setValue(f.key, e.target.value)} />

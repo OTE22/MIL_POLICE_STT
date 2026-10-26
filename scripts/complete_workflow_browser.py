@@ -11,8 +11,8 @@ import uuid
 from pathlib import Path
 from playwright.sync_api import expect, sync_playwright
 
-BASE = "http://workflow-ui-frontend"
-AGENT = "http://workflow-ui-agent:17117"
+BASE = "https://workflow-ui-frontend"
+AGENT = BASE + "/agent"
 OUT = Path("/artifacts/complete-workflow")
 OUT.mkdir(parents=True, exist_ok=True)
 results = []
@@ -30,7 +30,7 @@ with sync_playwright() as playwright:
         "--use-file-for-fake-audio-capture=/fixtures/single_speaker_ar.wav",
         "--unsafely-treat-insecure-origin-as-secure=" + BASE])
     context = browser.new_context(viewport={"width": 1600, "height": 1000}, locale="ar-LB",
-                                  permissions=["microphone"], accept_downloads=True)
+                                  permissions=["microphone"], accept_downloads=True, ignore_https_errors=True)
     context.add_init_script("localStorage.setItem('mstt.agent_url', '" + AGENT + "')")
     page = context.new_page()
     errors = []
@@ -64,6 +64,35 @@ with sync_playwright() as playwright:
         state = api("GET", base + "/report/html")
         expect(page.locator(".report-save-state")).to_have_text("تم الحفظ", timeout=15000)
         return api("GET", base + "/report/html")
+
+    def editable(document):
+        result = json.loads(json.dumps(document))
+        for block in result['blocks']:
+            for key in ('authorship', 'dictation_sources', 'person_snapshot', 'template_snapshot'):
+                block.pop(key, None)
+            for entry in block.get('entries', []):
+                entry.pop('source_snapshot', None)
+            for finding in block.get('findings', []):
+                finding.pop('subject_snapshot', None)
+        return result
+
+    def dictate(label, destination):
+        page.get_by_role('button', name='إملاء صوتي — ' + label, exact=True).click()
+        voice = page.get_by_role('region', name='إملاء المحقق')
+        voice.get_by_role('button', name='بدء التسجيل', exact=True).click()
+        expect(voice.get_by_role('button', name='إنهاء التسجيل', exact=True)).to_be_visible()
+        page.wait_for_timeout(12000)
+        voice.get_by_role('button', name='إنهاء التسجيل', exact=True).click()
+        voice.get_by_role('button', name='تحويل التسجيل إلى نص', exact=True).click()
+        insert = voice.get_by_role('button', name='إدراج النص المراجع', exact=True)
+        expect(insert).to_be_enabled(timeout=900000)
+        row = next(r for r in api('GET', base + '/report/dictations') if r['status'] == 'READY')
+        assert row['machine_text'].strip() and row['audio_ready']
+        assert row['field'] == destination or (destination == 'finding' and row['field'].startswith('finding:'))
+        voice.get_by_label('راجع النص وعدّله قبل الإدراج').fill(row['machine_text'] + ' [راجعها المحقق للاختبار]')
+        insert.click()
+        wait_for('dictation accepted for ' + label, lambda: next(r for r in api('GET', base + '/report/dictations') if r['id'] == row['id'])['status'] == 'ACCEPTED')
+        saved_state()
 
     try:
         admin = api("POST", "/auth/login", {"username": "admin", "password": "AdminBootstrap!1"})["access_token"]
@@ -127,6 +156,8 @@ with sync_playwright() as playwright:
         shot("02-complete-intake")
         record("Military and civilian intake completed once with explicit refusal and documents")
 
+        warmup = request.post(AGENT + "/models/load")
+        assert warmup.ok, warmup.text()
         runtime = wait_for("real models", lambda: (lambda c: c if c["ready"] else None)(request.get(AGENT + "/capabilities").json()))
         (OUT / "runtime.json").write_text(json.dumps(runtime, indent=2), encoding="utf-8")
         page.goto(BASE + base + "?tab=recording")
@@ -155,7 +186,11 @@ with sync_playwright() as playwright:
         api("PUT", "/transcript-segments/" + answer["id"] + "/attribution", {"expected_revision": answer["revision"], "parts": [{
             "speaker_label": answer["speaker_label"], "start_seconds": answer["start_seconds"], "end_seconds": answer["end_seconds"], "text": answer["original_text"] + " تمت مراجعة هذا النص التجريبي."}]})
         assert all(original[s["id"]] == s["original_text"] for s in api("GET", base + "/transcript")["segments"])
-        page.goto(BASE + base + "?tab=transcript"); shot("03-reviewed-transcript")
+        page.goto(BASE + base + "?tab=transcript")
+        page.get_by_role("button", name="تأكيد مراجعة النص والمتحدثين", exact=True).click()
+        expect(page.get_by_role("button", name="تأكيد مراجعة النص والمتحدثين", exact=True)).to_be_disabled()
+        wait_for('explicit transcript review committed', lambda: api("GET", base + "/transcript")["reviewed"], 30)
+        shot("03-reviewed-transcript")
         record("Real local interview engine synchronized; identities and attribution reviewed; original evidence unchanged", audio_sha256=recording_hash)
 
         page.goto(BASE + base + "/report")
@@ -177,9 +212,81 @@ with sync_playwright() as playwright:
         saved_state(); shot("04-multiple-statements")
         record("Multiple participants imported in one selection; registered details reused and source references retained")
 
+        # Upstream corrections never replace imported wording without comparison and acceptance.
+        before = api('GET', base + '/report/html')
+        imported = next(b for b in before['document']['blocks'] if b['type'] == 'statement' and any(e['source_block_ids'] for e in b['entries']))
+        current_transcript = api('GET', base + '/transcript')
+        corrected_segment = next(s for s in current_transcript['segments'] if s['id'] == answer['id'])
+        corrected_text = corrected_segment['attribution_parts'][0]['text'] + ' تصحيح إضافي للمصدر يتطلب قبول المحقق.'
+        parts = corrected_segment['attribution_parts']
+        parts[0]['text'] = corrected_text
+        api('PUT', '/transcript-segments/' + answer['id'] + '/attribution', {'expected_revision': corrected_segment['revision'], 'parts': parts})
+        unchanged = api('GET', base + '/report/html')
+        assert unchanged['sources_changed'] and next(b for b in unchanged['document']['blocks'] if b['id'] == imported['id'])['entries'] == imported['entries']
+        page.goto(BASE + base + '?tab=transcript')
+        page.get_by_role('button', name='تأكيد مراجعة النص والمتحدثين', exact=True).click()
+        wait_for('renewed transcript review', lambda: api('GET', base + '/transcript')['reviewed'], 30)
+        page.goto(BASE + base + '/report')
+        page.locator('.report-outline-item > button').filter(has_text=imported['values']['statement_name']).click()
+        page.get_by_role('button', name='مقارنة الإفادة بالمصدر المراجع', exact=True).click()
+        comparison = page.get_by_role('region', name='مقارنة الإفادة بالمصدر')
+        expect(comparison).to_be_visible()
+        comparison.get_by_role('button', name='الاحتفاظ بالنص الحالي', exact=True).click()
+        assert next(b for b in api('GET', base + '/report/html')['document']['blocks'] if b['id'] == imported['id'])['entries'] == imported['entries']
+        page.get_by_role('button', name='مقارنة الإفادة بالمصدر المراجع', exact=True).click()
+        comparison.get_by_role('button', name='قبول استبدال هذه الإفادة بالمصدر', exact=True).click()
+        updated = saved_state()
+        assert corrected_text in ' '.join(e['answer'] for b in updated['document']['blocks'] if b['id'] == imported['id'] for e in b['entries'])
+        record('Upstream attribution correction preserved original evidence and report wording until explicit comparison and acceptance')
+
         page.get_by_role("button", name="إضافة ملاحظة", exact=True).click()
         page.get_by_label("الملاحظة", exact=True).fill("ملاحظة سابقة قبل الإملاء.")
         saved_state()
+        # An interrupted save retains text and the last successful document preview.
+        report_url = BASE + '/api' + base + '/report/html'
+        def fail_save(route):
+            if route.request.method == 'PUT':
+                route.abort('connectionfailed')
+            else:
+                route.continue_()
+        page.route(report_url, fail_save)
+        note = page.get_by_label('الملاحظة', exact=True)
+        note.fill('ملاحظة محفوظة محلياً بعد انقطاع الاتصال.')
+        expect(page.locator('.report-save-state')).to_have_text('تعذر الحفظ', timeout=15000)
+        expect(note).to_have_value('ملاحظة محفوظة محلياً بعد انقطاع الاتصال.')
+        page.unroute(report_url, fail_save)
+        page.get_by_role('button', name='إعادة محاولة الحفظ', exact=True).click()
+        saved_state()
+        # A delayed earlier save must not overwrite text typed while it is pending.
+        held = []
+        def delay_save(route):
+            if route.request.method == 'PUT' and not held:
+                held.append(route)
+            else:
+                route.continue_()
+        page.route(report_url, delay_save)
+        note.fill('النص الأول قيد الحفظ.')
+        wait_for('in-flight save', lambda: bool(held), 15)
+        note.fill('النص الأحدث يبقى بعد اكتمال الطلب الأول.')
+        held[0].continue_()
+        saved_state()
+        expect(note).to_have_value('النص الأحدث يبقى بعد اكتمال الطلب الأول.')
+        page.unroute(report_url, delay_save)
+        # A second editor updates the header while this browser retains its note edit.
+        state = api('GET', base + '/report/html')
+        other = editable(state['document']); other['subject'] += ' — تعديل متزامن'
+        api('PUT', base + '/report/html', {'expected_token': state['token'], 'document': other})
+        note.fill('ملاحظة سابقة قبل الإملاء.')
+        conflict = page.get_by_role('region', name='مصالحة تعارض الحفظ')
+        expect(conflict).to_be_visible(timeout=15000)
+        conflict.get_by_label('عنوان المحضر والتكليفات').select_option('server')
+        for choice in conflict.get_by_label('النسخة المعتمدة للقسم').all():
+            choice.select_option('local')
+        conflict.get_by_role('button', name='اعتماد الاختيارات وحفظ النسخة الموحّدة', exact=True).click()
+        state = saved_state()
+        assert state['document']['subject'] == other['subject']
+        expect(note).to_have_value('ملاحظة سابقة قبل الإملاء.')
+        record('Interrupted autosave, newer typing and concurrent edits reconciled without losing text')
         page.get_by_role("button", name="إملاء صوتي — الملاحظة", exact=True).click()
         voice = page.get_by_role("region", name="إملاء المحقق")
         voice.get_by_role("button", name="بدء التسجيل", exact=True).click()
@@ -206,6 +313,18 @@ with sync_playwright() as playwright:
         page.get_by_label("الاقتراحات", exact=True).select_option("TEXT")
         page.get_by_label("نص الاقتراحات", exact=True).fill("اقتراح تجريبي بالتحقق من البيانات وتوثيق المتابعة.")
         saved_state()
+        dictate('الوقائع', 'facts')
+        dictate('الاستنتاج', 'inference')
+        dictate('نص الاقتراحات', 'proposals')
+        page.get_by_label('المسؤوليات', exact=True).select_option('FINDINGS')
+        page.get_by_role('button', name='إضافة نتيجة مسؤولية', exact=True).click()
+        page.get_by_label('الشخص المعني', exact=True).select_option(session['subjects'][0]['participant_key'])
+        finding = page.locator('.html-answer-editor').filter(has=page.get_by_label('نتيجة المسؤولية', exact=True))
+        finding.locator('summary').click()
+        finding.get_by_label('conversation_ar_2spk.wav', exact=True).check()
+        saved_state()
+        dictate('المسؤولية 1', 'finding')
+        record('All conclusion fields accept reviewed investigator dictation with linked responsibility evidence')
         page.get_by_role("button", name="إضافة ملاحظة", exact=True).click()
         page.get_by_label("الملاحظة", exact=True).fill("ملاحظة بعد خلاصة التحقيق.")
         saved_state()

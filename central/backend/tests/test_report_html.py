@@ -132,8 +132,9 @@ def test_mixed_notes_and_statements_save_reorder_remove_and_restore(client, inve
     document = {**state["document"], "blocks": [first, statement, second]}
     result = _save(client, token, path, state, document)
     assert result.status_code == 200, result.text
-    assert result.json()["document"]["blocks"][0] == first
-    assert result.json()["document"]["blocks"][2] == second
+    assert result.json()["document"]["blocks"][0]["values"] == first["values"]
+    assert result.json()["document"]["blocks"][2]["values"] == second["values"]
+    assert result.json()["document"]["blocks"][0]["authorship"]["created_by"] == investigator["user"]["id"]
     state = result.json()
     # Re-saving exercises prior-source collection when existing blocks include notes.
     document["blocks"] = [second, first, statement]
@@ -160,7 +161,8 @@ def test_note_only_report_rejects_wrong_fields_sources_and_duplicate_ids(client,
     result = _save(client, token, path, state, document)
     assert result.status_code == 200
     state = result.json()
-    assert client.get(path, headers=auth(token)).json()["document"]["blocks"] == [note]
+    stored = client.get(path, headers=auth(token)).json()["document"]["blocks"]
+    assert len(stored) == 1 and stored[0]["id"] == note["id"] and stored[0]["values"] == note["values"]
     for bad_note in [
         {**note, "speaker_id": str(uuid.uuid4())},
         {**note, "entries": []},

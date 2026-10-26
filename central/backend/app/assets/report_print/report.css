@@ -16,7 +16,7 @@ body { margin: 0; background: #e9edf2; color: #111; font-family: Inter, "IBM Ple
 .conclusion-block .signature-row { display: block; text-align: left; }
 .highlight-fields .statement-block { cursor: pointer; outline: 2px solid transparent; outline-offset: 3px; }
 .highlight-fields .statement-block:focus, .highlight-fields .statement-block.selected { outline-color: #66704e; background: #f3f4ed; }
-.margin-marker { padding: 1mm 2mm; font-weight: bold; }
+.margin-marker { padding: 1mm 2mm; font-weight: bold; background: repeating-linear-gradient(to bottom, transparent 0, transparent calc(9mm - .2mm), #c7c7c7 calc(9mm - .2mm), #c7c7c7 9mm); background-origin: content-box; }
 .statement-text { padding: 1mm 2.5mm; text-align: right; overflow-wrap: anywhere; white-space: pre-wrap; background: repeating-linear-gradient(to bottom, transparent 0, transparent calc(9mm - .2mm), #c7c7c7 calc(9mm - .2mm), #c7c7c7 9mm); background-origin: content-box; }
 .statement-text p { margin: 0; }
 .statement-heading .statement-text { text-align: center; font-weight: bold; font-size: 17pt; }
@@ -40,5 +40,5 @@ body { margin: 0; background: #e9edf2; color: #111; font-family: Inter, "IBM Ple
   .statement-signatures { break-inside: avoid; }
   .highlight-fields .variable { background: transparent; border: none; }
   .missing { background: transparent; color: #333; }
-  .statement-text { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .statement-text, .margin-marker { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 }

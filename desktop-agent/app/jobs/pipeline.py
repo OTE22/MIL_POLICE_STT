@@ -110,9 +110,17 @@ class JobPipeline:
         """Transcribe one author's dictation without diarization or voice embeddings."""
         import soundfile as sf
         self._set_state(job, "TRANSCRIBING", 0.2, "transcribing report dictation")
-        self._runtime.transcription.load()
-        self._runtime.vad.load()
-        speech = self._runtime.vad.detect(wav, duration)
+        try:
+            self._runtime.transcription.load()
+        except TranscriptionError as exc:
+            raise PipelineFailure(exc.code, exc.message, "TRANSCRIBING") from exc
+        except Exception as exc:
+            raise PipelineFailure("stt_model_load_failed", str(exc)[:300], "TRANSCRIBING") from exc
+        try:
+            self._runtime.vad.load()
+            speech = self._runtime.vad.detect(wav, duration)
+        except Exception as exc:
+            raise PipelineFailure("vad_failed", str(exc)[:300], "TRANSCRIBING") from exc
         if not speech:
             raise PipelineFailure("no_speech_detected", "no speech in dictation", "TRANSCRIBING")
         samples, sr = sf.read(str(wav), dtype="float32", always_2d=False)
@@ -124,7 +132,10 @@ class JobPipeline:
             while start < region.end_seconds:
                 self._check_cancel(job)
                 end = min(start + 25, region.end_seconds)
-                result = self._runtime.transcription.transcribe(samples[int(start * sr):int(end * sr)], sr)
+                try:
+                    result = self._runtime.transcription.transcribe(samples[int(start * sr):int(end * sr)], sr)
+                except TranscriptionError as exc:
+                    raise PipelineFailure(exc.code, exc.message, "TRANSCRIBING") from exc
                 if result.text.strip():
                     segments.append(TranscriptSegment("SPEAKER_00", start, end, result.text.strip(), confidence=result.confidence))
                 start = end

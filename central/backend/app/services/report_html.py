@@ -41,6 +41,39 @@ def editable_document(document):
     return result
 
 
+def refresh_untouched_people(db, session, user_id):
+    """Propagate canonical corrections only into unreviewed, unmodified imported facts."""
+    import copy
+    from sqlalchemy import select
+    from app.models import ReportDraft, ReportStatus
+    from app.services.report_people import participant_values
+    from app.services.audit import record_audit
+    draft = db.scalar(select(ReportDraft).where(ReportDraft.session_id == session.id).with_for_update())
+    if not draft or draft.status == ReportStatus.FINAL or (draft.official_form or {}).get("html_review"):
+        return
+    document = copy.deepcopy(document_for(draft))
+    people = {str(p.participant_key): p for p in session.subjects if not p.removed_at}
+    changes = []
+    for block in document["blocks"]:
+        person = people.get(block.get("participant_key"))
+        previous = (block.get("person_snapshot") or {}).get("values")
+        if block["type"] != "statement" or person is None or previous is None:
+            continue
+        current = participant_values(person, db)
+        for key, value in current.items():
+            if key in previous and block["values"].get(key) == previous[key] and value != previous[key]:
+                changes.append({"block_id": block["id"], "field": key, "before": previous[key], "after": value})
+                block["values"][key] = value
+        block["person_snapshot"] = {**block["person_snapshot"], "values": current,
+            "overrides": sorted(key for key, value in block["values"].items() if key in current and value != current[key])}
+    if changes:
+        draft.official_form = {**(draft.official_form or {}), "html_report": document}
+        draft.revision += 1
+        draft.updated_by = user_id
+        record_audit(db, action="REPORT_CANONICAL_FACTS_REFRESHED", user_id=user_id, entity_type="report_draft", entity_id=draft.id,
+                     metadata={"session_id": session.id, "changes": changes})
+
+
 def state_for(draft, db=None, session=None):
     result = {"document": document_for(draft), "token": token_for(draft), "status": draft.status.value}
     if db is not None:
@@ -73,6 +106,15 @@ def source_snapshot(source, session):
             "start_seconds": source.start_seconds, "end_seconds": source.end_seconds}
 
 
+def require_current_sources(db, draft, sources):
+    from app.services.transcript_review import require_reviewed_sources
+    from app.services.report_context import stale_pins
+    require_reviewed_sources(db, sources)
+    recordings = {str(r) for source in sources for r in source.source_recording_ids or []}
+    if any(pin["recording_id"] in recordings for pin in stale_pins(db, draft.pinned_transcripts, draft.transcript_source_mode)):
+        raise ValueError("html_report_sources_need_refresh")
+
+
 def statement_preview(db, draft, session, selection):
     if draft.session_id != session.id:
         raise ValueError("html_report_wrong_session")
@@ -80,9 +122,11 @@ def statement_preview(db, draft, session, selection):
     # Session/report context only; never today's date substituted for an event date.
     values["closing_location"] = session.location or ""
     values["closing_date"] = str(session.session_date or "")
+    selected_sources = [qa for qa in ordered_sources(draft) if str(qa.answer_speaker_id) in eligible]
+    require_current_sources(db, draft, selected_sources)
     entries = [{"id": str(uuid.uuid4()), "question": qa.question_source_text or "", "answer": qa.answer_source_text or "",
                 "source_block_ids": [str(qa.id)], "source_snapshot": [source_snapshot(qa, session)]}
-               for qa in ordered_sources(draft) if str(qa.answer_speaker_id) in eligible]
+               for qa in selected_sources]
     return {"id": str(uuid.uuid4()), "type": "statement", **normalized, "values": values,
             "identity_checked": False, "attestation_confirmed": False, "entries": entries}
 
@@ -171,6 +215,7 @@ def prepare_document(body, draft, session, db, *, populate_untouched=True):
                     source = sources.get(source_id)
                     if source is None:
                         raise ValueError("html_report_source_outside_draft")
+                    require_current_sources(db, draft, [source])
                     snapshot = source_snapshot(source, session)
                 if snapshot.get("session_id", str(session.id)) != str(session.id):
                     raise ValueError("html_report_source_outside_session")

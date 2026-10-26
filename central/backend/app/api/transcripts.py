@@ -67,7 +67,7 @@ def _speakers_out(db: Session, session_id: uuid.UUID) -> list[SpeakerOut]:
     # The canonical name/reference for every identified speaker, resolved once rather than
     # per row. display_name is session-local and may be blank even when the person is known.
     identities = {
-        pi.id: pi.person_name
+        pi.id: resolve_identity(db, pi)
         for pi in db.scalars(
             select(PersonIdentity).where(
                 PersonIdentity.id.in_(
@@ -116,8 +116,8 @@ def _speakers_out(db: Session, session_id: uuid.UUID) -> list[SpeakerOut]:
                 suggested_score=float(s.suggested_score) if s.suggested_score is not None else None,
                 suggested_model=s.suggested_model,
                 has_voice_embedding=bool(s.voice_embedding),
-                identity_id=s.identity_id,
-                identity_name=identities.get(s.identity_id),
+                identity_id=identities[s.identity_id].id if identities.get(s.identity_id) else s.identity_id,
+                identity_name=identities[s.identity_id].person_name if identities.get(s.identity_id) else None,
             )
         )
     return out
@@ -131,13 +131,18 @@ def _latest_transcript(db: Session, session_id: uuid.UUID) -> Transcript | None:
 
 @router.get("/investigations/{session_id}/transcript", response_model=TranscriptOut)
 def get_transcript(
+    recording_id: uuid.UUID | None = None,
     session: InvestigationSession = Depends(get_accessible_session),
     _: User = Depends(require_permission("transcripts.read")),
     db: Session = Depends(get_db),
 ) -> TranscriptOut:
-    transcript = _latest_transcript(db, session.id)
+    transcript = (_latest_transcript(db, session.id) if recording_id is None else db.scalar(
+        select(Transcript).where(Transcript.session_id == session.id, Transcript.recording_id == recording_id)
+        .order_by(Transcript.created_at.desc(), Transcript.id.desc()).limit(1)))
     if transcript is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="transcript_not_found")
+    from app.services.transcript_review import token_for, is_reviewed
+    reviewed = is_reviewed(db, transcript)
     recording = db.get(AudioRecording, transcript.recording_id)
     audio_available = bool(
         recording and recording.upload_status == RecordingUploadStatus.UPLOADED and recording.storage_path
@@ -147,7 +152,9 @@ def get_transcript(
         session_id=transcript.session_id,
         recording_id=transcript.recording_id,
         job_id=transcript.job_id,
-        status=transcript.status,
+        status="REVIEWED" if reviewed else "RECEIVED",
+        current_review_token=token_for(db, transcript), reviewed=reviewed,
+        reviewed_by=transcript.reviewed_by, reviewed_at=transcript.reviewed_at,
         language=transcript.language,
         stt_provider=transcript.stt_provider,
         stt_model=transcript.stt_model,
@@ -166,6 +173,52 @@ def get_transcript(
         segments=[_segment_out(db, s) for s in transcript.segments],
         speakers=_speakers_out(db, session.id),
     )
+
+
+@router.get("/investigations/{session_id}/transcripts")
+def list_transcripts(session: InvestigationSession = Depends(get_accessible_session),
+                     _: User = Depends(require_permission("transcripts.read")), db: Session = Depends(get_db)):
+    from app.services.transcript_review import is_reviewed
+    rows = db.scalars(select(Transcript).where(Transcript.session_id == session.id)
+                      .distinct(Transcript.recording_id)
+                      .order_by(Transcript.recording_id, Transcript.created_at.desc(), Transcript.id.desc())).all()
+    names = dict(db.execute(select(AudioRecording.id, AudioRecording.original_filename)
+                            .where(AudioRecording.session_id == session.id)).all())
+    return [{"id": row.id, "recording_id": row.recording_id, "recording_name": names.get(row.recording_id),
+             "created_at": row.created_at, "reviewed": is_reviewed(db, row)}
+            for row in sorted(rows, key=lambda item: (item.created_at, str(item.id)), reverse=True)]
+
+
+from app.schemas.transcripts import TranscriptReviewIn
+
+
+@router.post("/investigations/{session_id}/transcripts/{transcript_id}/review")
+def review_transcript(transcript_id: uuid.UUID, body: TranscriptReviewIn, request: Request,
+                      session: InvestigationSession = Depends(get_accessible_session),
+                      user: User = Depends(require_permission("transcripts.edit")), db: Session = Depends(get_db)):
+    from app.services.transcript_review import token_for
+    from app.services.workflow import evidence_changed
+    from app.services.participant_requirements import require_ready
+    from app.models.enums import TranscriptStatus
+    session = db.scalar(select(InvestigationSession).where(InvestigationSession.id == session.id).with_for_update())
+    transcript = db.scalar(select(Transcript).where(Transcript.id == transcript_id, Transcript.session_id == session.id).with_for_update())
+    if transcript is None:
+        raise HTTPException(404, detail="transcript_not_found")
+    require_ready(session)
+    current = token_for(db, transcript)
+    if current != body.expected_token:
+        raise HTTPException(409, detail="transcript_changed")
+    if not transcript.segments:
+        raise HTTPException(409, detail="transcript_empty")
+    evidence_changed(session)
+    transcript.review_token = current
+    transcript.reviewed_by = user.id
+    transcript.reviewed_at = datetime.now(timezone.utc)
+    transcript.status = TranscriptStatus.REVIEWED
+    record_audit(db, action="TRANSCRIPT_REVIEWED", user_id=user.id, entity_type="transcript", entity_id=transcript.id,
+                 metadata={"session_id": session.id, "review_sha256": current}, ip_address=client_ip(request))
+    db.commit()
+    return {"reviewed": True, "current_review_token": current}
 
 
 @router.patch("/transcript-segments/{segment_id}", response_model=SegmentOut)

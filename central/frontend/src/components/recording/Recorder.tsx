@@ -31,11 +31,13 @@ export function Recorder({
   pending,
   onReady,
   microphoneOnly = false,
+  onCapturingChange,
 }: {
   disabled: boolean;
   pending: PendingAudio | null;
   onReady: (audio: PendingAudio | null) => void;
   microphoneOnly?: boolean;
+  onCapturingChange?: (capturing: boolean) => void;
 }) {
   const [mic, setMic] = useState<MicState>("idle");
   const [rec, setRec] = useState<RecState>("idle");
@@ -123,6 +125,11 @@ export function Recorder({
 
   const start = async () => {
     setFileError(null);
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setMic("unavailable");
+      setFileError("التسجيل غير متاح في هذا المتصفح. افتح التطبيق عبر HTTPS أو localhost واستخدم متصفحاً يدعم تسجيل الصوت.");
+      return;
+    }
     onReady(null);
     setMic("requesting");
     const captureVersion = selectionVersion.current;
@@ -131,6 +138,9 @@ export function Recorder({
       stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } });
     } catch (e) {
       setMic(e instanceof DOMException && e.name === "NotAllowedError" ? "denied" : "unavailable");
+      setFileError(e instanceof DOMException && e.name === "NotAllowedError"
+        ? "لم يُسمح باستخدام الميكروفون. فعّل الإذن من إعدادات الموقع ثم أعد المحاولة."
+        : "تعذر فتح الميكروفون. تأكد من توصيله ومن إعدادات الصوت ثم أعد المحاولة.");
       return;
     }
     if (captureVersion !== selectionVersion.current) {
@@ -141,7 +151,13 @@ export function Recorder({
     setMic("ready");
     startMeter(stream);
     const mimeType = pickMimeType();
-    const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    let recorder: MediaRecorder;
+    try { recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined); }
+    catch {
+      releaseStream(); setMic("unavailable");
+      setFileError("تعذر بدء تسجيل الصوت. تحقق من إعدادات المتصفح وأعد المحاولة.");
+      return;
+    }
     chunksRef.current = [];
     recorder.ondataavailable = (ev) => {
       if (ev.data.size > 0) chunksRef.current.push(ev.data);
@@ -165,7 +181,12 @@ export function Recorder({
     accumulated.current = 0;
     startedAt.current = Date.now();
     setElapsed(0);
-    recorder.start(1000);
+    try { recorder.start(1000); }
+    catch {
+      recorderRef.current = null; releaseStream(); setMic("unavailable");
+      setFileError("تعذر بدء تسجيل الصوت. تحقق من إعدادات المتصفح وأعد المحاولة.");
+      return;
+    }
     setRec("live");
     tickRef.current = window.setInterval(tick, 250);
   };
@@ -245,8 +266,9 @@ export function Recorder({
   const recLabel = rec === "live" ? T.recLive : rec === "paused" ? T.recPaused : rec === "stopped" ? T.recStopped : T.recIdle;
 
   const capturing = rec === "live" || rec === "paused" || mic === "requesting";
+  useEffect(() => { onCapturingChange?.(capturing); }, [capturing, onCapturingChange]);
   return <section className="card recording-source-card" data-testid="recording-source">
-    <div className="card-header"><div><h3>١. اختر مصدر التسجيل</h3><p className="workspace-section-hint">ارفع ملفاً صوتياً أو سجّل مباشرة من الميكروفون.</p></div>
+    <div className="card-header"><div><h3>{microphoneOnly ? "سجّل الإملاء" : "١. اختر مصدر التسجيل"}</h3><p className="workspace-section-hint">{microphoneOnly ? "تحدث بوضوح، ثم أوقف التسجيل لمراجعة النص." : "ارفع ملفاً صوتياً أو سجّل مباشرة من الميكروفون."}</p></div>
       {source === "microphone" && <span className="rec-indicator" role="status"><span className={`rec-dot ${rec === "live" ? "live" : rec === "paused" ? "paused" : ""}`} />{recLabel}</span>}
     </div>
     <div className="card-body">

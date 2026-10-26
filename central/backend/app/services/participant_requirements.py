@@ -129,4 +129,4 @@ def require_ready(session):
 
 def report_exception(person, key):
     value = (getattr(person, "field_exceptions", None) or {}).get(key)
-    return f"{E
+    return f"{EXCEPTION_LABELS[value['status']]} ({value['reason']})" if valid_exception(key, value) else ""

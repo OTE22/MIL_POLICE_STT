@@ -55,6 +55,10 @@ class SpeakerOut(BaseModel):
 
 
 class TranscriptOut(BaseModel):
+    current_review_token: str = ""
+    reviewed: bool = False
+    reviewed_by: uuid.UUID | None = None
+    reviewed_at: datetime | None = None
     id: uuid.UUID
     session_id: uuid.UUID
     recording_id: uuid.UUID
@@ -82,6 +86,10 @@ class TranscriptOut(BaseModel):
 class SegmentEditIn(BaseModel):
     expected_revision: int = Field(ge=0)
     edited_text: str = Field(max_length=20000)
+
+
+class TranscriptReviewIn(BaseModel):
+    expected_token: str = Field(min_length=64, max_length=64)
 
 
 class AttributionPart(BaseModel):

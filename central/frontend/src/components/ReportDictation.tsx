@@ -20,6 +20,7 @@ export function ReportDictation({ sessionId, target, disabled, flush, onState, o
   const [texts, setTexts] = useState<Record<string, string>>({});
   const [modes, setModes] = useState<Record<string, "APPEND" | "REPLACE">>({});
   const [busy, setBusy] = useState(false);
+  const [capturing, setCapturing] = useState(false);
   const [error, setError] = useState("");
   const [issued, setIssued] = useState<ProcessingToken | null>(null);
   useEffect(() => { if (target) document.querySelector(".report-dictation")?.scrollIntoView({ block: "start", behavior: "smooth" }); }, [target]);
@@ -43,7 +44,12 @@ export function ReportDictation({ sessionId, target, disabled, flush, onState, o
     const token = issued ?? await http.post<ProcessingToken>(path, { expected_token: state.token, block_id: target.block, field: target.field,
       original_filename: pending.filename, mime_type: pending.mimeType, size_bytes: pending.blob.size, source: pending.source });
     setIssued(token);
-    await agentApi.submitJob(token.processing_token, pending.blob, pending.filename);
+    try { await agentApi.submitJob(token.processing_token, pending.blob, pending.filename); }
+    catch (error) {
+      // The upload can succeed while its response is lost. Reconcile the exact signed job.
+      const existing = await agentApi.job(token.job_id).catch(() => null);
+      if (!existing || existing.recording_id !== token.recording_id || existing.session_id !== sessionId || existing.purpose !== "REPORT_DICTATION") throw error;
+    }
     setPending(null); setIssued(null); onClose();
   });
   const unresolved = rows.filter(r => !["ACCEPTED", "DISMISSED"].includes(r.status));
@@ -53,9 +59,9 @@ export function ReportDictation({ sessionId, target, disabled, flush, onState, o
     <p>سجّل، ثم راجع النص قبل إدراجه. هذا الإملاء لا يدخل في إفادات الأشخاص أو قائمة المتحدثين.</p>
     {error && <Alert kind="danger">{error}<button className="btn" onClick={() => void refresh().then(() => setError("")).catch(() => undefined)}>إعادة المحاولة</button></Alert>}
     {target && <>
-      <Recorder microphoneOnly disabled={disabled || busy} pending={pending} onReady={audio => { setPending(audio); if (!audio) setIssued(null); }} />
+      <Recorder microphoneOnly disabled={disabled || busy} pending={pending} onCapturingChange={setCapturing} onReady={audio => { setPending(audio); if (!audio) setIssued(null); }} />
       <div className="flex gap wrap"><button className="btn btn-primary" disabled={!pending || busy || disabled} onClick={() => void submit()}>تحويل التسجيل إلى نص</button>
-        <button className="btn" disabled={busy} onClick={() => { if (!pending || window.confirm("هل تريد ترك التسجيل غير المرسل؟")) { setPending(null); setIssued(null); onClose(); } }}>إغلاق التسجيل</button></div>
+        <button className="btn" disabled={busy || capturing} onClick={() => { if (!pending || window.confirm("هل تريد ترك التسجيل غير المرسل؟")) { setPending(null); setIssued(null); onClose(); } }}>إغلاق التسجيل</button></div>
     </>}
     {unresolved.map(row => <div className="dictation-review" key={row.id}>
       <strong>{({ note_text: "ملاحظة", facts: "الوقائع", inference: "الاستنتاج", proposals: "الاقتراحات" } as Record<string, string>)[row.field] ?? "المسؤوليات"}</strong>

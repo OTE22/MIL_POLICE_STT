@@ -1,0 +1,9 @@
+# Offline application-only release. The caller must pin a previously verified runtime digest.
+# Dependency changes require the normal Dockerfile instead.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+RUN echo '8881a59dbe3c928b64547298c61b2da0266d84030baf3fd9846b601ace61e986  /app/requirements.txt' | sha256sum -c -
+COPY --chown=app:app app /app/app
+COPY --chown=app:app alembic /app/alembic
+COPY --chown=app:app alembic.ini /app/alembic.ini
+COPY --chown=app:app --chmod=755 docker-entrypoint.sh /app/docker-entrypoint.sh

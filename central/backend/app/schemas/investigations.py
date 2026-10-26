@@ -161,6 +161,14 @@ class SubjectIn(PersonInput):
             raise ValueError("subject_name_required")
         return name
 
+    @field_validator("subject_name", "military_id", "register_number", "rank", "unit", "nationality_name", "place_of_registration")
+    @classmethod
+    def factual_values_are_not_exceptions(cls, value):
+        from app.services.participant_requirements import EXCEPTION_LABELS
+        if value and value.strip() in EXCEPTION_LABELS.values():
+            raise ValueError("use_field_exception_metadata")
+        return value
+
     @field_validator("nationality_code")
     @classmethod
     def _upper_country(cls, value: str | None) -> str | None:
