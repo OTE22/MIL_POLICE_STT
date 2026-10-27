@@ -1,0 +1,1 @@
+{"exit_code":0,"passed":35,"elapsed_seconds":30.39,"checks":["test_report_dictation.py","test_security.py","test_sync.py","test_agent_api.py"],"thread_warnings":"errors"}

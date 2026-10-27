@@ -11,6 +11,9 @@ import uuid
 from pathlib import Path
 from playwright.sync_api import expect, sync_playwright
 
+# Real CPU inference and database checks share this workstation; avoid five-second UI races.
+expect.set_options(timeout=30000)
+
 BASE = "https://workflow-ui-frontend"
 AGENT = BASE + "/agent"
 OUT = Path("/artifacts/complete-workflow")
@@ -332,6 +335,9 @@ with sync_playwright() as playwright:
         expect(page.get_by_title("معاينة PDF النهائية")).to_be_visible(timeout=60000)
         shot("06-pdf-review-long-document")
         page.get_by_role("checkbox", name="راجعت بيانات المحضر ومحتواه ونسبة الأقوال إلى أصحابها", exact=True).check()
+        source_ack = page.get_by_role('checkbox', name='راجعت تغييرات المصدر وأؤكد ملاءمة النص المحفوظ', exact=True)
+        if source_ack.is_visible():
+            source_ack.check()
         page.get_by_role("button", name="حفظ تأكيد المراجعة", exact=True).click()
         issue = page.get_by_role("button", name="إصدار وحفظ HTML وPDF", exact=True)
         expect(issue).to_be_enabled(timeout=20000); issue.click()
@@ -359,6 +365,9 @@ with sync_playwright() as playwright:
         page.get_by_role("button", name="معاينة PDF والمراجعة", exact=True).click()
         expect(page.get_by_title("معاينة PDF النهائية")).to_be_visible(timeout=60000)
         page.get_by_role("checkbox", name="راجعت بيانات المحضر ومحتواه ونسبة الأقوال إلى أصحابها", exact=True).check()
+        source_ack = page.get_by_role('checkbox', name='راجعت تغييرات المصدر وأؤكد ملاءمة النص المحفوظ', exact=True)
+        if source_ack.is_visible():
+            source_ack.check()
         page.get_by_role("button", name="حفظ تأكيد المراجعة", exact=True).click()
         issue = page.get_by_role("button", name="إصدار وحفظ HTML وPDF", exact=True)
         expect(issue).to_be_enabled(timeout=20000); issue.click()

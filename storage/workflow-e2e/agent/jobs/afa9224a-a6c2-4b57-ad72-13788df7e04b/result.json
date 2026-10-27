@@ -1,0 +1,74 @@
+{
+  "idempotency_key": "4fd89bcf3f174b7188322c1ee30a0f2a",
+  "language": "ar",
+  "stt_provider": "cohere_local",
+  "stt_model": "CohereLabs/cohere-transcribe-arabic-07-2026",
+  "stt_model_revision": "c3e911b42149bf7a1e53d5cef9878aee87515a23",
+  "diarization_provider": "not_applicable",
+  "diarization_model": "report_dictation",
+  "diarization_model_revision": null,
+  "vad_model": "snakers4/silero-vad@silero-vad 6.2.1",
+  "agent_version": "1.0.0",
+  "processing_device": "cpu",
+  "speaker_count": 1,
+  "warnings": [
+    "Processed on CPU."
+  ],
+  "processing_metadata": {
+    "purpose": "REPORT_DICTATION",
+    "agent_id": "agent-214ffac69c234296",
+    "device_name": "isolated-workflow-acceptance",
+    "duration_seconds": 11.82,
+    "diarization_turns": 0,
+    "overlap_turns": 0,
+    "segments": 2,
+    "timings": {
+      "total_seconds": 18.99
+    },
+    "vad": {
+      "enabled": true,
+      "threshold": 0.5,
+      "min_speech_ms": 250,
+      "min_silence_ms": 300
+    },
+    "segmenting": {
+      "min_turn_seconds": 0.3,
+      "merge_gap_seconds": 0.7,
+      "max_seconds": 28.0,
+      "context_padding_seconds": 0.3
+    },
+    "diarization_streaming": false,
+    "speaker_identification": {
+      "enabled": false,
+      "embeddings": 0,
+      "model": null
+    }
+  },
+  "audio": {
+    "original_filename": "recording-2026-10-26T21-50-14-331Z.webm",
+    "mime_type": "audio/webm",
+    "size_bytes": 167309,
+    "duration_seconds": 11.82,
+    "sha256": "f03df194b8a69d145d20ab15c90c8e638a586cf2370ee9e6b10c86df4715c1e6"
+  },
+  "voice_identification": null,
+  "segments": [
+    {
+      "speaker_label": "SPEAKER_00",
+      "start_seconds": 0.2,
+      "end_seconds": 2.3,
+      "text": "كانت في المنزل طوال المساء",
+      "confidence": null,
+      "is_overlap": false
+    },
+    {
+      "speaker_label": "SPEAKER_00",
+      "start_seconds": 3.3,
+      "end_seconds": 10.8,
+      "text": "وصلت من العمل في السادسة والنصف، وتناولت العشاء مع عائلتي، ثم شاهدت التلفاز.",
+      "confidence": null,
+      "is_overlap": false
+    }
+  ],
+  "completed_at": "2026-10-26T21:50:33.910893+00:00"
+}

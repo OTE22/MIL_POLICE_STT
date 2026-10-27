@@ -33,5 +33,6 @@ in document order. Inter and IBM Plex Sans Arabic are bundled. HTML and PDF shar
 renderer; PDF uses the pinned Chromium supplied with Playwright 1.55.0.
 
 Visual comparison and long-document pagination evidence are recorded under
-`storage/test-artifacts/complete-workflow`. This document does not certify those checks before
-the continuous browser journey and visual review finish successfully.
+`storage/test-artifacts/complete-workflow`. The seven-page synthetic report was visually checked
+for Arabic readability, repeated headings, conclusion page start, subsequent notes, signatures,
+and clipping. The release verification record distinguishes completed checks from pending ones.

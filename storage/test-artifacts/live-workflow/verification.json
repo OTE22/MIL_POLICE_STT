@@ -1,0 +1,13 @@
+{
+  "result": "PASS",
+  "pages": {
+    "details": "PASS",
+    "transcript": "PASS",
+    "speakers": "PASS",
+    "report": "PASS"
+  },
+  "intake_ready": false,
+  "report_api_status": 200,
+  "browser_errors": [],
+  "mutations_attempted": []
+}

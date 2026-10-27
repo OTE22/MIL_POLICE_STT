@@ -1,0 +1,42 @@
+[
+  {
+    "step": "Incomplete draft saved; direct processing and report preparation blocked",
+    "status": "PASS",
+    "session_id": "c3f4dd8e-7985-4b80-a48f-ff2003630a0f"
+  },
+  {
+    "step": "Military and civilian intake completed once with explicit refusal and documents",
+    "status": "PASS"
+  },
+  {
+    "step": "Real local interview engine synchronized; identities and attribution reviewed; original evidence unchanged",
+    "status": "PASS",
+    "audio_sha256": "672f8a32e6ad75ab017274bd4357d317e1ca3369d9b1608a4b74ce47ca5da7bd"
+  },
+  {
+    "step": "Multiple participants imported in one selection; registered details reused and source references retained",
+    "status": "PASS"
+  },
+  {
+    "step": "Upstream attribution correction preserved original evidence and report wording until explicit comparison and acceptance",
+    "status": "PASS"
+  },
+  {
+    "step": "Interrupted autosave, newer typing and concurrent edits reconciled without losing text",
+    "status": "PASS"
+  },
+  {
+    "step": "Real microphone dictation reviewed and appended; no contamination of testimony or speakers",
+    "status": "PASS"
+  },
+  {
+    "step": "All conclusion fields accept reviewed investigator dictation with linked responsibility evidence",
+    "status": "PASS"
+  },
+  {
+    "step": "failure",
+    "status": "FAIL",
+    "error": "Locator.click: Timeout 30000ms exceeded.\nCall log:\n  - waiting for get_by_role(\"button\", name=\"حفظ تأكيد المراجعة\", exact=True)\n    - locator resolved to <button disabled class=\"btn\">حفظ تأكيد المراجعة</button>\n  - attempting click action\n    2 × waiting for element to be visible, enabled and stable\n      - element is not enabled\n    - retrying click action\n    - waiting 20ms\n    2 × waiting for element to be visible, enabled and stable\n      - element is not enabled\n    - retrying click action\n      - waiting 100ms\n    58 × waiting for element to be visible, enabled and stable\n       - element is not enabled\n     - retrying click action\n       - waiting 500ms\n",
+    "browser_errors": []
+  }
+]

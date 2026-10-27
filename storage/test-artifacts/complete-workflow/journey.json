@@ -2,10 +2,44 @@
   {
     "step": "Incomplete draft saved; direct processing and report preparation blocked",
     "status": "PASS",
-    "session_id": "c3f4dd8e-7985-4b80-a48f-ff2003630a0f"
+    "session_id": "20d31618-70a5-4751-aeec-f5f8d6a050c8"
   },
   {
     "step": "Military and civilian intake completed once with explicit refusal and documents",
+    "status": "PASS"
+  },
+  {
+    "step": "Real local interview engine synchronized; identities and attribution reviewed; original evidence unchanged",
+    "status": "PASS",
+    "audio_sha256": "672f8a32e6ad75ab017274bd4357d317e1ca3369d9b1608a4b74ce47ca5da7bd"
+  },
+  {
+    "step": "Multiple participants imported in one selection; registered details reused and source references retained",
+    "status": "PASS"
+  },
+  {
+    "step": "Upstream attribution correction preserved original evidence and report wording until explicit comparison and acceptance",
+    "status": "PASS"
+  },
+  {
+    "step": "Interrupted autosave, newer typing and concurrent edits reconciled without losing text",
+    "status": "PASS"
+  },
+  {
+    "step": "Real microphone dictation reviewed and appended; no contamination of testimony or speakers",
+    "status": "PASS"
+  },
+  {
+    "step": "All conclusion fields accept reviewed investigator dictation with linked responsibility evidence",
+    "status": "PASS"
+  },
+  {
+    "step": "Lead reviewed and issued long HTML/PDF with verifiable immutable hashes",
+    "status": "PASS",
+    "pdf_sha256": "b581d0dc404e135cd7684d99ed4adf63f94ee60904d68387eddb854f7fa90d4b"
+  },
+  {
+    "step": "Closure, reasoned reopening and successor issuance completed; original HTML/PDF byte-identical",
     "status": "PASS"
   }
 ]
