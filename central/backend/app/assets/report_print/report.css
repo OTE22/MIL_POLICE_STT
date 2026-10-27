@@ -28,7 +28,7 @@ body { margin: 0; background: #e9edf2; color: #111; font-family: Inter, "IBM Ple
 .margin-marker { padding: 1mm 2mm; text-align: left; text-align-last: left; font-weight: bold; background: repeating-linear-gradient(to bottom, transparent 0, transparent calc(9mm - .2mm), #c7c7c7 calc(9mm - .2mm), #c7c7c7 9mm); background-origin: content-box; }
 .statement-text { padding: 1mm 2.5mm; text-align: justify; text-align-last: start; overflow-wrap: break-word; word-break: normal; white-space: normal; background: repeating-linear-gradient(to bottom, transparent 0, transparent calc(9mm - .2mm), #c7c7c7 calc(9mm - .2mm), #c7c7c7 9mm); background-origin: content-box; }
 .statement-text p { margin: 0; }
-.document-inline-input { display: block; width: 100%; resize: none; overflow: hidden; border: 1px dashed #72805c; border-radius: 2px; padding: 0 1mm; margin: 0; background: #f8faef; color: #111; font: inherit; line-height: inherit; direction: rtl; text-align: justify; }
+.document-inline-input { display: block; width: 100%; resize: none; overflow: hidden; border: 1px dashed #72805c; border-radius: 2px; padding: 0 1mm; margin: 0; background: #f8faef; color: #111; font: inherit; line-height: inherit; direction: rtl; text-align: justify; white-space: pre-wrap; word-break: normal; overflow-wrap: break-word; }
 .document-inline-input:focus { outline: 2px solid #56683c; background: #fff; }
 .document-inline-input:disabled { border-color: transparent; background: transparent; opacity: 1; }
 /* Editing-only viewport: retain A4 proportions and expose both scroll axes. */

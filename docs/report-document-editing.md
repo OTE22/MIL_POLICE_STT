@@ -67,3 +67,23 @@ ISO date storage remains unchanged; print displays DD/MM/YYYY in an LTR-isolated
 element. Chromium geometry assertions and inspected short/long PDF rendering
 verify alignment and prevent RTL reordering. Evidence:
 `storage/test-artifacts/report-opening/closing-date-layout.json` and `date-position.png`.
+
+Margin labels (including ملاحظة and س/ج) are left-aligned within the right-hand
+margin cells. The conclusion has forced page breaks both before and after;
+following notes and report closing cannot share its page. It remains part of the
+same PDF, as explicitly requested. Synthetic PDF inspection verifies main content
+on page 1, conclusion alone on page 2, and subsequent note/closing on page 3;
+see `conclusion-separation.json` and `conclusion-alone.png` in the same artifacts folder.
+
+The direct text editor projects saved narrative text through the same whitespace
+rules as printed prose: single line breaks become spaces; blank lines delimit
+paragraphs. Previously the native textarea showed historical short lines verbatim
+even though print reflowed them. Opening the editor does not save this projection;
+only an investigator's text edit updates canonical content. Native soft wrapping
+does not insert newlines into the saved value. The browser journey now checks raw
+saved content remains unchanged on open, blank paragraphs remain visible, and long
+Arabic prose wraps automatically. Live diagnosis compares displayed notes with
+the projected source while confirming the draft token remains unchanged.
+Deployed with `storage/backups/report-opening-20261027T093712Z/release.json`;
+the read-only live browser check verified both existing notes use the flowing
+display and the saved draft remains unchanged.

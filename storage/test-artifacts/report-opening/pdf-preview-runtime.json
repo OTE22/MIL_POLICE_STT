@@ -2,18 +2,18 @@
   "result": "PASS",
   "backend_regression_tests_passed": 34,
   "focused_tests_passed": 9,
-  "pdf_bytes": 343997,
-  "pdf_sha256": "ec9421dc85ec915fd56a35a4596009c270af78e2ca174fbf71c6c8767e389cd4",
+  "pdf_bytes": 344877,
+  "pdf_sha256": "cf0e0fa60019248eca8131651bfe29b63fd109810879f1611c484e4f3142e39b",
   "blob_frame_policy": true,
   "migration_head": "a27689aebc56",
   "archives_verified": 0,
   "draft_unchanged": true,
   "opening_present": true,
   "assets": [
-    "/assets/index-DrGxMT3w.js",
+    "/assets/index-CdFmjCHP.js",
     "/assets/index-CA0Feb6m.css"
   ],
-  "preview_sha256": "dc0c7009b11a9b331ed41b8e05d4dc26362844254c18bbe9938d02508a4d9a1c",
+  "preview_sha256": "6a92aa77e971180b9d0534e6f4a5509e7f4b0e3d6135085dc64722ca416940e1",
   "browser_ui_check": "Isolated real API browser journey PASS: storage/test-artifacts/document-editor/browser.json",
   "visual_artifacts": "storage/test-artifacts/document-editor"
 }

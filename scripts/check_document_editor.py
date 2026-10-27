@@ -29,8 +29,9 @@ with sync_playwright() as p:
     api('POST', base + '/report/html', {})
     state = api('GET', base + '/report/html')
     note_id = str(uuid.uuid4())
+    original_note = 'نص ملاحظة تجريبية\nتكملة السطر نفسه\nمع المحافظة على الكلمات\n\nفقرة مستقلة'
     doc = {**state['document'], 'blocks': [{'id': note_id, 'type': 'note', 'values': {
-        'note_text': 'نص ملاحظة تجريبية', 'closing_date': '2026-10-27', 'closing_location': 'مكتب الاختبار'}}]}
+        'note_text': original_note, 'closing_date': '2026-10-27', 'closing_location': 'مكتب الاختبار'}}]}
     api('PUT', base + '/report/html', {'expected_token': state['token'], 'document': doc})
     page = context.new_page()
     errors = []
@@ -49,6 +50,13 @@ with sync_playwright() as p:
     # Catalogue label may be simply الملاحظة; select the canonical edit target.
     note = frame.locator('[data-edit-key="value:note_text"] textarea')
     expect(note).to_be_visible()
+    expect(note).to_have_value('نص ملاحظة تجريبية تكملة السطر نفسه مع المحافظة على الكلمات\n\nفقرة مستقلة')
+    assert api('GET', base + '/report/html')['document']['blocks'][0]['values']['note_text'] == original_note
+    # Normal typing wraps visually, without inserting saved newline characters.
+    long_note = 'كلمات عربية متصلة حتى نهاية السطر دون قفز مبكر. ' * 8
+    note.fill(long_note)
+    assert note.evaluate('el => el.scrollHeight > parseFloat(getComputedStyle(el).lineHeight) * 2')
+    assert '\n' not in note.input_value()
     page.get_by_role('button', name='انتقل إلى أول نص قابل للتحرير', exact=True).click()
     expect(note).to_be_focused()
     note.fill('تعديل مباشر من المحضر')
@@ -102,7 +110,8 @@ with sync_playwright() as p:
     assert not errors, errors
     proof = {'result': 'PASS', 'checks': ['direct text edits', 'autosave during typing', 'closing persistence',
         'failed save/retry', 'PDF download', 'responsibility/proposal navigation', 'mobile editor', 'vertical and horizontal scrolling',
-        'first editable field navigation', 'refresh preserves saved content'], 'page_errors': errors}
+        'first editable field navigation', 'refresh preserves saved content', 'soft line breaks flow without changing saved text',
+        'blank-line paragraphs preserved', 'long Arabic text wraps without saved newlines'], 'page_errors': errors}
     (OUT / 'browser.json').write_text(json.dumps(proof, indent=2), encoding='utf-8')
     print(json.dumps(proof), flush=True)
     browser.close()

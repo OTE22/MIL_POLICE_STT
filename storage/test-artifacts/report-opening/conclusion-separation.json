@@ -1,0 +1,18 @@
+{
+  "result": "PASS",
+  "pages": 3,
+  "markers": {
+    "BEFORE_CONCLUSION": [
+      1
+    ],
+    "CONCLUSION_ONLY": [
+      2
+    ],
+    "AFTER_CONCLUSION": [
+      3
+    ],
+    "REPORT_END": [
+      3
+    ]
+  }
+}

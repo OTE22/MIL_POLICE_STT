@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { HtmlReportDocument } from "@/lib/html-report";
 
+/** Match the print renderer's prose layout without saving on opening the editor. */
+export function flowingReportText(value: string): string {
+  return value.replace(/\r\n?/g, "\n").split(/\n\s*\n/)
+    .map(paragraph => paragraph.replace(/\s+/g, " ").trim()).join("\n\n");
+}
+
 // The same canonical JSON is used by forms, autosave, review and issuance.
 export function editReportText(doc: HtmlReportDocument, blockId: string, key: string, text: string): HtmlReportDocument {
   if (blockId === "closing" && key === "closing:text" && doc.closing) {
@@ -56,7 +62,7 @@ export function ReportDocumentEditor({ html, disabled, onEdit }: {
       if (!block) return;
       // Native textareas preserve text-only paste, IME, undo and keyboard behavior.
       const input = doc.createElement("textarea");
-      input.value = element.dataset.editValue ?? "";
+      input.value = flowingReportText(element.dataset.editValue ?? "");
       input.setAttribute("aria-label", element.getAttribute("aria-label") ?? "نص المحضر");
       input.className = "document-inline-input";
       const key = `${block}:${element.dataset.editKey}`;
@@ -65,6 +71,7 @@ export function ReportDocumentEditor({ html, disabled, onEdit }: {
       input.maxLength = element.dataset.editKey === "closing:text" ? 10000 : element.dataset.editKey?.startsWith("question:") ? 20000 : 40000;
       input.disabled = latest.current.disabled;
       input.rows = 1;
+      input.wrap = "soft";
       const resize = () => { input.style.height = "0px"; input.style.height = `${input.scrollHeight + 2}px`; };
       input.addEventListener("focus", () => { focused.current = true; });
       input.addEventListener("blur", () => {
@@ -99,7 +106,7 @@ export function ReportDocumentEditor({ html, disabled, onEdit }: {
         <button className="btn" onClick={() => frame.current?.contentWindow?.scrollTo({ top: 0 })}>بداية المحضر ↑</button>
         <button className="btn" onClick={() => frame.current?.contentWindow?.scrollTo({ top: frame.current?.contentDocument?.documentElement.scrollHeight ?? 0 })}>نهاية المحضر ↓</button>
       </div>
-      <p>الافتتاح والعناوين الرسمية محمية. مرّر داخل الورقة عمودياً وأفقياً، أو اختر حقلاً من القائمة. توزيع صفحات الطباعة يظهر في معاينة PDF.</p>
+      <p>يملأ النص السطر تلقائياً قبل الانتقال للسطر التالي. تُوصل الأسطر القصيرة المحفوظة كما في الطباعة؛ اترك سطراً فارغاً للفصل بين فقرتين. الافتتاح والعناوين الرسمية محمية. توزيع صفحات الطباعة يظهر في معاينة PDF.</p>
     </div>
     {loadError && <p role="alert">تعذر فتح مساحة التحرير. استخدم تحديث المحضر أو تابع التعديل من شاشة الكتابة.</p>}
     <iframe ref={frame} className="report-document-frame" title="تحرير نص المحضر مباشرة" srcDoc={displayed}

@@ -10,7 +10,10 @@
     "mobile editor",
     "vertical and horizontal scrolling",
     "first editable field navigation",
-    "refresh preserves saved content"
+    "refresh preserves saved content",
+    "soft line breaks flow without changing saved text",
+    "blank-line paragraphs preserved",
+    "long Arabic text wraps without saved newlines"
   ],
   "page_errors": []
 }

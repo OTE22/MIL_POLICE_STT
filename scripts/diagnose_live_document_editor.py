@@ -1,5 +1,6 @@
 """Read-only live browser diagnosis, using the authorized short verification session."""
 import json
+import re
 from datetime import datetime, timezone
 from sqlalchemy import select
 from app.config import get_settings
@@ -33,8 +34,19 @@ with sync_playwright() as p:
     page.get_by_role('button', name='انتقل إلى أول نص قابل للتحرير', exact=True).click()
     assert frame.locator('textarea:focus').count() == 1
     assert frame.locator('html').evaluate('el => getComputedStyle(el).overflowY === "scroll"')
+    flowed_notes = 0
+    for block in state['document']['blocks']:
+        if block['type'] == 'note' and not block.get('template_id'):
+            raw = block['values'].get('note_text', '').replace('\r\n', '\n').replace('\r', '\n')
+            expected = '\n\n'.join(re.sub(r'\s+', ' ', paragraph).strip() for paragraph in re.split(r'\n\s*\n', raw))
+            actual = frame.locator('[data-block-id="' + block['id'] + '"] [data-edit-key="value:note_text"] textarea').input_value()
+            assert actual == expected
+            flowed_notes += 1
     markers = frame.locator('.qa-row .margin-marker').all_text_contents()
     assert markers and all(marker == 'س/ج' for marker in markers)
+    assert frame.locator('.margin-marker').evaluate_all("els => els.every(el => getComputedStyle(el).textAlign === 'left')")
+    if frame.locator('.conclusion-block').count():
+        assert frame.locator('.conclusion-block').evaluate("el => getComputedStyle(el).breakBefore === 'page' && getComputedStyle(el).breakAfter === 'page'")
     closing_position = 'not present'
     if state['document'].get('closing'):
         layout = frame.locator('.closing-signatures').evaluate('''el => {
@@ -48,7 +60,7 @@ with sync_playwright() as p:
         closing_position = 'PASS'
     result = {'status': state['status'], 'workflow': session['workflow_state'], 'intake_ready': session['intake_readiness']['ready'],
         'inputs': frame.locator('textarea').count(), 'enabled': frame.locator('textarea:enabled').count(),
-        'frames': len(page.frames), 'statement_margin_markers': len(markers), 'closing_date_position': closing_position, 'field_navigation': 'PASS', 'scrollbars': 'PASS', 'errors': errors}
+        'frames': len(page.frames), 'flowed_notes': flowed_notes, 'statement_margin_markers': len(markers), 'margin_alignment': 'left', 'closing_date_position': closing_position, 'field_navigation': 'PASS', 'scrollbars': 'PASS', 'errors': errors}
     print(json.dumps(result), flush=True)
     assert context.request.get(BASE + '/api' + path + '/report/html', headers=headers).json()['token'] == state['token']
     browser.close()
