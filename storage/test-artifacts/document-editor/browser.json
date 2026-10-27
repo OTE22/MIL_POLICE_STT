@@ -7,7 +7,10 @@
     "failed save/retry",
     "PDF download",
     "responsibility/proposal navigation",
-    "mobile editor"
+    "mobile editor",
+    "vertical and horizontal scrolling",
+    "first editable field navigation",
+    "refresh preserves saved content"
   ],
   "page_errors": []
 }

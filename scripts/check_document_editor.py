@@ -49,6 +49,8 @@ with sync_playwright() as p:
     # Catalogue label may be simply الملاحظة; select the canonical edit target.
     note = frame.locator('[data-edit-key="value:note_text"] textarea')
     expect(note).to_be_visible()
+    page.get_by_role('button', name='انتقل إلى أول نص قابل للتحرير', exact=True).click()
+    expect(note).to_be_focused()
     note.fill('تعديل مباشر من المحضر')
     page.wait_for_timeout(2200)  # cross the autosave/preview boundary while focused
     note.press('End')
@@ -85,10 +87,22 @@ with sync_playwright() as p:
     page.set_viewport_size({'width': 390, 'height': 844})
     page.get_by_role('button', name='تحرير المحضر قبل الطباعة', exact=True).click()
     expect(page.locator('.report-document-frame')).to_be_visible()
+    frame = page.frame_locator('iframe[title="تحرير نص المحضر مباشرة"]')
+    expect(frame.locator('html')).to_have_class('document-edit-viewport')
+    assert frame.locator('html').evaluate('(el) => el.scrollWidth > el.clientWidth && el.scrollHeight > el.clientHeight')
+    page.get_by_role('button', name='نهاية المحضر ↓', exact=True).click()
+    assert frame.locator('html').evaluate('el => el.scrollTop > 0')
+    page.get_by_role('button', name='بداية المحضر ↑', exact=True).click()
+    assert frame.locator('html').evaluate('el => el.scrollTop === 0')
+    frame.locator('html').evaluate('el => el.scrollLeft = -100')
+    assert frame.locator('html').evaluate('el => Math.abs(el.scrollLeft) > 0')
+    page.get_by_role('button', name='تحديث المحضر', exact=True).click()
+    expect(frame.locator('[data-edit-key="value:note_text"] textarea')).to_have_value('نص باق رغم انقطاع الحفظ')
     page.screenshot(path=str(OUT / 'mobile.png'), full_page=True)
     assert not errors, errors
     proof = {'result': 'PASS', 'checks': ['direct text edits', 'autosave during typing', 'closing persistence',
-        'failed save/retry', 'PDF download', 'responsibility/proposal navigation', 'mobile editor'], 'page_errors': errors}
+        'failed save/retry', 'PDF download', 'responsibility/proposal navigation', 'mobile editor', 'vertical and horizontal scrolling',
+        'first editable field navigation', 'refresh preserves saved content'], 'page_errors': errors}
     (OUT / 'browser.json').write_text(json.dumps(proof, indent=2), encoding='utf-8')
     print(json.dumps(proof), flush=True)
     browser.close()

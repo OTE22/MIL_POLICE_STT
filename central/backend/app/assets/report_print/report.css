@@ -21,22 +21,33 @@ body { margin: 0; background: #e9edf2; color: #111; font-family: Inter, "IBM Ple
 .statement-table td { border: 1px solid #222; vertical-align: top; }
 .statement-table th { border: 1px solid #222; padding: 1mm 2mm; font-weight: 700; }
 .statement-table thead { display: table-header-group; }
-.conclusion-block { break-before: page; margin-top: 12mm; }
+.conclusion-block { break-before: page; break-after: page; margin-top: 12mm; }
 .conclusion-block .signature-row { display: block; text-align: left; }
 .highlight-fields .statement-block { cursor: pointer; outline: 2px solid transparent; outline-offset: 3px; }
 .highlight-fields .statement-block:focus, .highlight-fields .statement-block.selected { outline-color: #66704e; background: #f3f4ed; }
-.margin-marker { padding: 1mm 2mm; font-weight: bold; background: repeating-linear-gradient(to bottom, transparent 0, transparent calc(9mm - .2mm), #c7c7c7 calc(9mm - .2mm), #c7c7c7 9mm); background-origin: content-box; }
+.margin-marker { padding: 1mm 2mm; text-align: left; text-align-last: left; font-weight: bold; background: repeating-linear-gradient(to bottom, transparent 0, transparent calc(9mm - .2mm), #c7c7c7 calc(9mm - .2mm), #c7c7c7 9mm); background-origin: content-box; }
 .statement-text { padding: 1mm 2.5mm; text-align: justify; text-align-last: start; overflow-wrap: break-word; word-break: normal; white-space: normal; background: repeating-linear-gradient(to bottom, transparent 0, transparent calc(9mm - .2mm), #c7c7c7 calc(9mm - .2mm), #c7c7c7 9mm); background-origin: content-box; }
 .statement-text p { margin: 0; }
 .document-inline-input { display: block; width: 100%; resize: none; overflow: hidden; border: 1px dashed #72805c; border-radius: 2px; padding: 0 1mm; margin: 0; background: #f8faef; color: #111; font: inherit; line-height: inherit; direction: rtl; text-align: justify; }
 .document-inline-input:focus { outline: 2px solid #56683c; background: #fff; }
 .document-inline-input:disabled { border-color: transparent; background: transparent; opacity: 1; }
+/* Editing-only viewport: retain A4 proportions and expose both scroll axes. */
+html.document-edit-viewport { overflow: scroll; scrollbar-gutter: stable; scrollbar-width: auto; scrollbar-color: #56683c #dce2d5; }
+.document-edit-mode { min-width: 210mm; }
+.document-edit-mode .report-paper { width: 186mm; max-width: none; }
+html.document-edit-viewport::-webkit-scrollbar { width: 15px; height: 15px; }
+html.document-edit-viewport::-webkit-scrollbar-thumb { background: #56683c; border: 3px solid #dce2d5; border-radius: 8px; }
+html.document-edit-viewport::-webkit-scrollbar-track { background: #dce2d5; }
 .statement-heading .statement-text { text-align: center; text-align-last: center; font-weight: bold; font-size: 17pt; }
 .variable { unicode-bidi: isolate; }
 .highlight-fields .variable { background: #e7f1ff; border-bottom: 1px dashed #4074af; }
 .missing, .highlight-fields .missing { background: #fff3cb; color: #745315; }
 .signature-row { display: grid; grid-template-columns: 1fr 1fr 1.3fr; gap: 3mm; text-align: center; text-align-last: auto; font-size: 12pt; line-height: 7mm; }
 .note-signature-row { grid-template-columns: 1fr 1.3fr; }
+.closing-signatures { grid-template-columns: 1fr 1.3fr; align-items: start; }
+.closing-dateline { text-align: left; text-align-last: left; margin-bottom: 2mm; }
+.closing-date { white-space: nowrap; }
+.closing-investigator { text-align: center; }
 .signature-space { height: 12mm; margin: 0 2mm; border-bottom: 1px solid #333; }
 .source-time { display: block; font-size: 11pt; line-height: 6mm; color: #536174; direction: rtl; }
 .empty-report { text-align: center; padding: 15mm; }

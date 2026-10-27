@@ -124,3 +124,7 @@
 .report-document-editor { margin-block: 1rem; }
 .report-document-editor > p { max-width: 76ch; line-height: 1.9; }
 .report-document-frame { display: block; width: 100%; height: 78vh; min-height: 580px; border: 1px solid var(--border); background: white; border-radius: 6px; }
+.report-document-navigation { padding: 16px; margin-block: 16px 0; background: var(--surface); border: 1px solid var(--line); border-radius: 6px 6px 0 0; }
+.report-document-navigation > span { display: block; color: var(--report-olive); font-weight: 600; margin-bottom: 12px; }
+.report-document-navigation .select { width: auto; max-width: 100%; min-width: 220px; }
+.report-document-navigation p { margin-bottom: 0; color: var(--muted); line-height: 1.8; }

@@ -28,11 +28,14 @@ export function ReportDocumentEditor({ html, disabled, onEdit }: {
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [displayed, setDisplayed] = useState(html);
+  const [targets, setTargets] = useState<{ key: string; label: string }[]>([]);
+  const [loadError, setLoadError] = useState(false);
   const focused = useRef(false);
-  const position = useRef(0);
+  const position = useRef({ x: 0, y: 0 });
   const latest = useRef({ html, disabled, onEdit }); latest.current = { html, disabled, onEdit };
   const refresh = () => {
-    position.current = frame.current?.contentWindow?.scrollY ?? position.current;
+    const view = frame.current?.contentWindow;
+    if (view) position.current = { x: view.scrollX, y: view.scrollY };
     setDisplayed(latest.current.html);
   };
   useEffect(() => { if (!focused.current) refresh(); }, [html]);
@@ -40,9 +43,14 @@ export function ReportDocumentEditor({ html, disabled, onEdit }: {
     frame.current?.contentDocument?.querySelectorAll<HTMLTextAreaElement>("textarea").forEach(input => { input.disabled = disabled; });
   }, [disabled]);
   const loaded = () => {
-    const doc = frame.current?.contentDocument;
-    if (!doc) return;
-    frame.current?.contentWindow?.scrollTo(0, position.current);
+    let doc: Document | null | undefined;
+    try { doc = frame.current?.contentDocument; } catch { setLoadError(true); return; }
+    if (!doc) { setLoadError(true); return; }
+    setLoadError(false);
+    doc.documentElement.classList.add("document-edit-viewport");
+    doc.body.classList.add("document-edit-mode");
+    frame.current?.contentWindow?.scrollTo(position.current.x, position.current.y);
+    const available: { key: string; label: string }[] = [];
     doc.querySelectorAll<HTMLElement>("[data-edit-key]").forEach(element => {
       const block = element.closest<HTMLElement>("[data-block-id]")?.dataset.blockId;
       if (!block) return;
@@ -51,6 +59,9 @@ export function ReportDocumentEditor({ html, disabled, onEdit }: {
       input.value = element.dataset.editValue ?? "";
       input.setAttribute("aria-label", element.getAttribute("aria-label") ?? "نص المحضر");
       input.className = "document-inline-input";
+      const key = `${block}:${element.dataset.editKey}`;
+      input.dataset.editorTarget = key;
+      available.push({ key, label: `${available.length + 1}. ${element.getAttribute("aria-label") ?? "نص المحضر"}` });
       input.maxLength = element.dataset.editKey === "closing:text" ? 10000 : element.dataset.editKey?.startsWith("question:") ? 20000 : 40000;
       input.disabled = latest.current.disabled;
       input.rows = 1;
@@ -68,10 +79,30 @@ export function ReportDocumentEditor({ html, disabled, onEdit }: {
       element.replaceChildren(input);
       resize();
     });
+    setTargets(available);
     void doc.fonts.ready.then(() => doc.querySelectorAll<HTMLTextAreaElement>("textarea").forEach(input => {
       input.style.height = "0px"; input.style.height = `${input.scrollHeight + 2}px`;
     }));
   };
-  return <iframe ref={frame} className="report-document-frame" title="تحرير نص المحضر مباشرة" srcDoc={displayed}
-    sandbox="allow-same-origin" onLoad={loaded} />;
+  const jump = (key: string) => {
+    const input = Array.from(frame.current?.contentDocument?.querySelectorAll<HTMLTextAreaElement>("textarea") ?? []).find(el => el.dataset.editorTarget === key);
+    if (input) { input.scrollIntoView({ block: "center", inline: "nearest" }); input.focus({ preventScroll: true }); }
+  };
+  return <div className="report-document-scroll-workspace">
+    <div className="report-document-navigation" aria-label="التنقل داخل المحضر">
+      <span role="status">{!html ? "جارٍ تحميل المحضر…" : disabled ? "المحضر للقراءة فقط حالياً" : `${targets.length} حقول قابلة للتحرير — اضغط داخل المساحات الخضراء للكتابة`}</span>
+      <div className="flex gap wrap">
+        <button className="btn" disabled={!targets.length || disabled} onClick={() => jump(targets[0].key)}>انتقل إلى أول نص قابل للتحرير</button>
+        <select className="select" aria-label="انتقل إلى حقل في المحضر" defaultValue="" disabled={!targets.length} onChange={e => { jump(e.target.value); e.target.value = ""; }}>
+          <option value="" disabled>اختر النص الذي تريد تعديله</option>{targets.map(target => <option key={target.key} value={target.key}>{target.label}</option>)}
+        </select>
+        <button className="btn" onClick={() => frame.current?.contentWindow?.scrollTo({ top: 0 })}>بداية المحضر ↑</button>
+        <button className="btn" onClick={() => frame.current?.contentWindow?.scrollTo({ top: frame.current?.contentDocument?.documentElement.scrollHeight ?? 0 })}>نهاية المحضر ↓</button>
+      </div>
+      <p>الافتتاح والعناوين الرسمية محمية. مرّر داخل الورقة عمودياً وأفقياً، أو اختر حقلاً من القائمة. توزيع صفحات الطباعة يظهر في معاينة PDF.</p>
+    </div>
+    {loadError && <p role="alert">تعذر فتح مساحة التحرير. استخدم تحديث المحضر أو تابع التعديل من شاشة الكتابة.</p>}
+    <iframe ref={frame} className="report-document-frame" title="تحرير نص المحضر مباشرة" srcDoc={displayed}
+      sandbox="allow-same-origin" onLoad={loaded} />
+  </div>;
 }

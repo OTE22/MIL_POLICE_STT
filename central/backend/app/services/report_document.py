@@ -79,7 +79,8 @@ def render(document, session, *, issued=False, version=None, number=None, highli
             for entry in block["entries"]:
                 q = editable_text(entry["question"], "question:" + str(entry["id"]), "السؤال")
                 a = editable_text(entry["answer"], "answer:" + str(entry["id"]), "نص الإفادة / الجواب")
-                content += row((f'<p><b>س:</b> {q}</p>' if entry["question"] else "") + f'<p>{a}</p>', "", "qa-row", "answer-" + str(entry["id"]))
+                paired = bool(entry["question"].strip())
+                content += row((f'<p><b>س:</b> {q}</p><p><b>ج:</b> {a}</p>' if paired else f'<p>{a}</p>'), "س/ج", "qa-row", "answer-" + str(entry["id"]))
             if block["attestation_confirmed"]:
                 content += row(clause("attestation"))
         signature = ('<div>' + field("statement_signature_role") + '<div class="signature-space"></div></div>') if block["type"] == "statement" else ""
@@ -105,11 +106,17 @@ def render(document, session, *, issued=False, version=None, number=None, highli
         if not narrative_open:
             sections.append('<section class="statement-block narrative-block">' + table_start)
             narrative_open = True
-        signatures = ('<div class="signature-row note-signature-row"><div>كاتب عدلي<br>' + escape(name(document.get("clerk_id"))) +
-                      '<div class="signature-space"></div></div><div>المحقق<br>' + escape(name(document.get("investigator_id"))) +
-                      '<div class="signature-space"></div></div></div>')
+        raw_date = str(closing.get("date") or "")
+        date_parts = raw_date.split("-")
+        date_text = "/".join(reversed(date_parts)) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw_date) else raw_date
+        dateline = ('<div class="closing-dateline">' + escape(closing.get("location") or "") +
+                    ' في <bdi dir="ltr" class="closing-date">' + escape(date_text) + '</bdi></div>')
+        signatures = ('<div class="signature-row closing-signatures"><div class="closing-clerk">كاتب عدلي<br>' + escape(name(document.get("clerk_id"))) +
+                      '<div class="signature-space"></div></div><div class="closing-authority">' + dateline +
+                      '<div class="closing-investigator">المحقق<br>' + escape(name(document.get("investigator_id"))) +
+                      '<div class="signature-space"></div></div></div></div>')
         content = row(editable_text(closing.get("text", ""), "closing:text", "ختام المحضر"), classes="note-body")
-        content += row('<div>' + escape(closing.get("location") or "") + ' — ' + escape(str(closing.get("date") or "")) + '</div>' + signatures, classes="statement-signatures")
+        content += row(signatures, classes="statement-signatures")
         sections.append('<tbody class="report-closing" data-block-id="closing">' + content + '</tbody>')
     if narrative_open:
         sections.append('</table></section>')

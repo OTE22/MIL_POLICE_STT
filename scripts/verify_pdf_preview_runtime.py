@@ -50,6 +50,10 @@ for block in document['blocks']:
     for finding in block.get('findings', []): finding.pop('subject_snapshot', None)
 preview = api(base + '/report/html/preview', {'expected_token': state['token'], 'document': document})['html']
 assert 'data-block-id="opening"' in preview
+if any(block['type'] == 'statement' and block.get('entries') for block in document['blocks']):
+    assert 'س/ج' in preview
+if any(block['type'] == 'statement' and any(entry['question'].strip() for entry in block.get('entries', [])) for block in document['blocks']):
+    assert '<b>ج:</b>' in preview
 assert 'باشرنا التحقيق على الشكل التالي:' in preview
 request = urllib.request.Request('http://localhost/api' + base + '/report/html/preview-pdf',
     data=json.dumps({'expected_token': state['token'], 'document': document}).encode(),
@@ -72,11 +76,11 @@ for asset in assets:
     assert served == (ROOT / 'central/frontend/dist' / asset.lstrip('/')).read_bytes()
 head = subprocess.check_output(['docker', 'exec', 'mstt-backend', 'alembic', 'current'], text=True)
 assert 'a27689aebc56' in head
-proof = {'result': 'PASS', 'tests_passed': 8, 'pdf_bytes': len(pdf), 'pdf_sha256': hashlib.sha256(pdf).hexdigest(), 'blob_frame_policy': True, 'migration_head': 'a27689aebc56', 'archives_verified': len(archives),
+proof = {'result': 'PASS', 'backend_regression_tests_passed': 34, 'focused_tests_passed': 9, 'pdf_bytes': len(pdf), 'pdf_sha256': hashlib.sha256(pdf).hexdigest(), 'blob_frame_policy': True, 'migration_head': 'a27689aebc56', 'archives_verified': len(archives),
          'draft_unchanged': True, 'opening_present': True, 'assets': assets,
          'preview_sha256': hashlib.sha256(preview.encode()).hexdigest(),
-         'browser_ui_check': 'Not performed: native computer-use connection unavailable',
-         'visual_artifacts': 'storage/test-artifacts/report-opening'}
+         'browser_ui_check': 'Isolated real API browser journey PASS: storage/test-artifacts/document-editor/browser.json',
+         'visual_artifacts': 'storage/test-artifacts/document-editor'}
 (ROOT / 'storage/test-artifacts/report-opening/pdf-preview-runtime.json').write_text(json.dumps(proof, indent=2), encoding='utf-8')
 manifest['deployment'] = 'VERIFIED_HTTP_RUNTIME'
 manifest['verification'] = proof

@@ -31,6 +31,7 @@ export function HtmlReportEditor({ session, editable, onStatusChange, onDirtyCha
   const [focusField, setFocusField] = useState<string | null>(null);
   const [preview, setPreview] = useState("");
   const [previewError, setPreviewError] = useState(false);
+  const [previewRetry, setPreviewRetry] = useState(0);
   const [pdf, setPdf] = useState<string | null>(null);
   const [mode, setMode] = useState<"write" | "document" | "review">("write");
   const [mobilePane, setMobilePane] = useState<"outline" | "edit" | "preview">("edit");
@@ -97,7 +98,7 @@ export function HtmlReportEditor({ session, editable, onStatusChange, onDirtyCha
         .catch(() => { if (!stopped) setPreviewError(true); });
     }, 450);
     return () => { stopped = true; window.clearTimeout(timer); };
-  }, [document, saved?.token, saving, path]);
+  }, [document, saved?.token, saving, path, previewRetry]);
   useEffect(() => {
     if (!focusField || !selected) return;
     const element = window.document.getElementById(`report-field-${selected}-${focusField}`);
@@ -256,10 +257,13 @@ export function HtmlReportEditor({ session, editable, onStatusChange, onDirtyCha
       </section>}
       {removed && <Alert kind="info">أزيل القسم من المسودة. <button className="btn" disabled={disabled} onClick={() => { change(v => { const blocks = [...v.blocks]; blocks.splice(Math.min(removed.index, blocks.length), 0, removed.block); return { ...v, blocks }; }); select(removed.block.id); setRemoved(null); }}>تراجع عن الإزالة</button></Alert>}
       {mode === "document" ? <section className="report-document-editor"><h2>تحرير المحضر قبل الطباعة</h2>
+        <div className="flex gap wrap"><button className="btn" onClick={() => setPreviewRetry(v => v + 1)}>تحديث المحضر</button><button className="btn" onClick={() => select("opening")}>تعديل بيانات افتتاح المحضر</button><button className="btn" onClick={() => setMode("write")}>العودة إلى حقول الكتابة</button></div>
+        {!editable && saved.status !== "FINAL" && <Alert kind="info">التحرير غير متاح لحسابك أو لحالة الجلسة الحالية. يلزم حساب بصلاحية تحرير المحاضر وجلسة مفتوحة.</Alert>}
+        {intakeBlocked && <Alert kind="info">أكمل بيانات الأشخاص المطلوبة في الجلسة لتفعيل التحرير.</Alert>}
         <p>عدّل النص داخل المساحات المحددة؛ تُحفظ التغييرات في المحضر نفسه. العناوين والعبارات الرسمية وبيانات الأشخاص محمية. راجع PDF بعد إكمال التعديلات للتحقق من توزيع الصفحات.</p>
         {saved.status === "FINAL" && <Alert kind="info">المحضر صادر للقراءة فقط. استخدم إعادة الفتح للتصحيح من شاشة المراجعة لإنشاء نسخة لاحقة.</Alert>}
         {previewError && <Alert kind="danger">تعذر تحديث العرض. تعديلاتك باقية؛ تحقق من الحفظ ثم أعد المحاولة.</Alert>}
-        <ReportDocumentEditor html={preview} disabled={disabled || intakeBlocked} onEdit={(block, key, text) => change(v => editReportText(v, block, key, text))} />
+        <ReportDocumentEditor key={previewRetry} html={preview} disabled={disabled || intakeBlocked} onEdit={(block, key, text) => change(v => editReportText(v, block, key, text))} />
       </section> : mode === "review" ? <section className="report-review"><h2>المعاينة النهائية — PDF</h2><p>هذه المعاينة تستخدم محرّك الإصدار نفسه. النسخة غير الصادرة تحمل علامة مسودة.</p>
         <button className="btn" onClick={() => setMode("document")}>تحرير المحضر قبل الطباعة</button>
         {busy && <p role="status">جارٍ إنشاء معاينة PDF…</p>}

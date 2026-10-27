@@ -28,12 +28,16 @@ def test_document_edit_targets_closing_and_clean_margins():
     assert html.index('data-block-id="closing"') > html.index('data-block-id="' + document['blocks'][0]['id'])
     margins = re.findall(r'<td class="margin-marker">(.*?)</td>', html, re.S)
     assert document['subject'] not in ''.join(margins)
-    assert 'س.ج' not in html and '<b>ج:</b>' not in html
+    assert 'س/ج' in ''.join(margins) and '<b>س:</b>' in html and '<b>ج:</b>' in html
     assert document['subject'] in html  # retained in the opening narrative
     assert 'data-edit-key=' not in render(document, session, issued=True)
     assert 'report_closing_details_required' not in content_blockers(session, {**document, 'blocks': []})
     document['closing']['date'] = None
     assert 'report_closing_details_required' in content_blockers(session, document)
+    document['blocks'][0]['entries'][0]['question'] = '  '
+    standalone = render(document, session)
+    assert 'س/ج' in standalone and '<b>ج:</b>' not in standalone and '<b>س:</b>' not in standalone
+    assert document['blocks'][0]['entries'][0]['answer'] in standalone
 
 
 def test_server_renderer_preserves_order_escapes_input_and_embeds_fonts():
