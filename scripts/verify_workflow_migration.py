@@ -29,5 +29,7 @@ with psycopg.connect(dsn) as connection:
     after = {table: digest(connection, table, names) for table, names in columns.items()}
     head = connection.execute('SELECT version_num FROM alembic_version').fetchone()[0]
 assert before == after, 'Migration altered pre-existing column values or rows'
-assert head == 'f165789dab45', head
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+assert head == ScriptDirectory.from_config(Config('/app/alembic.ini')).get_current_head(), head
 print(json.dumps({'head': head, 'unchanged_existing_tables': before, 'result': 'PASS'}, indent=2), flush=True)

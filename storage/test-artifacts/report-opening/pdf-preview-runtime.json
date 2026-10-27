@@ -1,0 +1,18 @@
+{
+  "result": "PASS",
+  "tests_passed": 8,
+  "pdf_bytes": 354333,
+  "pdf_sha256": "0e93d52997bf309a7fd83c239c164db6b4477d08e33d4cfe8c27e4003d3e39cf",
+  "blob_frame_policy": true,
+  "migration_head": "a27689aebc56",
+  "archives_verified": 0,
+  "draft_unchanged": true,
+  "opening_present": true,
+  "assets": [
+    "/assets/index-DrxnJ91y.js",
+    "/assets/index-DDamv7jT.css"
+  ],
+  "preview_sha256": "a714f042a909b9b6f098949589162456f625ade979710b9d1f32d9fcb4e94489",
+  "browser_ui_check": "Not performed: native computer-use connection unavailable",
+  "visual_artifacts": "storage/test-artifacts/report-opening"
+}

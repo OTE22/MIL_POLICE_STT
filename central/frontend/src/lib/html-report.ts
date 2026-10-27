@@ -5,7 +5,7 @@ export interface BlockTemplate {
   clauses: Record<string, string>;
 }
 export interface StatementCatalogue extends BlockTemplate {
-  revision: "statement-html-1" | "investigation-html-2";
+  revision: "statement-html-1" | "investigation-html-2" | "investigation-html-3";
   note: BlockTemplate;
 }
 export interface StatementSource {
@@ -60,7 +60,9 @@ export interface ReportPersonOption { key: string; label: string; participant_ke
 export type ReportBlock = StatementBlock | NoteBlock | ConclusionBlock;
 export interface HtmlReportDocument {
   session_id?: string;
-  revision: "statement-html-1" | "investigation-html-2";
+  revision: "statement-html-1" | "investigation-html-2" | "investigation-html-3";
+  opening?: { referral_number?: string; referral_date?: string | null; referral_authority?: string; oath_confirmed?: boolean; uniform_confirmed?: boolean };
+  closing?: { text: string; location: string; date: string | null } | null;
   subject: string;
   investigator_id: string | null;
   clerk_id?: string | null;

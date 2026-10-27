@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import re
 import uuid
+from datetime import date
+from datetime import date as ClosingDate
 from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from app.services.report_html import CATALOGUE, FIELDS, NOTE_FIELDS
@@ -97,9 +99,25 @@ class ConclusionBlock(StrictModel):
 ReportBlock = Annotated[StatementBlock | NoteBlock | ConclusionBlock, Field(discriminator="type")]
 
 
+class ReportOpening(StrictModel):
+    referral_number: str = Field(default="", max_length=200)
+    referral_date: date | None = None
+    referral_authority: str = Field(default="", max_length=500)
+    oath_confirmed: bool = False
+    uniform_confirmed: bool = False
+
+
+class ReportClosing(StrictModel):
+    text: str = Field(default="", max_length=10000)
+    location: str = Field(default="", max_length=500)
+    date: ClosingDate | None = None
+
+
 class HtmlReportDocument(StrictModel):
     session_id: uuid.UUID | None = None
-    revision: Literal["statement-html-1", "investigation-html-2"] = "investigation-html-2"
+    revision: Literal["statement-html-1", "investigation-html-2", "investigation-html-3"] = "investigation-html-3"
+    opening: ReportOpening = Field(default_factory=ReportOpening)
+    closing: ReportClosing | None = None
     subject: str = Field(default="", max_length=500)
     investigator_id: uuid.UUID | None = None
     clerk_id: uuid.UUID | None = None

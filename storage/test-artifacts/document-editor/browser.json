@@ -1,0 +1,13 @@
+{
+  "result": "PASS",
+  "checks": [
+    "direct text edits",
+    "autosave during typing",
+    "closing persistence",
+    "failed save/retry",
+    "PDF download",
+    "responsibility/proposal navigation",
+    "mobile editor"
+  ],
+  "page_errors": []
+}

@@ -1,0 +1,10 @@
+{
+  "result": "PASS",
+  "browser": "140.0.7339.16",
+  "cases": [
+    "native headless capture unavailable",
+    "simulated NotAllowedError"
+  ],
+  "dictations_created": 0,
+  "report_changed": false
+}

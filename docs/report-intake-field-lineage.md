@@ -77,3 +77,16 @@ include a participant key, field key, explanation, and navigation target.
 widens the archive format constraint, and adds explicit transcript review provenance. Existing recording purpose defaults to INTERVIEW.
 Existing report archives and hashes are not rewritten. Downgrades that would discard new
 provenance or issued-format support are refused; repair forward.
+# Official opening — HTML document revision 3
+
+| Control / printed value | API / canonical owner | Validation / downstream use |
+|---|---|---|
+| Session opening date, time, location | Existing session `session_date`, `start_time`, `location` | Required for official issuance; displayed read-only in opening editor; rendered from session and frozen in issuance source snapshot |
+| Investigator / clerk | Existing report `investigator_id`, `clerk_id` referencing session assignments | Scoped IDs; distinct clerk required; names, rank, unit and service number read from profiles; source changes invalidate review |
+| Referral number, date, authority | HTML report API `document.opening.referral_number/referral_date/referral_authority` → `report_drafts.official_form.html_report.opening` | Bounded strings, typed date, mandatory at issuance; explicit clearing supported; archived in document snapshot |
+| Oath / uniform confirmations | `document.opening.oath_confirmed/uniform_confirmed` in the same JSON | False by default; explicit operator confirmation; fixed wording cannot be edited; full before/after audit with actor and timestamp |
+| Official heading / oath / transition | Versioned server `report_opening.py` | Fixed template wording; included in renderer hash and approval token; not dictation targets |
+
+Opening edits share the existing serialized autosave, revision token and conflict comparison.
+The opening is permanent and precedes all repeatable blocks. Archived v1/v2 documents retain
+their stored bytes; migration `a27689aebc56` only expands the permitted archive format set.

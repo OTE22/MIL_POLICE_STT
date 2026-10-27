@@ -8,7 +8,16 @@ body { margin: 0; background: #e9edf2; color: #111; font-family: Inter, "IBM Ple
 .report-meta p { margin: 0; }
 .statement-block { margin: 0 0 9mm; }
 .statement-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 15pt; line-height: 9mm; }
-.marker-col { width: 17%; }
+.marker-col { width: 22%; }
+.opening-heading td { text-align: center; vertical-align: middle; }
+.opening-heading h1 { font-size: 23pt; margin: 0; padding: 4mm 1mm; }
+.official-heading { font-size: 12pt; line-height: 8mm; }
+.opening-text { text-align: justify; }
+.opening-body { break-inside: auto; }
+.opening-heading { break-after: avoid; }
+.narrative-block { margin-bottom: 0; }
+.highlight-fields tbody[data-block-id] { cursor: pointer; }
+.highlight-fields tbody.selected { outline: 2px solid #66704e; }
 .statement-table td { border: 1px solid #222; vertical-align: top; }
 .statement-table th { border: 1px solid #222; padding: 1mm 2mm; font-weight: 700; }
 .statement-table thead { display: table-header-group; }
@@ -17,13 +26,16 @@ body { margin: 0; background: #e9edf2; color: #111; font-family: Inter, "IBM Ple
 .highlight-fields .statement-block { cursor: pointer; outline: 2px solid transparent; outline-offset: 3px; }
 .highlight-fields .statement-block:focus, .highlight-fields .statement-block.selected { outline-color: #66704e; background: #f3f4ed; }
 .margin-marker { padding: 1mm 2mm; font-weight: bold; background: repeating-linear-gradient(to bottom, transparent 0, transparent calc(9mm - .2mm), #c7c7c7 calc(9mm - .2mm), #c7c7c7 9mm); background-origin: content-box; }
-.statement-text { padding: 1mm 2.5mm; text-align: right; overflow-wrap: anywhere; white-space: pre-wrap; background: repeating-linear-gradient(to bottom, transparent 0, transparent calc(9mm - .2mm), #c7c7c7 calc(9mm - .2mm), #c7c7c7 9mm); background-origin: content-box; }
+.statement-text { padding: 1mm 2.5mm; text-align: justify; text-align-last: start; overflow-wrap: break-word; word-break: normal; white-space: normal; background: repeating-linear-gradient(to bottom, transparent 0, transparent calc(9mm - .2mm), #c7c7c7 calc(9mm - .2mm), #c7c7c7 9mm); background-origin: content-box; }
 .statement-text p { margin: 0; }
-.statement-heading .statement-text { text-align: center; font-weight: bold; font-size: 17pt; }
+.document-inline-input { display: block; width: 100%; resize: none; overflow: hidden; border: 1px dashed #72805c; border-radius: 2px; padding: 0 1mm; margin: 0; background: #f8faef; color: #111; font: inherit; line-height: inherit; direction: rtl; text-align: justify; }
+.document-inline-input:focus { outline: 2px solid #56683c; background: #fff; }
+.document-inline-input:disabled { border-color: transparent; background: transparent; opacity: 1; }
+.statement-heading .statement-text { text-align: center; text-align-last: center; font-weight: bold; font-size: 17pt; }
 .variable { unicode-bidi: isolate; }
 .highlight-fields .variable { background: #e7f1ff; border-bottom: 1px dashed #4074af; }
 .missing, .highlight-fields .missing { background: #fff3cb; color: #745315; }
-.signature-row { display: grid; grid-template-columns: 1fr 1fr 1.3fr; gap: 3mm; text-align: center; font-size: 12pt; line-height: 7mm; }
+.signature-row { display: grid; grid-template-columns: 1fr 1fr 1.3fr; gap: 3mm; text-align: center; text-align-last: auto; font-size: 12pt; line-height: 7mm; }
 .note-signature-row { grid-template-columns: 1fr 1.3fr; }
 .signature-space { height: 12mm; margin: 0 2mm; border-bottom: 1px solid #333; }
 .source-time { display: block; font-size: 11pt; line-height: 6mm; color: #536174; direction: rtl; }
@@ -32,6 +44,9 @@ body { margin: 0; background: #e9edf2; color: #111; font-family: Inter, "IBM Ple
   body { background: white; }
   .report-paper { margin: 0; padding: 0; width: auto; min-height: 0; box-shadow: none; }
   .statement-block { break-inside: auto; }
+  /* Keep collapsed outer borders inside Chromium's printable clipping edge. */
+  .statement-table { width: calc(100% - 2px); margin-inline: 1px; }
+  .report-closing { break-inside: avoid; }
   .statement-table tr { break-inside: avoid; }
   .statement-table .note-body { break-inside: auto; }
   .statement-table .qa-row, .statement-table .conclusion-body { break-inside: auto; }

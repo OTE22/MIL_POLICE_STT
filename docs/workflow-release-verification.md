@@ -27,13 +27,25 @@
   to `f165789dab45`. Existing columns and row counts in every existing table matched before/after.
 - Backend: 353 regression tests passed, followed by 9 focused intake/dictation tests including
   the final per-recording review and merged-identity display checks.
-- Final continuous browser journey: completion recorded in the machine-readable artifacts below;
-  deployment is guarded on successful results.
+- Final continuous browser journey: PASS from incomplete draft through real speech processing,
+  multi-person import, upstream correction/comparison/acceptance, interrupted and concurrent saves,
+  all dictation fields, lead approval/issuance, closure, reopening, and successor issuance. The first
+  issued HTML and PDF remained byte-for-byte unchanged. The generated report spans seven A4 pages.
 - The browser journey uses Chromium microphone capture with synthetic Arabic audio and the real
   local speech engine. It verifies software capture/inference, not physical microphone hardware.
+- Additional browser recovery checks passed for native unavailable capture and an explicitly
+  simulated `NotAllowedError`. Both showed actionable guidance and created no dictation or report
+  changes; this does not claim a physical device permission-denial test.
 - A prior harness run stopped because it omitted the required source-change acknowledgement.
   That failed-run evidence is retained under `complete-workflow/source-ack-test-stop`; the app
   correctly blocked approval. The harness now makes the explicit acknowledgement.
+- Coordinated deployment: backend, frontend, and agent are healthy on the exact packaged image IDs.
+  Live migration head is `f165789dab45`; HTTP/HTTPS index and asset bytes match the production build.
+- Live browser: details, transcript, speakers, and report pages PASS with no browser exceptions or
+  attempted mutations. Initial verification correctly identified incomplete setup. At the user's
+  subsequent request, 24 missing requirements across two existing participants were populated with
+  marked development mock values. Readiness now passes; original entries, participant IDs, recordings,
+  and issued reports are preserved. Mock document references do not confirm verification or signing.
 
 Evidence:
 

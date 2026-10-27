@@ -1,0 +1,16 @@
+{
+  "result": "PASS",
+  "images": {
+    "backend": "sha256:749be273d95f1f98cf1fdaba193bf8c994f05e90d6f5e7d2317cf664b36f9379",
+    "frontend": "sha256:694e4c882955933387b00bb8c5b3805fb8616fce17ceb873e369cdafd22b4710",
+    "agent": "sha256:243c810e2c85edcfe3a565a63651aeaf8f6fed8842153637e64522d527da84c7"
+  },
+  "assets": {
+    "/assets/index-JOoFcw6I.js": "53b56a44adfade82ffe1372eb3ad78dbff419d4d91616e66243f70aa7fa2099d",
+    "/assets/index-fFjVhmUP.css": "a170dcf7abc303c8b18a99c954f0966f49ad2610e6af4d74ffcae176e27183c6"
+  },
+  "migration_head": "f165789dab45",
+  "http://localhost": "PASS",
+  "https://localhost": "PASS",
+  "agent_report_dictation": true
+}

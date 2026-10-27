@@ -6,7 +6,7 @@
     "speakers": "PASS",
     "report": "PASS"
   },
-  "intake_ready": false,
+  "intake_ready": true,
   "report_api_status": 200,
   "browser_errors": [],
   "mutations_attempted": []

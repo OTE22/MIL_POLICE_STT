@@ -10,10 +10,26 @@ from conftest import auth, create_session, request_token, sample_result
 
 
 def html_draft(client, token, session):
+    # The official opening requires a distinct assigned clerk with real profile facts.
+    from conftest import ADMIN, create_user
+    from app.models import InvestigatorProfile
+    admin = client.post("/api/auth/login", json=ADMIN).json()["access_token"]
+    clerk = create_user(client, admin, "clerk_" + uuid.uuid4().hex[:8], ["INVESTIGATOR"], unit="Test unit")
+    with SessionLocal() as db:
+        db.get(InvestigatorProfile, uuid.UUID(session["investigators"][0]["id"])).unit = "Test unit"
+        db.commit()
+    base = f"/api/investigations/{session['id']}"
+    updated = client.put(base, headers=auth(token), json={"expected_revision": session["revision"], "investigators": [
+        {"investigator_id": i["id"], "assignment_role": i["assignment_role"]} for i in session["investigators"]] + [
+        {"investigator_id": clerk["profile"]["id"], "assignment_role": "ASSISTANT"}]})
+    assert updated.status_code == 200, updated.text
+    session.update(updated.json())
     path = f"/api/investigations/{session['id']}/report/html"
     result = client.post(path, headers=auth(token), json={})
     assert result.status_code == 200, result.text
-    return path, result.json()
+    state = result.json()
+    state["document"]["clerk_id"] = clerk["profile"]["id"]
+    return path, state
 
 
 def test_document_partial_edit_preserves_metadata_and_validates_merged_dates(client, investigator):
@@ -71,6 +87,7 @@ def test_issuance_locks_canonical_names_against_concurrent_registry_edits(client
 
 def fill_note(state):
     document = deepcopy(state["document"])
+    document["opening"] = {"referral_number": "TEST-REF-1", "referral_date": "2026-10-25", "referral_authority": "Test authority", "oath_confirmed": True, "uniform_confirmed": True}
     document["blocks"] = [{"id": str(uuid.uuid4()), "type": "note", "values": {
         "note_date": "2026-10-25", "note_time": "12:30", "note_text": "Reviewed evidence. \u0645\u0644\u0627\u062d\u0638\u0629",
         "closing_location": "Beirut", "closing_date": "2026-10-25"}}]

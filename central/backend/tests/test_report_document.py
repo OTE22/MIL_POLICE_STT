@@ -5,6 +5,37 @@ from app.services.report_document import render
 from app.services.report_html import CATALOGUE
 
 
+def test_print_prose_flows_soft_breaks_preserves_paragraphs_and_escapes():
+    from app.services.report_document import prose
+    assert prose("السطر الأول\nتكملة العبارة\n\nفقرة جديدة") == "السطر الأول تكملة العبارة<br><br>فقرة جديدة"
+    assert prose("one\r\ntwo\r\n\r\nthree") == "one two<br><br>three"
+    assert prose('<script>\n& text') == '&lt;script&gt; &amp; text'
+
+
+def test_document_edit_targets_closing_and_clean_margins():
+    from test_report_opening import example
+    from app.schemas.report_html import HtmlReportDocument
+    from app.services.report_finalize import content_blockers
+    import re
+    session, document = example()
+    document['closing'] = {'text': 'نظم وختم هذا التحقيق <script> & للتفضل بالاطلاع.',
+                           'location': 'مكتب التحقيق', 'date': '2026-10-27'}
+    HtmlReportDocument.model_validate(document)
+    html = render(document, session, highlight=True)
+    assert 'data-edit-key="answer:' in html and 'data-edit-key="question:' in html
+    assert 'data-edit-key="closing:text"' in html
+    assert '<script>' not in html and '&lt;script&gt;' in html
+    assert html.index('data-block-id="closing"') > html.index('data-block-id="' + document['blocks'][0]['id'])
+    margins = re.findall(r'<td class="margin-marker">(.*?)</td>', html, re.S)
+    assert document['subject'] not in ''.join(margins)
+    assert 'س.ج' not in html and '<b>ج:</b>' not in html
+    assert document['subject'] in html  # retained in the opening narrative
+    assert 'data-edit-key=' not in render(document, session, issued=True)
+    assert 'report_closing_details_required' not in content_blockers(session, {**document, 'blocks': []})
+    document['closing']['date'] = None
+    assert 'report_closing_details_required' in content_blockers(session, document)
+
+
 def test_server_renderer_preserves_order_escapes_input_and_embeds_fonts():
     session = SimpleNamespace(session_number="TEST-HTML", title="Report", investigators=[])
     first = {"id": "one", "type": "statement", "values": {"statement_name": "First"},

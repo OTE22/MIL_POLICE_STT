@@ -7,7 +7,7 @@ import { AuthProvider } from "./lib/auth";
 import { ToastProvider } from "./components/ui";
 import "./styles/global.css";
 import "./styles/platform.css";
-import "./styles/report-studio.css";
+import "./styles/report-desk.css";
 
 const router = createBrowserRouter([{ path: "*", element: (
       <ToastProvider>

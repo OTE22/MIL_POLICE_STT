@@ -12,8 +12,9 @@ from app.services.report_storage import atomic_write, read_file, sha256_bytes
 
 
 def format_digest():
+    from app.services import report_opening
     paths = sorted(report_document.ASSETS.iterdir())
-    return sha256_bytes(Path(report_document.__file__).read_bytes() +
+    return sha256_bytes(Path(report_document.__file__).read_bytes() + Path(report_opening.__file__).read_bytes() +
                         json.dumps(report_html.CATALOGUE, sort_keys=True, ensure_ascii=False).encode() +
                         b"".join(p.read_bytes() for p in paths if p.is_file()))
 
@@ -24,6 +25,11 @@ def review_token(db, session, draft):
 
 def content_blockers(session, document):
     reasons = []
+    from app.services.report_opening import blockers
+    reasons.extend(blockers(session, document))
+    closing = document.get("closing")
+    if closing and (not closing.get("text", "").strip() or not closing.get("location", "").strip() or not closing.get("date")):
+        reasons.append("report_closing_details_required")
     if not document["subject"].strip():
         reasons.append("report_subject_required")
     if not document.get("investigator_id"):

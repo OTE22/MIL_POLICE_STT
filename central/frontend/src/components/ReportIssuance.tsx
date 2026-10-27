@@ -5,6 +5,11 @@ import type { HtmlReportState } from "@/lib/html-report";
 import { Alert, Field } from "@/components/ui";
 
 const reasons: Record<string, string> = {
+  report_opening_referral_required: "أكمل رقم الإحالة وتاريخها والجهة المحيلة في افتتاح المحضر",
+  report_opening_session_required: "أكمل تاريخ الجلسة ووقت افتتاحها ومكانها في إعداد الجلسة",
+  report_opening_clerk_required: "اختر كاتباً عدلياً مختلفاً عن المحقق المسؤول",
+  report_opening_confirmation_required: "راجع تأكيد اليمين واللباس العسكري في افتتاح المحضر",
+  report_opening_profiles_required: "أكمل وحدة المحقق والرقم العسكري للكاتب في سجلات المحققين",
   report_is_final: "المحضر صادر ومحفوظ. التصحيح يتطلب إعادة فتح المسودة.",
   report_subject_required: "أدخل موضوع المحضر", report_investigator_required: "اختر المحقق المسؤول",
   report_no_content: "أضف إفادة أو ملاحظة", report_closing_details_required: "أكمل تاريخ ومكان تنظيم كل إفادة أو ملاحظة",

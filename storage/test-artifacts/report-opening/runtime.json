@@ -1,0 +1,15 @@
+{
+  "result": "PASS",
+  "tests_passed": 33,
+  "migration_head": "a27689aebc56",
+  "archives_verified": 0,
+  "draft_unchanged": true,
+  "opening_present": true,
+  "assets": [
+    "/assets/index-D1jOjOsN.js",
+    "/assets/index-fFjVhmUP.css"
+  ],
+  "preview_sha256": "6868aeecf84c0ee3fa389308cecb2d9c29ec5fae8b6a34665c9f61e5b11908df",
+  "browser_ui_check": "Not performed: native computer-use connection unavailable",
+  "visual_artifacts": "storage/test-artifacts/report-opening"
+}

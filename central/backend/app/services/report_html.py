@@ -10,7 +10,7 @@ from app.services import note_templates
 
 CATALOGUE = json.loads((Path(__file__).resolve().parents[1] / "assets/html_statement.json").read_text(encoding="utf-8"))
 CATALOGUE["note"] = json.loads((Path(__file__).resolve().parents[1] / "assets/html_note.json").read_text(encoding="utf-8"))
-CATALOGUE["revision"] = "investigation-html-2"
+CATALOGUE["revision"] = "investigation-html-3"
 FIELDS = {field["key"] for field in CATALOGUE["fields"]}
 NOTE_FIELDS = {field["key"] for field in CATALOGUE["note"]["fields"]}
 
@@ -19,6 +19,8 @@ def document_for(draft):
     document = (draft.official_form or {}).get("html_report") or {
         "revision": CATALOGUE["revision"], "subject": "", "investigator_id": None, "blocks": [],
     }
+    if draft.status.value != "FINAL":
+        document = {**document, "revision": CATALOGUE["revision"], "opening": document.get("opening") or {}}
     return {**document, "session_id": str(draft.session_id)}
 
 

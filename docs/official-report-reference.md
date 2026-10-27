@@ -6,6 +6,7 @@ their incident facts, names, handwritten signatures, stamps, and scan artifacts 
 
 | Reusable family | Representative pages | Reused structure |
 |---|---|---|
+| Opening of the official report | 12, 54 | Right official heading/subject column; opening date/time; assigned investigator and clerk; explicit oath/uniform confirmations; referral details; transition before the first statement |
 | Judicial investigation statements | 55, 73 | Heading naming the person; identity declaration; س.ج markers; attestation; interviewee/clerk/investigator signature arrangement |
 | Procedural notes | 73, 82 | هامش marker ملاحظة:; free procedural narrative; optional action date/time; separate closing/signature line |
 | Investigation conclusion | 34–35, 82 | خلاصة تحقيق عدلي; الوقائع، الاستنتاج، المسؤوليات، الاقتراحات; lead investigator signature |
@@ -23,7 +24,7 @@ The template locks these words in server assets/renderer code. Browser and dicta
 typed variable values only; fields such as `attestation` are invalid dictation destinations.
 Verification and attestation clauses require a later explicit confirmation of the actual action.
 
-The editable schema revision is `investigation-html-2`. Historical `statement-html-1` artifacts
+The editable schema revision is `investigation-html-3`. Historical `statement-html-1` and `investigation-html-2` artifacts
 are downloaded and verified from their original stored bytes. New review tokens include the
 renderer/assets digest. A renderer change invalidates draft approval without changing issued files.
 
@@ -36,3 +37,18 @@ Visual comparison and long-document pagination evidence are recorded under
 `storage/test-artifacts/complete-workflow`. The seven-page synthetic report was visually checked
 for Arabic readability, repeated headings, conclusion page start, subsequent notes, signatures,
 and clipping. The release verification record distinguishes completed checks from pending ones.
+
+Opening v3: `session_date`, `start_time`, and `location` remain session-owned. Investigator
+and clerk IDs remain existing document assignments; rank, name, unit and service number come
+from the corresponding profiles. Only referral number/date/authority and explicit event
+confirmations live in `official_form.html_report.opening`. Migration `a27689aebc56` expands the
+archive-format check constraint to accept v3 alongside both historical formats; no rows or columns
+are removed. Drafts upgrade on read/save without altering existing blocks; issued
+documents retain their stored revision and archived bytes. Missing opening facts block issuance.
+Changes are covered by revision checks, the full document audit and review/source/renderer hashes.
+
+Synthetic visual artifacts are in `storage/test-artifacts/report-opening`. The layout is a
+digital reconstruction of pages 12/54, not a pixel copy of skewed scans. It uses the existing
+bundled IBM Plex Sans Arabic; the scanned typeface is not identified. Dates are rendered with
+Arabic weekday/month names and numeric day/year. Personal details, signatures, stamps and
+handwritten alterations from the reference are never copied.

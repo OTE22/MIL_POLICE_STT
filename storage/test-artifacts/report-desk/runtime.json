@@ -1,0 +1,16 @@
+{
+  "result": "PASS",
+  "image": "sha256:a430bdd4c2d0d6fa7ee58f05227c5f38be72c4c8971d6548741ad2ed8fae9b99",
+  "health": "healthy",
+  "assets": [
+    {
+      "asset": "/assets/index-CVRFUTuz.js",
+      "sha256": "35df43f68cd855bf3a033c62bf627b4da2c5004e9ddb1b974ade31a2ee5d670e"
+    },
+    {
+      "asset": "/assets/index-DDamv7jT.css",
+      "sha256": "130ed856f45dd91f02b5935932d284322df3b7dfaa55ceecfcb542a73eeb8752"
+    }
+  ],
+  "visual_browser_verification": "unavailable"
+}

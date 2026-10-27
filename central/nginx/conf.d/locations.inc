@@ -24,4 +24,4 @@
     add_header X-Frame-Options "DENY" always;
     add_header Referrer-Policy "no-referrer" always;
     # connect-src: same origin + the Local AI Agent on loopback (HTTP and HTTPS forms).
-    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:; connect-src 'self' http://127.0.0.1:17117 http://localhost:17117 https://127.0.0.1:17117; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:; connect-src 'self' http://127.0.0.1:17117 http://localhost:17117 https://127.0.0.1:17117; worker-src 'self' blob:; frame-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;

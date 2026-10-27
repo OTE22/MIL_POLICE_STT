@@ -188,7 +188,7 @@ def preview_html(body: HtmlReportUpdate, session: InvestigationSession = Depends
     if draft.status == ReportStatus.FINAL:
         from app.services.report_storage import read_file, sha256_bytes
         report = db.scalar(select(GeneratedReport).where(GeneratedReport.draft_id == draft.id,
-            GeneratedReport.session_id == session.id, GeneratedReport.format_key.in_(["statement-html-1", "investigation-html-2"]))
+            GeneratedReport.session_id == session.id, GeneratedReport.format_key.in_(["statement-html-1", "investigation-html-2", "investigation-html-3"]))
             .order_by(GeneratedReport.report_version.desc()).limit(1))
         html = read_file(report.html_path) if report and report.html_path else None
         if html is None:
@@ -296,7 +296,7 @@ def reopen_html(body: ReopenInput, request: Request, session: InvestigationSessi
 
 def _archive(db, session):
     rows = db.scalars(select(GeneratedReport).where(GeneratedReport.session_id == session.id,
-                     GeneratedReport.format_key.in_(["statement-html-1", "investigation-html-2"])).order_by(GeneratedReport.report_version.desc())).all()
+                     GeneratedReport.format_key.in_(["statement-html-1", "investigation-html-2", "investigation-html-3"])).order_by(GeneratedReport.report_version.desc())).all()
     draft = get_draft(db, session.id)
     reasons = check_ready(db, session, draft) if draft else ["report_draft_not_found"]
     return {"reports": [{"id": str(r.id), "report_version": r.report_version, "report_number": r.report_number,
@@ -326,7 +326,7 @@ def issue_html(body: TokenInput, request: Request, session: InvestigationSession
 
 def _issued(db, session, report_id):
     report = db.get(GeneratedReport, report_id)
-    if report is None or report.session_id != session.id or report.format_key not in {"statement-html-1", "investigation-html-2"}:
+    if report is None or report.session_id != session.id or report.format_key not in {"statement-html-1", "investigation-html-2", "investigation-html-3"}:
         raise HTTPException(404, detail="report_not_found")
     return report
 
