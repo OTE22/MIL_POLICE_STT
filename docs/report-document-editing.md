@@ -87,3 +87,52 @@ the projected source while confirming the draft token remains unchanged.
 Deployed with `storage/backups/report-opening-20261027T093712Z/release.json`;
 the read-only live browser check verified both existing notes use the flowing
 display and the saved draft remains unchanged.
+
+Conclusion dictation now has visible shortcuts for a new responsibility finding
+and proposals. The shortcuts reuse the existing conclusion and canonical dictation
+destinations. A new finding still requires its subject and evidence before approval.
+The direct document editor also exposes voice buttons for notes, facts, inference,
+individual findings and proposals. Assigned-investigator permissions still apply;
+recording, machine transcription and explicit reviewed insertion use the existing
+audited service, with append as the default.
+
+These controls exist only in the editor DOM. The official server renderer and
+print stylesheet are unchanged: fixed Arabic wording, margin labels, ruling,
+closing date/signature placement and standalone conclusion pagination are preserved.
+No audio controls are serialized into the report or generated exports.
+
+Verification for this change: all 11 intake/dictation tests passed, including new
+parameterized checks that proposals and responsibility findings receive reviewed
+appended text without modifying other fields, references, transcripts or speakers.
+The browser journey additionally checks conclusion shortcuts, inline destinations
+and fake-device microphone capture; this is not a new real-speech model accuracy test.
+The isolated browser uses HTTPS because Chromium does not grant media APIs to its
+HTTP container hostname. Production localhost remains a supported secure context.
+The expanded browser journey passed all 17 checks with no page errors. Deployed
+with `storage/backups/report-opening-20261027T184947Z/release.json`; runtime checks
+confirmed matching built assets, working PDF preview and an unchanged live draft.
+
+Follow-up: the conclusion toolbar now exposes الاستنتاج alongside المسؤوليات and
+الاقتراحات in every workspace mode. Both form and direct-document views can start
+dictation for responsibilities/proposals previously marked NONE, using explicit
+buttons that prepare the canonical destination before recording. Existing wording
+continues to require reviewed insertion; inference reuses its existing field.
+Unassigned accounts see disabled controls and an assignment/permission explanation
+instead of an apparently missing feature. Investigator-only backend access is intact.
+
+The user clarified that only the short separate signature underlines should be
+removed. Their border is removed while 16 mm blank signing space, table borders,
+writing rules and repeated page-signature areas remain unchanged. The expanded
+browser check waits for the actual saved indicator instead of assuming a request
+finishes within a fixed delay.
+
+This follow-up passed 22 backend intake/dictation/rendering tests and all 21 browser
+checks, including all three conclusion destinations in both editing views, NONE
+decisions, permission explanations and signature-space geometry. Browser capture
+uses a fake microphone; backend synchronization/acceptance uses synthetic audio
+results, not a new real-speech accuracy benchmark.
+
+Deployed with `storage/backups/report-opening-20261027T193744Z/release.json`.
+Live runtime and browser checks passed: signature underlines absent, blank space
+retained, three voice shortcuts visible, correct access explanation for the
+unassigned administrator, and no modification to the draft during verification.

@@ -55,6 +55,9 @@ if any(block['type'] == 'statement' and block.get('entries') for block in docume
 if any(block['type'] == 'statement' and any(entry['question'].strip() for entry in block.get('entries', [])) for block in document['blocks']):
     assert '<b>ج:</b>' in preview
 assert 'باشرنا التحقيق على الشكل التالي:' in preview
+assert preview.count('<tfoot class="page-signatures">') == preview.count('<table class="statement-table">')
+assert 'height: 16mm' in preview
+assert re.search(r'\.signature-space\s*\{[^}]*\}', preview)[0].find('border-bottom') == -1
 request = urllib.request.Request('http://localhost/api' + base + '/report/html/preview-pdf',
     data=json.dumps({'expected_token': state['token'], 'document': document}).encode(),
     headers={'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'})
@@ -62,6 +65,7 @@ with urllib.request.urlopen(request, timeout=90) as response:
     assert 'application/pdf' in response.headers['Content-Type']
     pdf = response.read()
 assert pdf.startswith(b'%PDF') and len(pdf) > 1000
+(ROOT / 'storage/test-artifacts/report-opening/runtime-preview.pdf').write_bytes(pdf)
 with urllib.request.urlopen('http://localhost' + base + '/report') as response:
     csp = response.headers['Content-Security-Policy']
     assert "frame-src 'self' blob:;" in csp
@@ -76,10 +80,12 @@ for asset in assets:
     assert served == (ROOT / 'central/frontend/dist' / asset.lstrip('/')).read_bytes()
 head = subprocess.check_output(['docker', 'exec', 'mstt-backend', 'alembic', 'current'], text=True)
 assert 'a27689aebc56' in head
-proof = {'result': 'PASS', 'backend_regression_tests_passed': 34, 'focused_tests_passed': 9, 'pdf_bytes': len(pdf), 'pdf_sha256': hashlib.sha256(pdf).hexdigest(), 'blob_frame_policy': True, 'migration_head': 'a27689aebc56', 'archives_verified': len(archives),
-         'draft_unchanged': True, 'opening_present': True, 'assets': assets,
+browser_proof = json.loads((ROOT / 'storage/test-artifacts/document-editor/browser.json').read_text(encoding='utf-8'))
+assert browser_proof['result'] == 'PASS'
+proof = {'result': 'PASS', 'pdf_bytes': len(pdf), 'pdf_sha256': hashlib.sha256(pdf).hexdigest(), 'blob_frame_policy': True, 'migration_head': 'a27689aebc56', 'archives_verified': len(archives),
+         'draft_unchanged': True, 'opening_present': True, 'signing_footer_on_each_table': True, 'assets': assets,
          'preview_sha256': hashlib.sha256(preview.encode()).hexdigest(),
-         'browser_ui_check': 'Isolated real API browser journey PASS: storage/test-artifacts/document-editor/browser.json',
+         'browser_ui_check': browser_proof,
          'visual_artifacts': 'storage/test-artifacts/document-editor'}
 (ROOT / 'storage/test-artifacts/report-opening/pdf-preview-runtime.json').write_text(json.dumps(proof, indent=2), encoding='utf-8')
 manifest['deployment'] = 'VERIFIED_HTTP_RUNTIME'

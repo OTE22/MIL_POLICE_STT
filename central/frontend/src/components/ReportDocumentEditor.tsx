@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { HtmlReportDocument } from "@/lib/html-report";
+import type { DictationTarget, ConclusionVoiceAction } from "./ReportDictation";
 
 /** Match the print renderer's prose layout without saving on opening the editor. */
 export function flowingReportText(value: string): string {
@@ -29,8 +30,10 @@ export function editReportText(doc: HtmlReportDocument, blockId: string, key: st
   }) };
 }
 
-export function ReportDocumentEditor({ html, disabled, onEdit }: {
+export function ReportDocumentEditor({ html, disabled, onEdit, onVoice, onConclusionVoice }: {
   html: string; disabled: boolean; onEdit: (block: string, key: string, text: string) => void;
+  onVoice?: (target: DictationTarget) => void;
+  onConclusionVoice?: (action: ConclusionVoiceAction) => void;
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [displayed, setDisplayed] = useState(html);
@@ -38,7 +41,7 @@ export function ReportDocumentEditor({ html, disabled, onEdit }: {
   const [loadError, setLoadError] = useState(false);
   const focused = useRef(false);
   const position = useRef({ x: 0, y: 0 });
-  const latest = useRef({ html, disabled, onEdit }); latest.current = { html, disabled, onEdit };
+  const latest = useRef({ html, disabled, onEdit, onVoice, onConclusionVoice }); latest.current = { html, disabled, onEdit, onVoice, onConclusionVoice };
   const refresh = () => {
     const view = frame.current?.contentWindow;
     if (view) position.current = { x: view.scrollX, y: view.scrollY };
@@ -47,7 +50,8 @@ export function ReportDocumentEditor({ html, disabled, onEdit }: {
   useEffect(() => { if (!focused.current) refresh(); }, [html]);
   useEffect(() => {
     frame.current?.contentDocument?.querySelectorAll<HTMLTextAreaElement>("textarea").forEach(input => { input.disabled = disabled; });
-  }, [disabled]);
+    frame.current?.contentDocument?.querySelectorAll<HTMLButtonElement>(".document-voice-action").forEach(button => { button.disabled = disabled || !onVoice; });
+  }, [disabled, onVoice]);
   const loaded = () => {
     let doc: Document | null | undefined;
     try { doc = frame.current?.contentDocument; } catch { setLoadError(true); return; }
@@ -57,6 +61,18 @@ export function ReportDocumentEditor({ html, disabled, onEdit }: {
     doc.body.classList.add("document-edit-mode");
     frame.current?.contentWindow?.scrollTo(position.current.x, position.current.y);
     const available: { key: string; label: string }[] = [];
+    const voiceButton = (host: HTMLElement, label: string, activate: () => void) => {
+      const button = doc!.createElement("button");
+      button.type = "button";
+      button.className = "document-voice-action";
+      button.textContent = label;
+      // Editor-only DOM: never inserted into server-rendered HTML or PDF exports.
+      Object.assign(button.style, { display: "inline-block", minHeight: "40px", padding: "4px 12px", margin: "4px 0",
+        border: "1px solid #56683c", borderRadius: "4px", background: "#eef2e3", color: "#203018", font: "inherit", fontSize: "14px", cursor: "pointer" });
+      button.disabled = latest.current.disabled;
+      button.addEventListener("click", () => { if (!latest.current.disabled) activate(); });
+      host.append(button);
+    };
     doc.querySelectorAll<HTMLElement>("[data-edit-key]").forEach(element => {
       const block = element.closest<HTMLElement>("[data-block-id]")?.dataset.blockId;
       if (!block) return;
@@ -84,8 +100,26 @@ export function ReportDocumentEditor({ html, disabled, onEdit }: {
         if (!latest.current.disabled) latest.current.onEdit(block, element.dataset.editKey!, input.value);
       });
       element.replaceChildren(input);
+      const editKey = element.dataset.editKey ?? "";
+      const voiceField = editKey.startsWith("finding:") ? editKey : editKey.startsWith("value:") &&
+        ["note_text", "facts", "inference", "proposals"].includes(editKey.slice(6)) ? editKey.slice(6) : null;
+      if (voiceField && latest.current.onVoice) {
+        voiceButton(element, "إملاء صوتي — " + (element.getAttribute("aria-label") ?? "النص"), () => {
+          latest.current.onVoice?.({ block, field: voiceField, label: element.getAttribute("aria-label") ?? "النص" });
+        });
+      }
       resize();
     });
+    if (latest.current.onConclusionVoice) {
+      doc.querySelectorAll<HTMLElement>('.conclusion-block tr[data-field="responsibilities"] .statement-text').forEach(cell => {
+        voiceButton(cell, "إملاء مسؤولية جديدة", () => latest.current.onConclusionVoice?.("responsibility"));
+      });
+      doc.querySelectorAll<HTMLElement>('.conclusion-block tr[data-field="proposals"] .statement-text').forEach(cell => {
+        if (!cell.querySelector('[data-edit-key="value:proposals"]')) {
+          voiceButton(cell, "إملاء اقتراحات", () => latest.current.onConclusionVoice?.("proposals"));
+        }
+      });
+    }
     setTargets(available);
     void doc.fonts.ready.then(() => doc.querySelectorAll<HTMLTextAreaElement>("textarea").forEach(input => {
       input.style.height = "0px"; input.style.height = `${input.scrollHeight + 2}px`;

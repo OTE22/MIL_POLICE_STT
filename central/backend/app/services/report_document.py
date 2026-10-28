@@ -36,6 +36,15 @@ def render(document, session, *, issued=False, version=None, number=None, highli
     if official:
         sections.append('<section class="statement-block narrative-block">' + table_start + report_opening.render(document, session, name))
     narrative_open = official
+    after_conclusion = False
+    def signature_cell(label):
+        return '<div><div class="signature-details">' + label + '</div><div class="signature-space"></div></div>'
+    # Each table owns its signing footer. Chromium repeats it on continued pages,
+    # reserves its height, and prints it once on the table's final page.
+    def empty_footer():
+        signature = signature_cell('كاتب عدلي<br>' + escape(name(document.get("clerk_id"))))
+        signature += signature_cell('المحقق<br>' + escape(name(document.get("investigator_id"))))
+        return '<tfoot class="page-signatures">' + row('<div class="signature-row note-signature-row">' + signature + '</div>', classes="statement-signatures") + '</tfoot>'
     for block in document["blocks"]:
         template = CATALOGUE["note"] if block["type"] == "note" else CATALOGUE
         labels = {f["key"]: f["label"] for f in template["fields"]}
@@ -83,28 +92,28 @@ def render(document, session, *, issued=False, version=None, number=None, highli
                 content += row((f'<p><b>س:</b> {q}</p><p><b>ج:</b> {a}</p>' if paired else f'<p>{a}</p>'), "س/ج", "qa-row", "answer-" + str(entry["id"]))
             if block["attestation_confirmed"]:
                 content += row(clause("attestation"))
-        signature = ('<div>' + field("statement_signature_role") + '<div class="signature-space"></div></div>') if block["type"] == "statement" else ""
+        signature = signature_cell(field("statement_signature_role")) if block["type"] == "statement" else ""
         if block["type"] != "conclusion":
-            signature += '<div>كاتب عدلي<br>' + field("clerk_name") + '<div class="signature-space"></div></div>'
-        signature += '<div>' + clause("place_date") + '<div>المحقق: ' + field("investigator_name") + '</div><div class="signature-space"></div></div>'
-        content += row(f'<div class="signature-row{ " note-signature-row" if block["type"] == "note" else "" }">{signature}</div>', classes="statement-signatures")
+            signature += signature_cell('كاتب عدلي<br>' + field("clerk_name"))
+        signature += signature_cell(clause("place_date") + '<div>المحقق: ' + field("investigator_name") + '</div>')
+        footer = '<tfoot class="page-signatures">' + row(f'<div class="signature-row{ " note-signature-row" if block["type"] == "note" else "" }">{signature}</div>', classes="statement-signatures") + '</tfoot>'
         selectable = ' tabindex="0" role="button" aria-label="تعديل القسم"' if highlight else ""
         if official:
             if block["type"] == "conclusion" or not narrative_open:
                 if narrative_open:
-                    sections.append('</table></section>')
-                sections.append('<section class="statement-block ' + ('conclusion-block' if block["type"] == "conclusion" else 'narrative-block') + '">' + table_start + '<thead><tr><th>هامش</th><th>' + ('خلاصة تحقيق عدلي' if block["type"] == "conclusion" else 'محضر تحقيق عدلي') + '</th></tr></thead>')
+                    sections.append(empty_footer() + '</table></section>')
+                heading = ('<thead><tr><th>هامش</th><th>' + ('خلاصة تحقيق عدلي' if block["type"] == "conclusion" else 'محضر تحقيق عدلي') + '</th></tr></thead>') if block["type"] == "conclusion" or after_conclusion else ''
+                sections.append('<section class="statement-block ' + ('conclusion-block' if block["type"] == "conclusion" else 'narrative-block') + '">' + table_start + heading)
                 narrative_open = True
-            sections.append('<tbody' + selectable + ' data-block-id="' + escape(str(block['id']), quote=True) + '">' + content + '</tbody>')
-            if block["type"] == "conclusion":
-                sections.append('</table></section>')
-                narrative_open = False
+            sections.append('<tbody' + selectable + ' data-block-id="' + escape(str(block['id']), quote=True) + '">' + content + '</tbody>' + footer + '</table></section>')
+            narrative_open = False
+            after_conclusion = block["type"] == "conclusion"
         else:
-            sections.append('<section' + selectable + ' data-block-id="' + escape(str(block['id']), quote=True) + '" class="statement-block ' + block["type"] + '-block">' + table_start + '<thead><tr><th>هامش</th><th>' + ("خلاصة تحقيق عدلي" if block["type"] == "conclusion" else "محضر تحقيق عدلي") + '</th></tr></thead><tbody>' + content + '</tbody></table></section>')
+            sections.append('<section' + selectable + ' data-block-id="' + escape(str(block['id']), quote=True) + '" class="statement-block ' + block["type"] + '-block">' + table_start + '<thead><tr><th>هامش</th><th>' + ("خلاصة تحقيق عدلي" if block["type"] == "conclusion" else "محضر تحقيق عدلي") + '</th></tr></thead><tbody>' + content + '</tbody>' + footer + '</table></section>')
     closing = document.get("closing")
     if closing:
         if not narrative_open:
-            sections.append('<section class="statement-block narrative-block">' + table_start)
+            sections.append('<section class="statement-block narrative-block closing-block">' + table_start)
             narrative_open = True
         raw_date = str(closing.get("date") or "")
         date_parts = raw_date.split("-")
@@ -116,10 +125,11 @@ def render(document, session, *, issued=False, version=None, number=None, highli
                       '<div class="closing-investigator">المحقق<br>' + escape(name(document.get("investigator_id"))) +
                       '<div class="signature-space"></div></div></div></div>')
         content = row(editable_text(closing.get("text", ""), "closing:text", "ختام المحضر"), classes="note-body")
-        content += row(signatures, classes="statement-signatures")
         sections.append('<tbody class="report-closing" data-block-id="closing">' + content + '</tbody>')
+        sections.append('<tfoot class="page-signatures">' + row(signatures, classes="statement-signatures") + '</tfoot></table></section>')
+        narrative_open = False
     if narrative_open:
-        sections.append('</table></section>')
+        sections.append(empty_footer() + '</table></section>')
     fonts = ""
     licenses = ""
     for family, filename in [("IBM Plex Sans Arabic", "IBMPlexSansArabic-Regular.woff2"), ("Inter", "InterVariable.woff2")]:

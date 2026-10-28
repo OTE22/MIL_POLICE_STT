@@ -74,3 +74,34 @@ def test_long_bilingual_document_generates_paginated_pdf():
     pdf = pdf_from_html(render(document, session))
     assert pdf.startswith(b"%PDF")
     assert len(re.findall(rb"/Type\s*/Page\b", pdf)) >= 3
+
+
+def test_every_report_table_owns_one_signing_footer_with_correct_signers():
+    import re
+    from test_report_opening import example
+    session, document = example()
+    session.subjects = []
+    document['blocks'][0]['values']['statement_signature_role'] = 'صاحب الإفادة'
+    document['blocks'].extend([
+        {'id': 'note', 'type': 'note', 'values': {'note_text': 'ملاحظة تجريبية'}},
+        {'id': 'conclusion', 'type': 'conclusion', 'values': {'facts': 'وقائع', 'inference': 'استنتاج'},
+         'responsibility_mode': 'NONE', 'proposal_mode': 'NONE', 'findings': []},
+    ])
+    document['closing'] = {'text': 'ختام تجريبي', 'location': 'مكتب الاختبار', 'date': '2026-10-27'}
+    before = deepcopy(document)
+    html = render(document, session)
+    tables = re.findall(r'<table\b.*?</table>', html, re.S)
+    assert len(tables) == 4
+    for table in tables:
+        assert table.count('<tfoot class="page-signatures">') == 1
+        assert len(re.findall(r'<tr class="statement-signatures"', table)) == 1
+        assert 'statement-signatures' not in ''.join(re.findall(r'<tbody\b.*?</tbody>', table, re.S))
+    footers = [re.search(r'<tfoot\b.*?</tfoot>', table, re.S)[0] for table in tables]
+    assert 'صاحب الإفادة' in footers[0] and 'كاتب عدلي' in footers[0]
+    assert 'صاحب الإفادة' not in footers[1] and 'كاتب عدلي' in footers[1]
+    assert 'كاتب عدلي' not in footers[2] and 'المحقق:' in footers[2]
+    assert 'closing-signatures' in footers[3]
+    assert document == before
+    document['blocks'] = []
+    document.pop('closing')
+    assert render(document, session).count('<tfoot class="page-signatures">') == 1

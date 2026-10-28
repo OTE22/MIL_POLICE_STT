@@ -7,6 +7,7 @@ import { Recorder, type PendingAudio } from "@/components/recording/Recorder";
 import { Alert, Field } from "@/components/ui";
 
 export interface DictationTarget { block: string; field: string; label: string }
+export type ConclusionVoiceAction = "responsibility" | "proposals" | "inference";
 interface Dictation { id: string; block_id: string; field: string; status: string; machine_text: string; audio_ready: boolean;
   current_text: string | null; text_token: string | null; destination_changed: boolean; job_status: string; error: string | null }
 

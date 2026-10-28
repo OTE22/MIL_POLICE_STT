@@ -13,7 +13,15 @@
     "refresh preserves saved content",
     "soft line breaks flow without changing saved text",
     "blank-line paragraphs preserved",
-    "long Arabic text wraps without saved newlines"
+    "long Arabic text wraps without saved newlines",
+    "proposal microphone capture with fake device",
+    "responsibility voice destination creation",
+    "inline conclusion dictation controls",
+    "voice controls absent from server report HTML",
+    "inference voice shortcuts and inline control",
+    "voice entry from NONE decisions in document and form views",
+    "unassigned account sees disabled voice controls and explanation",
+    "signature underlines removed with blank space and table borders preserved"
   ],
   "page_errors": []
 }

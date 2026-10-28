@@ -34,6 +34,9 @@ with sync_playwright() as p:
     page.get_by_role('button', name='انتقل إلى أول نص قابل للتحرير', exact=True).click()
     assert frame.locator('textarea:focus').count() == 1
     assert frame.locator('html').evaluate('el => getComputedStyle(el).overflowY === "scroll"')
+    assert frame.locator('.signature-space').evaluate_all('els => els.length > 0 && els.every(el => getComputedStyle(el).borderBottomStyle === "none" && el.getBoundingClientRect().height >= 60)')
+    voice_controls = page.get_by_role('region', name='الإملاء الصوتي للخلاصة', exact=True)
+    assert voice_controls.get_by_role('button').count() == 3
     flowed_notes = 0
     for block in state['document']['blocks']:
         if block['type'] == 'note' and not block.get('template_id'):
@@ -60,7 +63,7 @@ with sync_playwright() as p:
         closing_position = 'PASS'
     result = {'status': state['status'], 'workflow': session['workflow_state'], 'intake_ready': session['intake_readiness']['ready'],
         'inputs': frame.locator('textarea').count(), 'enabled': frame.locator('textarea:enabled').count(),
-        'frames': len(page.frames), 'flowed_notes': flowed_notes, 'statement_margin_markers': len(markers), 'margin_alignment': 'left', 'closing_date_position': closing_position, 'field_navigation': 'PASS', 'scrollbars': 'PASS', 'errors': errors}
+        'frames': len(page.frames), 'flowed_notes': flowed_notes, 'statement_margin_markers': len(markers), 'margin_alignment': 'left', 'closing_date_position': closing_position, 'field_navigation': 'PASS', 'scrollbars': 'PASS', 'signature_underlines_removed': True, 'conclusion_voice_controls': 3, 'voice_controls_enabled': voice_controls.locator('button:enabled').count(), 'errors': errors}
     print(json.dumps(result), flush=True)
     assert context.request.get(BASE + '/api' + path + '/report/html', headers=headers).json()['token'] == state['token']
     browser.close()

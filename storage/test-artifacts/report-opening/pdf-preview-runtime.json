@@ -1,19 +1,44 @@
 {
   "result": "PASS",
-  "backend_regression_tests_passed": 34,
-  "focused_tests_passed": 9,
-  "pdf_bytes": 344877,
-  "pdf_sha256": "cf0e0fa60019248eca8131651bfe29b63fd109810879f1611c484e4f3142e39b",
+  "pdf_bytes": 330182,
+  "pdf_sha256": "4b62ce1e2c17a349f5d5057b2200ca059a5d47b96f27181c18824eb7e2f85d91",
   "blob_frame_policy": true,
   "migration_head": "a27689aebc56",
   "archives_verified": 0,
   "draft_unchanged": true,
   "opening_present": true,
+  "signing_footer_on_each_table": true,
   "assets": [
-    "/assets/index-CdFmjCHP.js",
-    "/assets/index-CA0Feb6m.css"
+    "/assets/index-CCpM2XUw.js",
+    "/assets/index-BU1XMHS9.css"
   ],
-  "preview_sha256": "6a92aa77e971180b9d0534e6f4a5509e7f4b0e3d6135085dc64722ca416940e1",
-  "browser_ui_check": "Isolated real API browser journey PASS: storage/test-artifacts/document-editor/browser.json",
+  "preview_sha256": "6ce4be25a78668f7b01de3655dce2af2b2d3718703b735f1ffc21e312a9802b0",
+  "browser_ui_check": {
+    "result": "PASS",
+    "checks": [
+      "direct text edits",
+      "autosave during typing",
+      "closing persistence",
+      "failed save/retry",
+      "PDF download",
+      "responsibility/proposal navigation",
+      "mobile editor",
+      "vertical and horizontal scrolling",
+      "first editable field navigation",
+      "refresh preserves saved content",
+      "soft line breaks flow without changing saved text",
+      "blank-line paragraphs preserved",
+      "long Arabic text wraps without saved newlines",
+      "proposal microphone capture with fake device",
+      "responsibility voice destination creation",
+      "inline conclusion dictation controls",
+      "voice controls absent from server report HTML",
+      "inference voice shortcuts and inline control",
+      "voice entry from NONE decisions in document and form views",
+      "unassigned account sees disabled voice controls and explanation",
+      "signature underlines removed with blank space and table borders preserved"
+    ],
+    "page_errors": []
+  },
   "visual_artifacts": "storage/test-artifacts/document-editor"
 }

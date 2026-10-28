@@ -3,6 +3,7 @@ import hashlib
 import io
 import uuid
 import wave
+import pytest
 from copy import deepcopy
 from sqlalchemy import select, func
 from app.db.session import SessionLocal
@@ -124,6 +125,48 @@ def test_dictation_cannot_target_fixed_words_or_another_session(client, investig
     assert start(client, token, session, state, field="attestation").status_code == 422
     assert start(client, token, session, state, block_id=str(uuid.uuid4())).status_code == 409
     assert start(client, investigator2["token"], session, state).status_code == 404
+
+
+@pytest.mark.parametrize("destination", ["proposals", "finding", "inference"])
+def test_conclusion_dictation_appends_to_selected_field_only(client, investigator, destination):
+    token = investigator["token"]
+    session = create_session(client, token)
+    path, state = draft(client, token, session)
+    document = editable_document(state["document"])
+    conclusion = document["blocks"][1]
+    finding_id = str(uuid.uuid4())
+    conclusion.update(responsibility_mode="FINDINGS", proposal_mode="TEXT", findings=[{
+        "id": finding_id, "participant_key": session["subjects"][0]["participant_key"],
+        "unidentified_subject": "", "text": "Existing responsibility", "references": {
+            "participants": [], "recordings": [], "documents": [], "blocks": [document["blocks"][0]["id"]]}}])
+    conclusion["values"]["proposals"] = "Existing proposals"
+    conclusion["values"]["inference"] = "Existing inference"
+    saved = client.put(path, headers=auth(token), json={"expected_token": state["token"], "document": document})
+    assert saved.status_code == 200, saved.text
+    state = saved.json()
+    field = "finding:" + finding_id if destination == "finding" else destination
+    result = start(client, token, session, state, block_id=conclusion["id"], field=field)
+    assert result.status_code == 200, result.text
+    issued = result.json()
+    payload = sample_result(); payload["audio"]["sha256"] = hashlib.sha256(wav_bytes()).hexdigest()
+    result_path = f"/api/local-processing/{issued['job_id']}"
+    assert client.post(result_path + "/result", headers=auth(issued["processing_token"]), json=payload).status_code == 200
+    assert client.post(result_path + "/audio", headers=auth(issued["processing_token"]), files={"file": ("dictation.wav", wav_bytes(), "audio/wav")}).status_code == 201
+    voicepath = path.removesuffix("/html") + "/dictations"
+    row = client.get(voicepath, headers=auth(token)).json()[0]
+    assert row["field"] == field and row["block_id"] == conclusion["id"]
+    accepted = client.post(voicepath + f"/{row['id']}/accept", headers=auth(token), json={
+        "expected_token": state["token"], "expected_text_token": row["text_token"], "text": "Reviewed addition", "mode": "APPEND"})
+    assert accepted.status_code == 200, accepted.text
+    blocks = accepted.json()["document"]["blocks"]
+    assert blocks[0]["values"]["note_text"] == "Existing note"
+    assert blocks[1]["values"]["proposals"] == "Existing proposals" + ("\nReviewed addition" if destination == "proposals" else "")
+    assert blocks[1]["values"]["inference"] == "Existing inference" + ("\nReviewed addition" if destination == "inference" else "")
+    assert blocks[1]["findings"][0]["text"] == "Existing responsibility" + ("\nReviewed addition" if destination == "finding" else "")
+    assert blocks[1]["findings"][0]["references"] == conclusion["findings"][0]["references"]
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(Transcript)) == 0
+        assert db.scalar(select(func.count()).select_from(SessionSpeaker)) == 0
 
 
 def test_batch_statements_and_conclusion_reference_scope(client, investigator):

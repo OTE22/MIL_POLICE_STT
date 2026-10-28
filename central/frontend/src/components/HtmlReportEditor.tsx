@@ -11,9 +11,9 @@ import { ReportIssuance } from "./ReportIssuance";
 import { ReportOpeningEditor } from "./ReportOpeningEditor";
 import { editReportText, ReportDocumentEditor } from "./ReportDocumentEditor";
 import { IntakeReadiness } from "./IntakeReadiness";
-import { ReportDictation, type DictationTarget } from "./ReportDictation";
+import { ReportDictation, type DictationTarget, type ConclusionVoiceAction } from "./ReportDictation";
 import { attention, ReportSectionEditor } from "./ReportSectionEditor";
-import { blockLabel, editableDocument, newEntry, newNote, newConclusion, selectionPayload,
+import { blockLabel, editableDocument, newEntry, newNote, newConclusion, selectionPayload, documentId, emptyReferences,
   type HtmlReportState, type ReportBlock, type StatementBlock, type StatementCatalogue, type ReportPersonOption, type NoteTemplate } from "@/lib/html-report";
 
 export function HtmlReportEditor({ session, editable, onStatusChange, onDirtyChange }: {
@@ -140,6 +140,32 @@ export function HtmlReportEditor({ session, editable, onStatusChange, onDirtyCha
     if (blocks[0]) select(blocks[0].id, blocks[0].type === "note" ? "note_text" : undefined);
   };
   const defaults = () => ({ closing_date: session.session_date ?? "", closing_location: session.location ?? "" });
+  const openDictation = (target: DictationTarget) => {
+    if (!voiceAllowed || disabled || intakeBlocked) return;
+    if (dictation) { setError("أكمل التسجيل المفتوح أو أغلقه قبل تغيير حقل الإملاء."); return; }
+    setDictation(target);
+  };
+  const conclusionVoice = (kind: ConclusionVoiceAction) => {
+    if (!voiceAllowed || disabled || intakeBlocked) return;
+    if (dictation) { setError("أكمل التسجيل المفتوح أو أغلقه قبل تغيير حقل الإملاء."); return; }
+    const existing = document?.blocks.find(b => b.type === "conclusion");
+    const block = existing ? { ...existing, values: { ...existing.values }, findings: [...existing.findings] } : { ...newConclusion(), values: defaults() };
+    let target: DictationTarget;
+    if (kind === "responsibility") {
+      const finding = { id: documentId(), participant_key: null, unidentified_subject: "", text: "", references: emptyReferences() };
+      block.findings = [...block.findings, finding];
+      block.responsibility_mode = "FINDINGS";
+      target = { block: block.id, field: `finding:${finding.id}`, label: "مسؤولية جديدة" };
+    } else if (kind === "proposals") {
+      block.proposal_mode = "TEXT";
+      target = { block: block.id, field: "proposals", label: "الاقتراحات" };
+    } else {
+      target = { block: block.id, field: "inference", label: "الاستنتاج" };
+    }
+    if (!existing || kind !== "inference") change(v => ({ ...v, blocks: existing ? v.blocks.map(b => b.id === block.id ? { ...block } : b) : [...v.blocks, block] }));
+    if (mode !== "document") select(block.id, kind === "responsibility" ? "responsibility_mode" : kind);
+    setDictation(target);
+  };
   const addConclusion = (field = "facts") => {
     const existing = document?.blocks.find(b => b.type === "conclusion");
     if (existing) { select(existing.id, field); return; }
@@ -207,17 +233,19 @@ export function HtmlReportEditor({ session, editable, onStatusChange, onDirtyCha
           <option value="">اختر الكاتب عند التكليف</option>{session.investigators.map(i => <option key={i.id} value={i.id}>{[i.rank, i.full_name].filter(Boolean).join(" ")}</option>)}</select></Field>
       </div></details><div className="report-toolbar" aria-label="أدوات المحضر">
         <div className="report-add-actions"><button className="btn btn-primary" disabled={disabled || intakeBlocked} onClick={() => { setPicker(true); setChosen([]); }}><IconPlus /> إضافة إفادة</button>
-        <button className="btn btn-primary" disabled={disabled || intakeBlocked} onClick={() => { const b = newNote(); b.values = { ...defaults(), note_date: "", note_time: "" }; insert([b]); }}>إضافة ملاحظة</button>
+        <button className="btn" disabled={disabled || intakeBlocked} onClick={() => { const b = newNote(); b.values = { ...defaults(), note_date: "", note_time: "" }; insert([b]); }}>إضافة ملاحظة</button>
         <button className="btn" disabled={disabled || intakeBlocked} onClick={() => addConclusion()}>خلاصة التحقيق</button>
-        <button className="btn" disabled={disabled || intakeBlocked} onClick={() => addConclusion("responsibility_mode")}>المسؤوليات</button>
-        <button className="btn" disabled={disabled || intakeBlocked} onClick={() => addConclusion("proposal_mode")}>الاقتراحات</button>
         <button className="btn" disabled={disabled || intakeBlocked} onClick={addClosing}>ختام المحضر</button></div>
         <div className="report-view-actions">
-        <button className="btn" disabled={disabled || !dirty || saving} onClick={() => void store.retry().catch(() => undefined)}>حفظ الآن</button>
         <button className="btn" aria-pressed={mode === "write"} onClick={() => setMode("write")}>الكتابة</button>
         <button className="btn" aria-pressed={mode === "document"} onClick={() => setMode("document")}>تحرير المحضر قبل الطباعة</button>
-        <button className="btn" aria-pressed={showPreview && mode === "write"} onClick={() => { setShowPreview(v => !v); setMode("write"); setMobilePane(showPreview ? "edit" : "preview"); }}>{showPreview ? "إخفاء معاينة المحضر" : "معاينة أثناء الكتابة"}</button>
         <button className="btn" disabled={busy || !!store.error} onClick={() => void openPdf()}>معاينة PDF والمراجعة</button></div>
+        <details className="report-more-actions"><summary>أدوات إضافية · الحفظ والمعاينة واختصارات الخلاصة</summary><div className="flex gap wrap">
+          <button className="btn" disabled={disabled || !dirty || saving} onClick={() => void store.retry().catch(() => undefined)}>حفظ الآن</button>
+          <button className="btn" aria-pressed={showPreview && mode === "write"} onClick={() => { setShowPreview(v => !v); setMode("write"); setMobilePane(showPreview ? "edit" : "preview"); }}>{showPreview ? "إخفاء معاينة المحضر" : "معاينة أثناء الكتابة"}</button>
+          <button className="btn" disabled={disabled || intakeBlocked} onClick={() => addConclusion("responsibility_mode")}>المسؤوليات</button>
+          <button className="btn" disabled={disabled || intakeBlocked} onClick={() => addConclusion("proposal_mode")}>الاقتراحات</button>
+        </div></details>
       </div>
       <details className="report-voice-guide" aria-label="الكتابة بالصوت" data-testid="report-voice-guide">
         <summary><IconMic /><strong>الكتابة بالصوت</strong><span>{voiceAllowed ? "إملاء الملاحظات والخلاصة · سجّل ثم راجع النص" : "متاحة للمحقق المكلّف · تفاصيل الصلاحية"}</span></summary><div>
@@ -231,6 +259,14 @@ export function HtmlReportEditor({ session, editable, onStatusChange, onDirtyCha
           <p className="muted">استخدم حساب المحقق المكلّف. إدارة النظام وحدها لا تمنح صلاحية الإملاء باسم المحقق.</p>
         </>}
       </div></details>
+      <div className="report-conclusion-voice" role="region" aria-label="الإملاء الصوتي للخلاصة">
+        <strong><IconMic /> أضف إلى خلاصة التحقيق بصوتك</strong>
+        <div className="flex gap wrap"><button className="btn" disabled={!voiceAllowed || disabled || intakeBlocked || !!dictation} onClick={() => conclusionVoice("inference")}>إملاء الاستنتاج</button>
+          <button className="btn" disabled={!voiceAllowed || disabled || intakeBlocked || !!dictation} onClick={() => conclusionVoice("responsibility")}>إملاء مسؤولية جديدة</button>
+          <button className="btn" disabled={!voiceAllowed || disabled || intakeBlocked || !!dictation} onClick={() => conclusionVoice("proposals")}>إملاء اقتراحات</button></div>
+        {!voiceAllowed && <p role="status">حسابك الحالي غير مخوّل بالإملاء هنا. استخدم حساب محقق مكلّف بهذه الجلسة ولديه صلاحية إعداد المحاضر. المحققون المكلّفون: {session.investigators.map(i => i.full_name).join("، ") || "لم يُكلّف محقق بعد"}.</p>}
+        <p>سجّل ثم راجع النص قبل إدراجه. الإضافة إلى النص الحالي هي الاختيار الافتراضي. اربط كل مسؤولية بالشخص والأدلة قبل الاعتماد.</p>
+      </div>
       {picker && <Modal title="اختيار أصحاب الإفادات" onClose={() => setPicker(false)} size="lg"><p className="report-picker-intro">اختر شخصاً أو أكثر. تُستورد بياناتهم وإفاداتهم والأسئلة والأجوبة المراجعة من هذه الجلسة، دون إعادة كتابة.</p>
         {error && <Alert kind="danger">{error}</Alert>}
         {!people.some(p => p.participant_key) && <p>لا يوجد أشخاص مسجّلون للاختيار. <Link to={`/investigations/${session.id}/edit`}>أضف الأشخاص إلى الجلسة أولاً</Link>.</p>}
@@ -263,7 +299,7 @@ export function HtmlReportEditor({ session, editable, onStatusChange, onDirtyCha
         <p>عدّل النص داخل المساحات المحددة؛ تُحفظ التغييرات في المحضر نفسه. العناوين والعبارات الرسمية وبيانات الأشخاص محمية. راجع PDF بعد إكمال التعديلات للتحقق من توزيع الصفحات.</p>
         {saved.status === "FINAL" && <Alert kind="info">المحضر صادر للقراءة فقط. استخدم إعادة الفتح للتصحيح من شاشة المراجعة لإنشاء نسخة لاحقة.</Alert>}
         {previewError && <Alert kind="danger">تعذر تحديث العرض. تعديلاتك باقية؛ تحقق من الحفظ ثم أعد المحاولة.</Alert>}
-        <ReportDocumentEditor key={previewRetry} html={preview} disabled={disabled || intakeBlocked} onEdit={(block, key, text) => change(v => editReportText(v, block, key, text))} />
+        <ReportDocumentEditor key={previewRetry} html={preview} disabled={disabled || intakeBlocked} onVoice={voiceAllowed ? openDictation : undefined} onConclusionVoice={voiceAllowed ? conclusionVoice : undefined} onEdit={(block, key, text) => change(v => editReportText(v, block, key, text))} />
       </section> : mode === "review" ? <section className="report-review"><h2>المعاينة النهائية — PDF</h2><p>هذه المعاينة تستخدم محرّك الإصدار نفسه. النسخة غير الصادرة تحمل علامة مسودة.</p>
         <button className="btn" onClick={() => setMode("document")}>تحرير المحضر قبل الطباعة</button>
         {busy && <p role="status">جارٍ إنشاء معاينة PDF…</p>}
@@ -293,7 +329,7 @@ export function HtmlReportEditor({ session, editable, onStatusChange, onDirtyCha
               <Field label="مكان ختام المحضر"><input id="report-field-closing-location" className="input" maxLength={500} disabled={disabled} value={document.closing.location} onChange={e => change(v => ({ ...v, closing: { ...v.closing!, location: e.target.value } }))} /></Field>
               <Field label="تاريخ ختام المحضر"><input id="report-field-closing-date" className="input" type="date" disabled={disabled} value={document.closing.date ?? ""} onChange={e => change(v => ({ ...v, closing: { ...v.closing!, date: e.target.value || null } }))} /></Field>
             </> : selected === "opening" ? <ReportOpeningEditor document={document} session={session} disabled={disabled} onChange={value => change(() => value)} /> : active ? <ReportSectionEditor key={active.id} block={active} blocks={document.blocks} session={session} catalogue={catalogue} templates={templates} disabled={disabled} canManage={can("reports.templates.manage")} voiceAllowed={voiceAllowed}
-              onChange={replace} onTemplate={t => setTemplates(v => [...v, t])} onVoice={target => { if (!dictation) setDictation(target); else setError("أكمل التسجيل المفتوح أو أغلقه قبل تغيير حقل الإملاء."); }} onRefresh={() => void compare()} /> : <p className="muted">اختر قسماً من المحضر أو أضف إفادة أو ملاحظة.</p>}
+              onChange={replace} onTemplate={t => setTemplates(v => [...v, t])} onVoice={openDictation} onConclusionVoice={conclusionVoice} onRefresh={() => void compare()} /> : <p className="muted">اختر قسماً من المحضر أو أضف إفادة أو ملاحظة.</p>}
           </div></section>
           <section className="card report-paper"><div className="card-head">المحضر — اضغط القسم لتعديله</div>{previewError && <p role="status">تعذر تحديث المعاينة؛ آخر معاينة ناجحة باقية.</p>}
             <iframe ref={frame} title="محضر التحقيق — اضغط للتعديل" srcDoc={preview} onLoad={frameLoaded} sandbox="allow-same-origin allow-modals" /></section>

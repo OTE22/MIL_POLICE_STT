@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import type { Investigation } from "@/api/types";
 import { Field } from "@/components/ui";
 import { NoteTemplateControls } from "./NoteTemplateControls";
-import type { DictationTarget } from "./ReportDictation";
+import type { DictationTarget, ConclusionVoiceAction } from "./ReportDictation";
 import { blockLabel, documentId, emptyReferences, newEntry, type ReportBlock, type StatementCatalogue,
   type NoteTemplate, type ReportReferences, type ConclusionBlock } from "@/lib/html-report";
 
@@ -34,10 +34,11 @@ export function attention(block: ReportBlock): ReportAttention[] {
 }
 
 export function ReportSectionEditor({ block, blocks, session, catalogue, templates, disabled, canManage, voiceAllowed,
-  onChange, onTemplate, onVoice, onRefresh }: {
+  onChange, onTemplate, onVoice, onConclusionVoice, onRefresh }: {
   block: ReportBlock; blocks: ReportBlock[]; session: Investigation; catalogue: StatementCatalogue; templates: NoteTemplate[];
   disabled: boolean; canManage: boolean; voiceAllowed: boolean; onChange: (block: ReportBlock) => void;
   onTemplate: (template: NoteTemplate) => void; onVoice: (target: DictationTarget) => void; onRefresh: () => void;
+  onConclusionVoice: (action: ConclusionVoiceAction) => void;
 }) {
   const fieldId = (key: string) => `report-field-${block.id}-${key}`;
   const set = (key: string, value: string) => onChange({ ...block, values: { ...block.values, [key]: value } });
@@ -98,7 +99,9 @@ export function ReportSectionEditor({ block, blocks, session, catalogue, templat
         const mode = e.target.value as ConclusionBlock["responsibility_mode"];
         if (mode === "NONE" && conclusion.findings.length && !window.confirm("اختيار لا يوجد سيزيل النتائج من هذه المسودة. هل أكملت مراجعتها؟")) return;
         updateConclusion({ responsibility_mode: mode, findings: mode === "NONE" ? [] : conclusion.findings });
-      }}><option value="UNREVIEWED">اختر بعد المراجعة</option><option value="FINDINGS">توجد نتائج مسؤولية</option><option value="NONE">لا يوجد — بعد المراجعة</option></select></Field>
+      }}><option value="UNREVIEWED">اختر بعد المراجعة</option><option value="FINDINGS">توجد نتائج مسؤولية</option><option value="NONE">لا يوجد — بعد المراجعة</option></select>
+        {voiceAllowed && <button className="btn btn-sm" disabled={disabled} onClick={() => onConclusionVoice("responsibility")}>إملاء مسؤولية جديدة</button>}
+      </Field>
       {conclusion.responsibility_mode === "FINDINGS" && <>
         {conclusion.findings.map((finding, i) => {
           const update = (patch: Partial<typeof finding>) => updateConclusion({ findings: conclusion.findings.map(f => f.id === finding.id ? { ...f, ...patch } : f) });
@@ -117,7 +120,9 @@ export function ReportSectionEditor({ block, blocks, session, catalogue, templat
         const mode = e.target.value as ConclusionBlock["proposal_mode"];
         if (mode === "NONE" && conclusion.values.proposals && !window.confirm("اختيار لا يوجد سيزيل نص الاقتراحات من المسودة. هل أكملت مراجعته؟")) return;
         updateConclusion({ proposal_mode: mode, values: { ...conclusion.values, proposals: mode === "NONE" ? "" : conclusion.values.proposals ?? "" } });
-      }}><option value="UNREVIEWED">اختر بعد المراجعة</option><option value="TEXT">إضافة اقتراحات</option><option value="NONE">لا يوجد — بعد المراجعة</option></select></Field>
+      }}><option value="UNREVIEWED">اختر بعد المراجعة</option><option value="TEXT">إضافة اقتراحات</option><option value="NONE">لا يوجد — بعد المراجعة</option></select>
+        {voiceAllowed && conclusion.proposal_mode !== "TEXT" && <button className="btn btn-sm" disabled={disabled} onClick={() => onConclusionVoice("proposals")}>إملاء اقتراحات</button>}
+      </Field>
       {conclusion.proposal_mode === "TEXT" && text("proposals", "نص الاقتراحات")}
       {references(conclusion.references, refs => updateConclusion({ references: refs }))}
     </>}

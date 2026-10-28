@@ -21,6 +21,7 @@ body { margin: 0; background: #e9edf2; color: #111; font-family: Inter, "IBM Ple
 .statement-table td { border: 1px solid #222; vertical-align: top; }
 .statement-table th { border: 1px solid #222; padding: 1mm 2mm; font-weight: 700; }
 .statement-table thead { display: table-header-group; }
+.statement-table .page-signatures { display: table-footer-group; break-inside: avoid; }
 .conclusion-block { break-before: page; break-after: page; margin-top: 12mm; }
 .conclusion-block .signature-row { display: block; text-align: left; }
 .highlight-fields .statement-block { cursor: pointer; outline: 2px solid transparent; outline-offset: 3px; }
@@ -43,12 +44,15 @@ html.document-edit-viewport::-webkit-scrollbar-track { background: #dce2d5; }
 .highlight-fields .variable { background: #e7f1ff; border-bottom: 1px dashed #4074af; }
 .missing, .highlight-fields .missing { background: #fff3cb; color: #745315; }
 .signature-row { display: grid; grid-template-columns: 1fr 1fr 1.3fr; gap: 3mm; text-align: center; text-align-last: auto; font-size: 12pt; line-height: 7mm; }
+.page-signatures .signature-row:not(.closing-signatures) > div { display: flex; flex-direction: column; }
+.page-signatures .signature-row:not(.closing-signatures) .signature-space { margin-top: auto; flex-shrink: 0; }
+.signature-row [data-field="closing_date"] { white-space: nowrap; }
 .note-signature-row { grid-template-columns: 1fr 1.3fr; }
 .closing-signatures { grid-template-columns: 1fr 1.3fr; align-items: start; }
 .closing-dateline { text-align: left; text-align-last: left; margin-bottom: 2mm; }
 .closing-date { white-space: nowrap; }
 .closing-investigator { text-align: center; }
-.signature-space { height: 12mm; margin: 0 2mm; border-bottom: 1px solid #333; }
+.signature-space { height: 16mm; margin: 0 2mm; }
 .source-time { display: block; font-size: 11pt; line-height: 6mm; color: #536174; direction: rtl; }
 .empty-report { text-align: center; padding: 15mm; }
 @media print {
@@ -57,7 +61,7 @@ html.document-edit-viewport::-webkit-scrollbar-track { background: #dce2d5; }
   .statement-block { break-inside: auto; }
   /* Keep collapsed outer borders inside Chromium's printable clipping edge. */
   .statement-table { width: calc(100% - 2px); margin-inline: 1px; }
-  .report-closing { break-inside: avoid; }
+  .report-closing, .closing-block { break-inside: avoid; }
   .statement-table tr { break-inside: avoid; }
   .statement-table .note-body { break-inside: auto; }
   .statement-table .qa-row, .statement-table .conclusion-body { break-inside: auto; }

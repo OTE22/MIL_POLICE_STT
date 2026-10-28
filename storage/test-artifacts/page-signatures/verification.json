@@ -1,0 +1,310 @@
+{
+  "result": "PASS",
+  "documents": {
+    "conclusion": {
+      "pages": 6,
+      "checks": [
+        {
+          "page": 1,
+          "signature_groups": 1,
+          "last_signature_label_y": 505.69
+        },
+        {
+          "page": 2,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 3,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 4,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 5,
+          "signature_groups": 1,
+          "last_signature_label_y": 733.69
+        },
+        {
+          "page": 6,
+          "signature_groups": 1,
+          "last_signature_label_y": 175.69
+        }
+      ]
+    },
+    "mixed": {
+      "pages": 13,
+      "checks": [
+        {
+          "page": 1,
+          "signature_groups": 1,
+          "last_signature_label_y": 736.69
+        },
+        {
+          "page": 2,
+          "signature_groups": 2,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 3,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 4,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 5,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 6,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 7,
+          "signature_groups": 1,
+          "last_signature_label_y": 306.94
+        },
+        {
+          "page": 8,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 9,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 10,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 11,
+          "signature_groups": 1,
+          "last_signature_label_y": 733.69
+        },
+        {
+          "page": 12,
+          "signature_groups": 1,
+          "last_signature_label_y": 175.69
+        },
+        {
+          "page": 13,
+          "signature_groups": 2,
+          "last_signature_label_y": 312.94
+        }
+      ]
+    },
+    "note": {
+      "pages": 6,
+      "checks": [
+        {
+          "page": 1,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 2,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 3,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 4,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 5,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 6,
+          "signature_groups": 1,
+          "last_signature_label_y": 536.44
+        }
+      ]
+    },
+    "opening-only": {
+      "pages": 1,
+      "checks": [
+        {
+          "page": 1,
+          "signature_groups": 1,
+          "last_signature_label_y": 505.69
+        }
+      ]
+    },
+    "short": {
+      "pages": 2,
+      "checks": [
+        {
+          "page": 1,
+          "signature_groups": 1,
+          "last_signature_label_y": 736.69
+        },
+        {
+          "page": 2,
+          "signature_groups": 1,
+          "last_signature_label_y": 176.44
+        }
+      ]
+    },
+    "statement": {
+      "pages": 14,
+      "checks": [
+        {
+          "page": 1,
+          "signature_groups": 1,
+          "last_signature_label_y": 736.69
+        },
+        {
+          "page": 2,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 3,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 4,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 5,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 6,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 7,
+          "signature_groups": 1,
+          "last_signature_label_y": 747.19
+        },
+        {
+          "page": 8,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 9,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 10,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 11,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 12,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 13,
+          "signature_groups": 1,
+          "last_signature_label_y": 747.19
+        },
+        {
+          "page": 14,
+          "signature_groups": 1,
+          "last_signature_label_y": 693.19
+        }
+      ]
+    },
+    "two-people": {
+      "pages": 12,
+      "checks": [
+        {
+          "page": 1,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 2,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 3,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 4,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 5,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 6,
+          "signature_groups": 1,
+          "last_signature_label_y": 612.94
+        },
+        {
+          "page": 7,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 8,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 9,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 10,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 11,
+          "signature_groups": 1,
+          "last_signature_label_y": 750.19
+        },
+        {
+          "page": 12,
+          "signature_groups": 1,
+          "last_signature_label_y": 204.94
+        }
+      ]
+    }
+  }
+}
